@@ -1,0 +1,378 @@
+<!-- pong.html -->
+<!-- Pong moderno: jogador vs CPU em canvas, com placar, efeitos e controles por teclado/mouse -->
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pong</title>
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --grid: #121a26;
+      --ink: #e8f0ff;
+      --accent: #4de2c2;
+      --accent2: #ff5d73;
+      --muted: #5a6b82;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background:
+        radial-gradient(1200px 600px at 50% -20%, #131c2b 0%, var(--bg) 60%);
+      color: var(--ink);
+      font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+      letter-spacing: 0.02em;
+      padding: 20px;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+    }
+
+    h1 {
+      font-size: clamp(28px, 6vw, 48px);
+      font-weight: 800;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, var(--accent), #8be9ff 60%, var(--accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    header span {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.2em;
+    }
+
+    .wrap {
+      position: relative;
+      border-radius: 14px;
+      padding: 2px;
+      background: linear-gradient(135deg, rgba(77,226,194,0.5), rgba(255,93,115,0.4));
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset;
+    }
+
+    canvas {
+      display: block;
+      border-radius: 12px;
+      background:
+        repeating-linear-gradient(0deg, transparent 0 28px, rgba(255,255,255,0.015) 28px 29px),
+        var(--grid);
+      max-width: 100%;
+      height: auto;
+      touch-action: none;
+      cursor: none;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 2px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      border-radius: 12px;
+      background: rgba(6,10,16,0.72);
+      backdrop-filter: blur(3px);
+      text-align: center;
+      padding: 24px;
+    }
+
+    .overlay.hidden { display: none; }
+
+    .overlay p { color: var(--muted); font-size: 13px; line-height: 1.8; }
+    .overlay b { color: var(--ink); }
+
+    button {
+      font-family: inherit;
+      font-size: 14px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      padding: 12px 26px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 0.08s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 20px rgba(77,226,194,0.35);
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 8px 26px rgba(77,226,194,0.5); }
+    button:active { transform: translateY(1px); }
+    button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+    footer { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
+
+    @media (prefers-reduced-motion: reduce) {
+      button { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pong</h1>
+    <span>até 7 pontos</span>
+  </header>
+
+  <div class="wrap">
+    <canvas id="jogo" width="800" height="500"></canvas>
+    <div class="overlay" id="overlay">
+      <p id="msg">
+        <b>Você</b> à esquerda &nbsp;·&nbsp; <b>CPU</b> à direita<br>
+        Mova com o <b>mouse</b> ou as setas <b>↑ ↓</b> (ou W / S)<br>
+        <b>P</b> pausa &nbsp;·&nbsp; primeiro a fazer <b>7</b> vence
+      </p>
+      <button id="btn">Jogar</button>
+    </div>
+  </div>
+
+  <footer>feito com canvas 2d</footer>
+
+  <script>
+    const canvas = document.getElementById("jogo");
+    const ctx = canvas.getContext("2d");
+    const overlay = document.getElementById("overlay");
+    const msg = document.getElementById("msg");
+    const btn = document.getElementById("btn");
+
+    const L = canvas.width;
+    const A = canvas.height;
+    const PONTOS_VITORIA = 7;
+
+    // Raquetes
+    const RAQ_L = 12, RAQ_A = 90;
+    const jogador = { x: 24, y: A / 2 - RAQ_A / 2, vy: 0 };
+    const cpu = { x: L - 24 - RAQ_L, y: A / 2 - RAQ_A / 2, vy: 0 };
+    const VEL_JOGADOR = 7;
+    const VEL_CPU = 3; // limitada de propósito para dar chance ao jogador
+
+    // Bola
+    const RAIO = 9;
+    const bola = { x: L / 2, y: A / 2, vx: 0, vy: 0, vel: 2 };
+
+    // Rastro da bola
+    const rastro = [];
+
+    let placarJogador = 0;
+    let placarCpu = 0;
+    let rodando = false;
+    let pausado = false;
+    let acabou = false;
+
+    const teclas = {};
+
+    function resetarBola(direcao) {
+      bola.x = L / 2;
+      bola.y = A / 2;
+      bola.vel = 2;
+      const ang = (Math.random() * 2 - 1) * (Math.PI / 4); // -45º a 45º
+      bola.vx = direcao * bola.vel * Math.cos(ang);
+      bola.vy = bola.vel * Math.sin(ang);
+      rastro.length = 0;
+    }
+
+    function novoJogo() {
+      placarJogador = 0;
+      placarCpu = 0;
+      acabou = false;
+      jogador.y = A / 2 - RAQ_A / 2;
+      cpu.y = A / 2 - RAQ_A / 2;
+      resetarBola(Math.random() < 0.5 ? -1 : 1);
+      rodando = true;
+      pausado = false;
+      overlay.classList.add("hidden");
+    }
+
+    function pontuar(quem) {
+      if (quem === "jogador") placarJogador++;
+      else placarCpu++;
+
+      if (placarJogador >= PONTOS_VITORIA || placarCpu >= PONTOS_VITORIA) {
+        acabou = true;
+        rodando = false;
+        const venceu = placarJogador > placarCpu;
+        msg.innerHTML = `<b style="color:${venceu ? 'var(--accent)' : 'var(--accent2)'}">${venceu ? "Você venceu!" : "CPU venceu"}</b><br>Placar final ${placarJogador} × ${placarCpu}`;
+        btn.textContent = "Jogar de novo";
+        overlay.classList.remove("hidden");
+      } else {
+        // saque em direção a quem levou o ponto
+        resetarBola(quem === "jogador" ? 1 : -1);
+      }
+    }
+
+    function atualizar() {
+      if (!rodando || pausado) return;
+
+      // Movimento do jogador (teclado)
+      jogador.vy = 0;
+      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) jogador.vy = -VEL_JOGADOR;
+      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) jogador.vy = VEL_JOGADOR;
+      jogador.y += jogador.vy;
+      jogador.y = Math.max(0, Math.min(A - RAQ_A, jogador.y));
+
+      // IA da CPU: segue o centro da bola com velocidade limitada
+      const centroCpu = cpu.y + RAQ_A / 2;
+      const alvo = bola.y;
+      if (centroCpu < alvo - 10) cpu.y += VEL_CPU;
+      else if (centroCpu > alvo + 10) cpu.y -= VEL_CPU;
+      cpu.y = Math.max(0, Math.min(A - RAQ_A, cpu.y));
+
+      // Rastro
+      rastro.push({ x: bola.x, y: bola.y });
+      if (rastro.length > 12) rastro.shift();
+
+      // Movimento da bola
+      bola.x += bola.vx;
+      bola.y += bola.vy;
+
+      // Quicar em cima/baixo
+      if (bola.y - RAIO <= 0) { bola.y = RAIO; bola.vy = -bola.vy; }
+      if (bola.y + RAIO >= A) { bola.y = A - RAIO; bola.vy = -bola.vy; }
+
+      // Colisão com raquete do jogador
+      if (
+        bola.x - RAIO <= jogador.x + RAQ_L &&
+        bola.x - RAIO >= jogador.x &&
+        bola.y >= jogador.y &&
+        bola.y <= jogador.y + RAQ_A &&
+        bola.vx < 0
+      ) {
+        rebater(jogador, 1);
+      }
+
+      // Colisão com raquete da CPU
+      if (
+        bola.x + RAIO >= cpu.x &&
+        bola.x + RAIO <= cpu.x + RAQ_L &&
+        bola.y >= cpu.y &&
+        bola.y <= cpu.y + RAQ_A &&
+        bola.vx > 0
+      ) {
+        rebater(cpu, -1);
+      }
+
+      // Pontos
+      if (bola.x + RAIO < 0) pontuar("cpu");
+      if (bola.x - RAIO > L) pontuar("jogador");
+    }
+
+    // Rebate a bola mudando o ângulo conforme onde bateu na raquete, e acelera um pouco
+    function rebater(raq, direcao) {
+      const rel = (bola.y - (raq.y + RAQ_A / 2)) / (RAQ_A / 2); // -1 (topo) a 1 (base)
+      const ang = rel * (Math.PI / 3); // até 60º
+      bola.vel = Math.min(bola.vel + 0.15, 5);
+      bola.vx = direcao * bola.vel * Math.cos(ang);
+      bola.vy = bola.vel * Math.sin(ang);
+    }
+
+    function desenhar() {
+      ctx.clearRect(0, 0, L, A);
+
+      // Linha central pontilhada
+      ctx.strokeStyle = "rgba(90,107,130,0.45)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([12, 16]);
+      ctx.beginPath();
+      ctx.moveTo(L / 2, 0);
+      ctx.lineTo(L / 2, A);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Placar
+      ctx.fillStyle = "rgba(232,240,255,0.15)";
+      ctx.font = "bold 90px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(placarJogador, L / 2 - 80, 100);
+      ctx.fillText(placarCpu, L / 2 + 80, 100);
+
+      // Raquetes
+      ctx.fillStyle = "#4de2c2";
+      arredondado(jogador.x, jogador.y, RAQ_L, RAQ_A, 6);
+      ctx.fillStyle = "#ff5d73";
+      arredondado(cpu.x, cpu.y, RAQ_L, RAQ_A, 6);
+
+      // Rastro da bola
+      for (let i = 0; i < rastro.length; i++) {
+        const p = rastro[i];
+        const t = i / rastro.length;
+        ctx.fillStyle = `rgba(232,240,255,${t * 0.25})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, RAIO * t, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Bola
+      ctx.fillStyle = "#e8f0ff";
+      ctx.shadowColor = "#8be9ff";
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.arc(bola.x, bola.y, RAIO, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Retângulo com cantos arredondados preenchido
+    function arredondado(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function loop() {
+      atualizar();
+      desenhar();
+      requestAnimationFrame(loop);
+    }
+
+    // Controles
+    document.addEventListener("keydown", (e) => {
+      teclas[e.key] = true;
+      if (e.key === "p" || e.key === "P") {
+        if (rodando && !acabou) pausado = !pausado;
+      }
+      if (["ArrowUp", "ArrowDown"].includes(e.key)) e.preventDefault();
+    });
+    document.addEventListener("keyup", (e) => { teclas[e.key] = false; });
+
+    // Controle por mouse
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const escala = A / rect.height;
+      const my = (e.clientY - rect.top) * escala;
+      jogador.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
+    });
+
+    // Controle por toque
+    canvas.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const escala = A / rect.height;
+      const my = (e.touches[0].clientY - rect.top) * escala;
+      jogador.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
+    }, { passive: false });
+
+    btn.addEventListener("click", novoJogo);
+
+    loop();
+  </script>
+</body>
+</html>
