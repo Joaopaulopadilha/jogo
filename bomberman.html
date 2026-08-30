@@ -1,0 +1,1210 @@
+<!-- bomberman.html -->
+<!-- Bomberman online (2 ou 3 jogadores) via PeerJS/WebRTC, host autoritativo -->
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bomberman</title>
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --grid: #121a26;
+      --ink: #e8f0ff;
+      --accent: #4de2c2;
+      --accent2: #ff5d73;
+      --accent3: #ffd166;
+      --muted: #5a6b82;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background:
+        radial-gradient(1200px 600px at 50% -20%, #131c2b 0%, var(--bg) 60%);
+      color: var(--ink);
+      font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+      letter-spacing: 0.02em;
+      padding: 20px;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+    }
+
+    h1 {
+      font-size: clamp(26px, 6vw, 44px);
+      font-weight: 800;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, var(--accent3), var(--accent2) 60%, var(--accent));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    header span { color: var(--muted); font-size: 12px; letter-spacing: 0.15em; }
+
+    nav a {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-decoration: none;
+    }
+    nav a:hover { color: var(--ink); }
+
+    .wrap {
+      position: relative;
+      border-radius: 14px;
+      padding: 2px;
+      background: linear-gradient(135deg, rgba(255,209,102,0.5), rgba(255,93,115,0.4));
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset;
+    }
+
+    canvas {
+      display: block;
+      border-radius: 12px;
+      background: var(--grid);
+      max-width: 100%;
+      height: auto;
+      touch-action: none;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 2px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      border-radius: 12px;
+      background: rgba(6,10,16,0.78);
+      backdrop-filter: blur(3px);
+      text-align: center;
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    .overlay.hidden { display: none; }
+    .painel.hidden { display: none; }
+
+    .painel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      max-width: 320px;
+    }
+
+    .overlay p { color: var(--muted); font-size: 13px; line-height: 1.8; }
+    .overlay b { color: var(--ink); }
+
+    .botoes {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-width: 260px;
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--bg);
+      background: var(--accent3);
+      border: none;
+      border-radius: 8px;
+      padding: 12px 22px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 0.08s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 20px rgba(255,209,102,0.3);
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 8px 26px rgba(255,209,102,0.45); }
+    button:active { transform: translateY(1px); }
+    button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    button.secundario {
+      background: transparent;
+      color: var(--ink);
+      box-shadow: inset 0 0 0 1px rgba(232,240,255,0.25);
+    }
+
+    input#inputCodigo {
+      font-family: inherit;
+      font-size: 20px;
+      letter-spacing: 0.2em;
+      text-align: center;
+      text-transform: lowercase;
+      color: var(--ink);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(232,240,255,0.2);
+      border-radius: 8px;
+      padding: 10px 14px;
+      width: 100%;
+      max-width: 220px;
+    }
+    input#inputCodigo:focus { outline: 2px solid var(--accent3); outline-offset: 2px; }
+
+    .codigo {
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: 0.2em;
+      color: var(--accent3);
+      background: rgba(255,209,102,0.1);
+      border: 1px dashed rgba(255,209,102,0.5);
+      border-radius: 8px;
+      padding: 10px 18px;
+      user-select: all;
+    }
+
+    .skins {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .skin-btn {
+      background: rgba(255,255,255,0.04);
+      border: 2px solid transparent;
+      border-radius: 10px;
+      padding: 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      width: 60px;
+      box-shadow: none;
+      text-transform: none;
+      letter-spacing: normal;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .skin-btn:hover { transform: none; box-shadow: 0 0 0 1px rgba(255,255,255,0.15) inset; }
+    .skin-btn img { width: 36px; height: auto; image-rendering: pixelated; }
+    .skin-btn span { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .skin-btn.selecionado { border-color: var(--accent3); background: rgba(255,209,102,0.14); }
+    .skin-btn.selecionado span { color: var(--ink); }
+
+    .lista-jogadores {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--ink);
+      width: 100%;
+    }
+    .lista-jogadores div { display: flex; align-items: center; gap: 8px; justify-content: center; }
+    .ponto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+    footer { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
+
+    @media (prefers-reduced-motion: reduce) {
+      button { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Bomberman</h1>
+    <span id="subtitulo">online · 2 a 3 jogadores</span>
+  </header>
+  <nav><a href="index.html">← início</a> &nbsp;·&nbsp; <a href="pong.html">Pong →</a></nav>
+
+  <div class="wrap">
+    <canvas id="jogo" width="660" height="572"></canvas>
+    <div class="overlay" id="overlay">
+
+      <div class="painel" id="painelInicial">
+        <p>
+          Mova com <b>WASD</b> ou as setas &nbsp;·&nbsp; <b>Espaço</b> solta bomba<br>
+          Destrua blocos, pegue itens e seja o último de pé
+        </p>
+        <p style="margin-bottom:-8px">Escolha seu personagem:</p>
+        <div class="skins" id="skinsLista"></div>
+        <div class="botoes">
+          <button id="btnSolo2">Jogar sozinho (2 jogadores)</button>
+          <button id="btnSolo3">Jogar sozinho (3 jogadores)</button>
+          <button id="btnHost2" class="secundario">Criar sala online (2 jogadores)</button>
+          <button id="btnHost3" class="secundario">Criar sala online (3 jogadores)</button>
+          <button id="btnJoin" class="secundario">Entrar em sala online</button>
+        </div>
+      </div>
+
+      <div class="painel hidden" id="painelHost">
+        <p>Compartilhe este código com os outros jogadores:</p>
+        <div class="codigo" id="codigoHost">----</div>
+        <p id="statusHost">Gerando sala...</p>
+        <div class="lista-jogadores" id="listaHost"></div>
+        <button id="btnIniciar" disabled>Iniciar partida</button>
+        <button id="btnVoltarHost" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelJoin">
+        <p>Digite o código da sala:</p>
+        <input id="inputCodigo" maxlength="12" placeholder="código" autocomplete="off" />
+        <button id="btnConectar">Conectar</button>
+        <p id="statusJoin"></p>
+        <button id="btnVoltarJoin" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelFim">
+        <p id="msg"></p>
+        <button id="btn">Jogar de novo</button>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>feito com canvas 2d + PeerJS (WebRTC)</footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+  <script>
+    const canvas = document.getElementById("jogo");
+    const ctx = canvas.getContext("2d");
+    const overlay = document.getElementById("overlay");
+    const msg = document.getElementById("msg");
+    const btn = document.getElementById("btn");
+    const subtitulo = document.getElementById("subtitulo");
+
+    const painelInicial = document.getElementById("painelInicial");
+    const painelHost = document.getElementById("painelHost");
+    const painelJoin = document.getElementById("painelJoin");
+    const painelFim = document.getElementById("painelFim");
+
+    const btnSolo2 = document.getElementById("btnSolo2");
+    const btnSolo3 = document.getElementById("btnSolo3");
+    const btnHost2 = document.getElementById("btnHost2");
+    const btnHost3 = document.getElementById("btnHost3");
+    const btnJoin = document.getElementById("btnJoin");
+    const btnVoltarHost = document.getElementById("btnVoltarHost");
+    const btnVoltarJoin = document.getElementById("btnVoltarJoin");
+    const btnConectar = document.getElementById("btnConectar");
+    const btnIniciar = document.getElementById("btnIniciar");
+    const codigoHost = document.getElementById("codigoHost");
+    const statusHost = document.getElementById("statusHost");
+    const statusJoin = document.getElementById("statusJoin");
+    const inputCodigo = document.getElementById("inputCodigo");
+    const listaHost = document.getElementById("listaHost");
+    const skinsLista = document.getElementById("skinsLista");
+
+    // ---- Config do mapa ----
+    const COLS = 15, ROWS = 13, TILE = 44;
+    const L = COLS * TILE, A = ROWS * TILE;
+    const CANTOS = [
+      { x: 1, y: 1 },
+      { x: COLS - 2, y: ROWS - 2 },
+      { x: COLS - 2, y: 1 },
+    ];
+    const CORES = ["#4de2c2", "#ff5d73", "#ffd166"];
+    const NOMES = ["Jogador 1", "Jogador 2", "Jogador 3"];
+    const RAIO_J = TILE * 0.33;
+    const TEMPO_BOMBA = 2200;
+    const TEMPO_EXPLOSAO = 450;
+    const ALTURA_SPRITE = TILE * 1.55;
+
+    function carregarImagem(src) {
+      const img = new Image();
+      img.src = src;
+      return img;
+    }
+
+    // sprites disponíveis: pasta sprites/, um par idle/andar por personagem
+    const SKINS = [
+      { nome: "Casual", idle: carregarImagem("sprites/p1_idle.png"), andar: carregarImagem("sprites/p1_andar.png") },
+      { nome: "Street", idle: carregarImagem("sprites/p2_idle.png"), andar: carregarImagem("sprites/p2_andar.png") },
+      { nome: "Chef", idle: carregarImagem("sprites/p3_idle.png"), andar: carregarImagem("sprites/p3_andar.png") },
+      { nome: "Tradicional", idle: carregarImagem("sprites/p4_idle.png"), andar: carregarImagem("sprites/p4_andar.png") },
+    ];
+    const TROCA_QUADRO_ANDAR = 160; // ms entre alternar idle/andar enquanto se move
+
+    let meuSkin = 0;
+
+    function montarSeletorSkins() {
+      skinsLista.innerHTML = "";
+      SKINS.forEach((skin, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "skin-btn" + (i === meuSkin ? " selecionado" : "");
+        btn.innerHTML = `<img src="${skin.idle.src}" alt=""><span>${skin.nome}</span>`;
+        btn.addEventListener("click", () => {
+          meuSkin = i;
+          montarSeletorSkins();
+          if (conn && conn.open) conn.send({ type: "skin", skin: meuSkin });
+        });
+        skinsLista.appendChild(btn);
+      });
+    }
+    montarSeletorSkins();
+
+    canvas.width = L;
+    canvas.height = A;
+
+    let grid = [];
+    let jogadores = [];
+    let bombas = [];
+    let explosoes = [];
+    let powerups = [];
+    let entradas = [];
+    let jogoAtivo = false;
+    let jogoAcabou = false;
+    let vencedorIdx = null;
+    let placares = []; // vitórias acumuladas por jogador, persiste entre rodadas na mesma sala
+
+    function garantirPlacares(n) {
+      if (placares.length !== n) placares = new Array(n).fill(0);
+    }
+
+    const teclas = {};
+    let bombaTeclaAnterior = false;
+
+    // ---- Multiplayer ----
+    // modo: null | 'solo' | 'host' | 'guest'
+    let modo = null;
+    let maxJogadores = 2;
+    let meuIndice = 0;
+    let peer = null;
+    let conn = null;   // usado pelo convidado (conexão única com o host)
+    let conns = [];    // usado pelo host (uma conexão por convidado)
+    let acumuladorRede = 0;
+    let botEstados = {}; // idx -> { direcao, proxima } (modo solo)
+
+    function gerarCodigo() {
+      const alfabeto = "abcdefghjkmnpqrstuvwxyz23456789";
+      let c = "";
+      for (let i = 0; i < 5; i++) c += alfabeto[Math.floor(Math.random() * alfabeto.length)];
+      return "bomber-" + c;
+    }
+
+    function mostrarPainel(nome) {
+      overlay.classList.remove("hidden");
+      for (const p of [painelInicial, painelHost, painelJoin, painelFim]) {
+        p.classList.toggle("hidden", p.id !== nome);
+      }
+    }
+
+    function resetarParaInicio() {
+      if (conn) { try { conn.close(); } catch (e) {} conn = null; }
+      for (const c of conns) { try { c.close(); } catch (e) {} }
+      conns = [];
+      if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+      modo = null;
+      jogoAtivo = false;
+      jogoAcabou = false;
+      jogadores = [];
+      grid = [];
+      botEstados = {};
+      placares = [];
+      subtitulo.textContent = "online · 2 a 3 jogadores";
+      mostrarPainel("painelInicial");
+    }
+
+    // ---- Jogar sozinho (vs bots) ----
+    function iniciarPartidaSolo(participantes) {
+      grid = gerarMapa(participantes);
+      bombas = [];
+      explosoes = [];
+      powerups = [];
+      jogadores = [];
+      entradas = [];
+      botEstados = {};
+      garantirPlacares(participantes);
+      const skinsDisponiveis = SKINS.map((_, i) => i).filter((i) => i !== meuSkin);
+      for (let i = 0; i < participantes; i++) {
+        const skin = i === 0 ? meuSkin : skinsDisponiveis[(i - 1) % skinsDisponiveis.length];
+        jogadores.push(criarJogador(i, skin));
+        entradas.push({});
+      }
+      modo = "solo";
+      meuIndice = 0;
+      jogoAtivo = true;
+      jogoAcabou = false;
+      vencedorIdx = null;
+      subtitulo.textContent = `local · você vs ${participantes - 1} bot${participantes > 2 ? "s" : ""}`;
+      overlay.classList.add("hidden");
+    }
+
+    btnSolo2.addEventListener("click", () => iniciarPartidaSolo(2));
+    btnSolo3.addEventListener("click", () => iniciarPartidaSolo(3));
+
+    // ---- Criar sala (host) ----
+    function criarSala(max) {
+      maxJogadores = max;
+      mostrarPainel("painelHost");
+      codigoHost.textContent = "----";
+      statusHost.textContent = "Gerando sala...";
+      listaHost.innerHTML = "";
+      btnIniciar.disabled = true;
+
+      peer = new Peer(gerarCodigo());
+
+      peer.on("open", (id) => {
+        codigoHost.textContent = id;
+        statusHost.textContent = `Aguardando jogadores... (1/${maxJogadores})`;
+        atualizarListaHost();
+      });
+
+      peer.on("connection", (c) => {
+        if (1 + conns.length >= maxJogadores) {
+          c.on("open", () => { try { c.close(); } catch (e) {} });
+          return;
+        }
+        const idx = 1 + conns.length;
+        c.jogadorIdx = idx;
+        conns.push(c);
+        configurarConexaoHost(c, idx);
+      });
+
+      peer.on("error", (err) => {
+        statusHost.textContent = "Erro: " + err.type;
+      });
+    }
+
+    btnHost2.addEventListener("click", () => criarSala(2));
+    btnHost3.addEventListener("click", () => criarSala(3));
+
+    function configurarConexaoHost(c, idx) {
+      c.skinEscolhida = 0;
+      c.on("open", () => {
+        atualizarListaHost();
+      });
+      c.on("data", (data) => {
+        if (data.type === "input") {
+          entradas[idx] = {
+            cima: !!data.cima,
+            baixo: !!data.baixo,
+            esquerda: !!data.esquerda,
+            direita: !!data.direita,
+          };
+        } else if (data.type === "bomba") {
+          colocarBomba(idx);
+        } else if (data.type === "skin") {
+          c.skinEscolhida = data.skin;
+        }
+      });
+      c.on("close", () => {
+        conns = conns.filter((x) => x !== c);
+        if (jogadores[idx]) jogadores[idx].vivo = false;
+        atualizarListaHost();
+      });
+    }
+
+    function atualizarListaHost() {
+      const total = 1 + conns.length;
+      statusHost.textContent = total >= maxJogadores
+        ? "Todos conectados! Pode iniciar."
+        : `Aguardando jogadores... (${total}/${maxJogadores})`;
+      listaHost.innerHTML = "";
+      for (let i = 0; i < total; i++) {
+        const div = document.createElement("div");
+        const bolinha = `<span class="ponto" style="background:${CORES[i]}"></span>`;
+        div.innerHTML = `${bolinha} ${NOMES[i]}${i === 0 ? " (você, host)" : ""}`;
+        listaHost.appendChild(div);
+      }
+      btnIniciar.disabled = total < 2;
+    }
+
+    btnIniciar.addEventListener("click", () => {
+      if (1 + conns.length < 2) return;
+      iniciarPartidaHost();
+    });
+
+    // ---- Entrar em sala (guest) ----
+    btnJoin.addEventListener("click", () => {
+      mostrarPainel("painelJoin");
+      statusJoin.textContent = "";
+      inputCodigo.value = "";
+      inputCodigo.focus();
+    });
+
+    btnConectar.addEventListener("click", conectarComoConvidado);
+    inputCodigo.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") conectarComoConvidado();
+    });
+
+    function conectarComoConvidado() {
+      const codigo = inputCodigo.value.trim().toLowerCase();
+      if (!codigo) return;
+
+      statusJoin.textContent = "Conectando...";
+      btnConectar.disabled = true;
+
+      peer = new Peer();
+      peer.on("open", () => {
+        conn = peer.connect(codigo, { reliable: true });
+
+        conn.on("open", () => {
+          statusJoin.textContent = "Conectado! Aguardando o host iniciar...";
+          conn.send({ type: "skin", skin: meuSkin });
+        });
+        conn.on("data", handleDataConvidado);
+        conn.on("close", () => {
+          mostrarPainel("painelFim");
+          msg.innerHTML = `<b style="color:var(--accent2)">Conexão perdida</b><br>O host encerrou ou saiu.`;
+          btn.textContent = "Voltar ao início";
+          btn.disabled = false;
+          jogoAtivo = false;
+        });
+      });
+
+      peer.on("error", (err) => {
+        btnConectar.disabled = false;
+        statusJoin.textContent = "Erro: " + err.type + " (verifique o código)";
+      });
+    }
+
+    btnVoltarHost.addEventListener("click", resetarParaInicio);
+    btnVoltarJoin.addEventListener("click", resetarParaInicio);
+
+    // ---- Geração do mapa ----
+    function gerarMapa(participantes) {
+      const novoGrid = [];
+      for (let y = 0; y < ROWS; y++) {
+        const linha = [];
+        for (let x = 0; x < COLS; x++) {
+          let t;
+          if (x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1) t = 1;
+          else if (x % 2 === 0 && y % 2 === 0) t = 1;
+          else t = Math.random() < 0.75 ? 2 : 0;
+          linha.push(t);
+        }
+        novoGrid.push(linha);
+      }
+      for (let i = 0; i < participantes; i++) {
+        const c = CANTOS[i];
+        for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const gx = c.x + dx, gy = c.y + dy;
+          if (novoGrid[gy] && novoGrid[gy][gx] === 2) novoGrid[gy][gx] = 0;
+        }
+      }
+      return novoGrid;
+    }
+
+    function criarJogador(idx, skin) {
+      const canto = CANTOS[idx];
+      return {
+        x: canto.x * TILE + TILE / 2,
+        y: canto.y * TILE + TILE / 2,
+        alvoX: canto.x * TILE + TILE / 2,
+        alvoY: canto.y * TILE + TILE / 2,
+        vivo: true,
+        alcance: 1,
+        bombasMax: 1,
+        bombasAtivas: 0,
+        vel: 2.6,
+        bombaOrigemX: null,
+        bombaOrigemY: null,
+        movendo: false,
+        olhandoEsquerda: false,
+        skin: skin !== undefined ? skin : idx % SKINS.length,
+        quadroAndar: false,
+        proximaTroca: 0,
+      };
+    }
+
+    // ---- Início de partida (host) ----
+    function iniciarPartidaHost() {
+      const participantes = 1 + conns.length;
+      grid = gerarMapa(participantes);
+      bombas = [];
+      explosoes = [];
+      powerups = [];
+      jogadores = [];
+      entradas = [];
+      garantirPlacares(participantes);
+      for (let i = 0; i < participantes; i++) {
+        const skin = i === 0 ? meuSkin : (conns[i - 1] ? conns[i - 1].skinEscolhida : i % SKINS.length);
+        jogadores.push(criarJogador(i, skin));
+        entradas.push({});
+      }
+      modo = "host";
+      meuIndice = 0;
+      jogoAtivo = true;
+      jogoAcabou = false;
+      vencedorIdx = null;
+      subtitulo.textContent = `online · você é o ${NOMES[0]}`;
+      overlay.classList.add("hidden");
+
+      const skins = jogadores.map((j) => j.skin);
+      conns.forEach((c) => {
+        if (c.open) {
+          c.send({ type: "mapa", grid, participantes, voce: c.jogadorIdx, skins });
+        }
+      });
+    }
+
+    // ---- Dados recebidos (convidado) ----
+    function handleDataConvidado(data) {
+      if (data.type === "mapa") {
+        grid = data.grid;
+        meuIndice = data.voce;
+        modo = "guest";
+        jogadores = [];
+        for (let i = 0; i < data.participantes; i++) {
+          jogadores.push(criarJogador(i, data.skins ? data.skins[i] : i % SKINS.length));
+        }
+        bombas = [];
+        explosoes = [];
+        powerups = [];
+        jogoAtivo = true;
+        jogoAcabou = false;
+        vencedorIdx = null;
+        subtitulo.textContent = `online · você é o ${NOMES[meuIndice]}`;
+        overlay.classList.add("hidden");
+      } else if (data.type === "estado") {
+        data.jogadores.forEach((jd, idx) => {
+          if (!jogadores[idx]) jogadores[idx] = criarJogador(idx);
+          const j = jogadores[idx];
+          j.alvoX = jd.x;
+          j.alvoY = jd.y;
+          j.vivo = jd.vivo;
+          j.alcance = jd.alcance;
+          j.bombasMax = jd.bombasMax;
+          j.vel = jd.vel;
+          j.movendo = jd.movendo;
+          j.olhandoEsquerda = jd.olhandoEsquerda;
+        });
+        bombas = data.bombas;
+        explosoes = data.explosoes;
+        powerups = data.powerups;
+        grid = data.grid;
+        jogoAtivo = data.jogoAtivo;
+
+        const eraAcabou = jogoAcabou;
+        jogoAcabou = data.jogoAcabou;
+        vencedorIdx = data.vencedorIdx;
+        placares = data.placares || placares;
+
+        if (jogoAcabou && !eraAcabou) {
+          mostrarFimBomberman();
+        } else if (jogoAtivo) {
+          overlay.classList.add("hidden");
+        }
+      }
+    }
+
+    // ---- Física / regras (host) ----
+    function ehSolidoParaMovimento(tx, ty, jog) {
+      if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return true;
+      if (grid[ty][tx] === 1 || grid[ty][tx] === 2) return true;
+      const bomba = bombas.find((b) => b.x === tx && b.y === ty);
+      if (bomba) {
+        if (jog && jog.bombaOrigemX === tx && jog.bombaOrigemY === ty) return false;
+        return true;
+      }
+      return false;
+    }
+
+    function colideParede(jog, cx, cy) {
+      const pontos = [
+        [cx - RAIO_J, cy - RAIO_J],
+        [cx + RAIO_J, cy - RAIO_J],
+        [cx - RAIO_J, cy + RAIO_J],
+        [cx + RAIO_J, cy + RAIO_J],
+      ];
+      for (const [px, py] of pontos) {
+        const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+        if (ehSolidoParaMovimento(tx, ty, jog)) return true;
+      }
+      return false;
+    }
+
+    // Verdadeiro enquanto QUALQUER canto da hitbox ainda toca o tile onde a bomba
+    // própria foi colocada — só então é seguro voltar a tratar aquele tile como sólido
+    // (evita travar o jogador bem na borda ao atravessar o tile da bomba).
+    function hitboxSobreOrigemBomba(j) {
+      if (j.bombaOrigemX === null) return false;
+      const pontos = [
+        [j.x - RAIO_J, j.y - RAIO_J],
+        [j.x + RAIO_J, j.y - RAIO_J],
+        [j.x - RAIO_J, j.y + RAIO_J],
+        [j.x + RAIO_J, j.y + RAIO_J],
+      ];
+      return pontos.some(
+        ([px, py]) => Math.floor(px / TILE) === j.bombaOrigemX && Math.floor(py / TILE) === j.bombaOrigemY
+      );
+    }
+
+    function moverJogador(j, dx, dy) {
+      if (dx !== 0) {
+        const novoX = j.x + dx;
+        if (!colideParede(j, novoX, j.y)) j.x = novoX;
+      }
+      if (dy !== 0) {
+        const novoY = j.y + dy;
+        if (!colideParede(j, j.x, novoY)) j.y = novoY;
+      }
+    }
+
+    function colocarBomba(idx) {
+      const j = jogadores[idx];
+      if (!j || !j.vivo || !jogoAtivo) return;
+      if (j.bombasAtivas >= j.bombasMax) return;
+      const tx = Math.floor(j.x / TILE), ty = Math.floor(j.y / TILE);
+      if (bombas.some((b) => b.x === tx && b.y === ty)) return;
+      bombas.push({ x: tx, y: ty, tempo: TEMPO_BOMBA, alcance: j.alcance, dono: idx });
+      j.bombasAtivas++;
+      j.bombaOrigemX = tx;
+      j.bombaOrigemY = ty;
+    }
+
+    function talvezGerarPowerup(x, y) {
+      if (Math.random() < 0.3) {
+        const tipos = ["bomba", "alcance", "vel"];
+        const tipo = tipos[Math.floor(Math.random() * tipos.length)];
+        powerups.push({ x, y, tipo });
+      }
+    }
+
+    function aplicarPowerup(j, tipo) {
+      if (tipo === "bomba") j.bombasMax = Math.min(j.bombasMax + 1, 5);
+      else if (tipo === "alcance") j.alcance = Math.min(j.alcance + 1, 6);
+      else if (tipo === "vel") j.vel = Math.min(j.vel + 0.4, 4.2);
+    }
+
+    function explodirBomba(bomba) {
+      const pontos = [{ x: bomba.x, y: bomba.y }];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (let i = 1; i <= bomba.alcance; i++) {
+          const tx = bomba.x + dx * i, ty = bomba.y + dy * i;
+          if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) break;
+          if (grid[ty][tx] === 1) break;
+          pontos.push({ x: tx, y: ty });
+          if (grid[ty][tx] === 2) {
+            grid[ty][tx] = 0;
+            talvezGerarPowerup(tx, ty);
+            break;
+          }
+        }
+      }
+
+      for (const p of pontos) explosoes.push({ x: p.x, y: p.y, ttl: TEMPO_EXPLOSAO });
+
+      const dono = jogadores[bomba.dono];
+      if (dono) dono.bombasAtivas = Math.max(0, dono.bombasAtivas - 1);
+
+      for (const outra of bombas) {
+        if (outra === bomba) continue;
+        if (pontos.some((p) => p.x === outra.x && p.y === outra.y)) outra.tempo = 0;
+      }
+
+      for (const j of jogadores) {
+        if (!j.vivo) continue;
+        const tx = Math.floor(j.x / TILE), ty = Math.floor(j.y / TILE);
+        if (pontos.some((p) => p.x === tx && p.y === ty)) j.vivo = false;
+      }
+
+      const i = bombas.indexOf(bomba);
+      if (i !== -1) bombas.splice(i, 1);
+    }
+
+    function mostrarFimBomberman() {
+      let texto;
+      if (vencedorIdx === null) {
+        texto = `<b style="color:var(--accent2)">Empate!</b><br>Ninguém sobreviveu.`;
+      } else if (vencedorIdx === meuIndice) {
+        texto = `<b style="color:var(--accent)">Você venceu!</b>`;
+      } else {
+        texto = `<b style="color:var(--accent2)">${NOMES[vencedorIdx]} venceu</b>`;
+      }
+      const resumoPlacar = jogadores
+        .map((_, idx) => `${NOMES[idx].replace("Jogador ", "J")}: ${placares[idx] || 0}`)
+        .join(" · ");
+      msg.innerHTML = `${texto}<br><span style="font-size:11px">${resumoPlacar}</span>`;
+      const possoReiniciar = modo === "host" || modo === "solo";
+      btn.textContent = possoReiniciar ? "Jogar de novo" : "Aguardando o host...";
+      btn.disabled = !possoReiniciar;
+      mostrarPainel("painelFim");
+    }
+
+    function transmitirEstado() {
+      const estado = {
+        type: "estado",
+        jogadores: jogadores.map((j) => ({
+          x: j.x, y: j.y, vivo: j.vivo, alcance: j.alcance, bombasMax: j.bombasMax, vel: j.vel,
+          movendo: j.movendo, olhandoEsquerda: j.olhandoEsquerda,
+        })),
+        bombas: bombas.map((b) => ({ x: b.x, y: b.y, tempo: b.tempo })),
+        explosoes: explosoes.map((e) => ({ x: e.x, y: e.y })),
+        powerups: powerups.map((p) => ({ x: p.x, y: p.y, tipo: p.tipo })),
+        grid,
+        jogoAtivo,
+        jogoAcabou,
+        vencedorIdx,
+        placares,
+      };
+      for (const c of conns) if (c.open) c.send(estado);
+    }
+
+    function atualizarBomberman(dt) {
+      if (!jogoAtivo || jogoAcabou) return;
+
+      for (let idx = 0; idx < jogadores.length; idx++) {
+        const j = jogadores[idx];
+        if (!j.vivo) continue;
+        const input = entradas[idx] || {};
+        let dx = 0, dy = 0;
+        if (input.esquerda) dx = -j.vel;
+        if (input.direita) dx = j.vel;
+        if (input.cima) dy = -j.vel;
+        if (input.baixo) dy = j.vel;
+        if (dx !== 0 && dy !== 0) { dx *= 0.7071; dy *= 0.7071; }
+        j.movendo = dx !== 0 || dy !== 0;
+        if (dx < 0) j.olhandoEsquerda = true;
+        else if (dx > 0) j.olhandoEsquerda = false;
+        moverJogador(j, dx, dy);
+
+        const tx = Math.floor(j.x / TILE), ty = Math.floor(j.y / TILE);
+        if (j.bombaOrigemX !== null && !hitboxSobreOrigemBomba(j)) {
+          j.bombaOrigemX = null;
+          j.bombaOrigemY = null;
+        }
+
+        const pu = powerups.find((p) => p.x === tx && p.y === ty);
+        if (pu) {
+          aplicarPowerup(j, pu.tipo);
+          powerups.splice(powerups.indexOf(pu), 1);
+        }
+      }
+
+      for (const b of bombas.slice()) {
+        b.tempo -= dt;
+        if (b.tempo <= 0) explodirBomba(b);
+      }
+
+      for (const e of explosoes.slice()) {
+        e.ttl -= dt;
+        if (e.ttl <= 0) {
+          const i = explosoes.indexOf(e);
+          if (i !== -1) explosoes.splice(i, 1);
+        }
+      }
+
+      if (!jogoAcabou) {
+        const vivos = jogadores.filter((j) => j.vivo);
+        if (jogadores.length > 1 && vivos.length <= 1) {
+          jogoAcabou = true;
+          jogoAtivo = false;
+          vencedorIdx = vivos.length === 1 ? jogadores.indexOf(vivos[0]) : null;
+          if (vencedorIdx !== null) {
+            garantirPlacares(jogadores.length);
+            placares[vencedorIdx] = (placares[vencedorIdx] || 0) + 1;
+          }
+          mostrarFimBomberman();
+        }
+      }
+    }
+
+    // ---- IA dos bots (modo solo) ----
+    function tilePerigoso(x, y) {
+      if (explosoes.some((e) => e.x === x && e.y === y)) return true;
+      for (const b of bombas) {
+        if (b.x === x && b.y === y) return true;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          for (let i = 1; i <= b.alcance; i++) {
+            const bx = b.x + dx * i, by = b.y + dy * i;
+            if (bx < 0 || by < 0 || bx >= COLS || by >= ROWS) break;
+            if (grid[by][bx] === 1) break;
+            if (bx === x && by === y) return true;
+            if (grid[by][bx] === 2) break;
+          }
+        }
+      }
+      return false;
+    }
+
+    function calcularEntradaBot(idx, agora) {
+      const j = jogadores[idx];
+      if (!j || !j.vivo) return {};
+
+      let estado = botEstados[idx];
+      if (!estado) {
+        estado = { direcao: null, proxima: 0 };
+        botEstados[idx] = estado;
+      }
+
+      const tx = Math.floor(j.x / TILE), ty = Math.floor(j.y / TILE);
+      const centroX = tx * TILE + TILE / 2, centroY = ty * TILE + TILE / 2;
+      const alinhado = Math.abs(j.x - centroX) < 2 && Math.abs(j.y - centroY) < 2;
+
+      if (alinhado && agora > estado.proxima) {
+        estado.proxima = agora + 350 + Math.random() * 250;
+
+        const direcoes = [
+          { nome: "cima", dx: 0, dy: -1 },
+          { nome: "baixo", dx: 0, dy: 1 },
+          { nome: "esquerda", dx: -1, dy: 0 },
+          { nome: "direita", dx: 1, dy: 0 },
+        ];
+
+        if (tilePerigoso(tx, ty)) {
+          const seguras = direcoes.filter(
+            (d) => !ehSolidoParaMovimento(tx + d.dx, ty + d.dy, j) && !tilePerigoso(tx + d.dx, ty + d.dy)
+          );
+          const livres = direcoes.filter((d) => !ehSolidoParaMovimento(tx + d.dx, ty + d.dy, j));
+          const escolha = seguras.length ? seguras : livres;
+          estado.direcao = escolha.length ? escolha[Math.floor(Math.random() * escolha.length)].nome : null;
+        } else {
+          const validas = direcoes.filter(
+            (d) => !ehSolidoParaMovimento(tx + d.dx, ty + d.dy, j) && !tilePerigoso(tx + d.dx, ty + d.dy)
+          );
+          estado.direcao = validas.length ? validas[Math.floor(Math.random() * validas.length)].nome : null;
+
+          if (j.bombasAtivas < j.bombasMax && Math.random() < 0.35) {
+            const temAlvo = direcoes.some((d) => {
+              const nx = tx + d.dx, ny = ty + d.dy;
+              if (grid[ny] && grid[ny][nx] === 2) return true;
+              return jogadores.some(
+                (outro, oidx) =>
+                  oidx !== idx && outro.vivo &&
+                  Math.floor(outro.x / TILE) === nx && Math.floor(outro.y / TILE) === ny
+              );
+            });
+            if (temAlvo) colocarBomba(idx);
+          }
+        }
+      }
+
+      return {
+        cima: estado.direcao === "cima",
+        baixo: estado.direcao === "baixo",
+        esquerda: estado.direcao === "esquerda",
+        direita: estado.direcao === "direita",
+      };
+    }
+
+    function interpolarRede() {
+      for (const j of jogadores) {
+        if (j.alvoX === undefined) continue;
+        j.x += (j.alvoX - j.x) * 0.35;
+        j.y += (j.alvoY - j.y) * 0.35;
+      }
+    }
+
+    function lerEntradaLocal() {
+      return {
+        cima: !!(teclas["ArrowUp"] || teclas["w"] || teclas["W"]),
+        baixo: !!(teclas["ArrowDown"] || teclas["s"] || teclas["S"]),
+        esquerda: !!(teclas["ArrowLeft"] || teclas["a"] || teclas["A"]),
+        direita: !!(teclas["ArrowRight"] || teclas["d"] || teclas["D"]),
+      };
+    }
+
+    function verificarBomba() {
+      const pressionada = !!teclas[" "];
+      if (pressionada && !bombaTeclaAnterior) {
+        if (modo === "host" || modo === "solo") colocarBomba(0);
+        else if (modo === "guest" && conn && conn.open) conn.send({ type: "bomba" });
+      }
+      bombaTeclaAnterior = pressionada;
+    }
+
+    function atualizar(dt) {
+      if (modo === "solo") {
+        entradas[0] = lerEntradaLocal();
+        verificarBomba();
+        const agora = performance.now();
+        for (let idx = 1; idx < jogadores.length; idx++) {
+          entradas[idx] = calcularEntradaBot(idx, agora);
+        }
+        atualizarBomberman(dt);
+      } else if (modo === "host") {
+        entradas[0] = lerEntradaLocal();
+        verificarBomba();
+        atualizarBomberman(dt);
+        acumuladorRede += dt;
+        if (acumuladorRede >= 33) {
+          acumuladorRede = 0;
+          transmitirEstado();
+        }
+      } else if (modo === "guest") {
+        if (conn && conn.open) conn.send({ type: "input", ...lerEntradaLocal() });
+        verificarBomba();
+        interpolarRede();
+      }
+    }
+
+    // ---- Desenho ----
+    function desenhar() {
+      ctx.clearRect(0, 0, L, A);
+      if (!grid.length) return;
+
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const t = grid[y][x];
+          const px = x * TILE, py = y * TILE;
+          ctx.fillStyle = (x + y) % 2 === 0 ? "#0e1420" : "#111826";
+          ctx.fillRect(px, py, TILE, TILE);
+          if (t === 1) {
+            ctx.fillStyle = "#1c2636";
+            ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+            ctx.fillStyle = "rgba(255,255,255,0.05)";
+            ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+          } else if (t === 2) {
+            ctx.fillStyle = "#8a5a34";
+            ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+            ctx.fillStyle = "rgba(0,0,0,0.25)";
+            ctx.fillRect(px + 2, py + 2, TILE - 4, 6);
+          }
+        }
+      }
+
+      for (const p of powerups) {
+        const cx = p.x * TILE + TILE / 2, cy = p.y * TILE + TILE / 2;
+        ctx.fillStyle = p.tipo === "bomba" ? CORES[0] : p.tipo === "alcance" ? CORES[1] : CORES[2];
+        ctx.beginPath();
+        ctx.arc(cx, cy, TILE * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#0a0e14";
+        ctx.font = "bold 14px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const letra = p.tipo === "bomba" ? "B" : p.tipo === "alcance" ? "R" : "V";
+        ctx.fillText(letra, cx, cy + 1);
+      }
+
+      for (const b of bombas) {
+        const cx = b.x * TILE + TILE / 2, cy = b.y * TILE + TILE / 2;
+        const frac = Math.max(0, b.tempo / TEMPO_BOMBA);
+        const pulso = 1 + Math.sin(performance.now() / 100) * 0.08 * (1 - frac);
+        ctx.fillStyle = "#12161f";
+        ctx.beginPath();
+        ctx.arc(cx, cy, TILE * 0.32 * pulso, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.18)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      for (const e of explosoes) {
+        const cx = e.x * TILE + TILE / 2, cy = e.y * TILE + TILE / 2;
+        const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, TILE * 0.55);
+        grad.addColorStop(0, "rgba(255,240,200,0.95)");
+        grad.addColorStop(1, "rgba(255,93,80,0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, TILE * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const agoraAnim = performance.now();
+      jogadores.forEach((j, idx) => {
+        if (!j.vivo) return;
+        const personagem = SKINS[j.skin % SKINS.length];
+
+        if (j.movendo) {
+          if (agoraAnim >= j.proximaTroca) {
+            j.quadroAndar = !j.quadroAndar;
+            j.proximaTroca = agoraAnim + TROCA_QUADRO_ANDAR;
+          }
+        } else {
+          j.quadroAndar = false;
+          j.proximaTroca = 0;
+        }
+
+        const img = j.movendo && j.quadroAndar ? personagem.andar : personagem.idle;
+        const pesX = j.x, pesY = j.y + TILE * 0.32;
+
+        if (idx === meuIndice) {
+          ctx.beginPath();
+          ctx.ellipse(pesX, pesY - 2, TILE * 0.3, TILE * 0.12, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = "#e8f0ff";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
+        if (img.complete && img.naturalWidth) {
+          const altura = ALTURA_SPRITE;
+          const largura = altura * (img.naturalWidth / img.naturalHeight);
+          ctx.save();
+          if (j.olhandoEsquerda) {
+            ctx.translate(pesX, pesY);
+            ctx.scale(-1, 1);
+            ctx.drawImage(img, -largura / 2, -altura, largura, altura);
+          } else {
+            ctx.drawImage(img, pesX - largura / 2, pesY - altura, largura, altura);
+          }
+          ctx.restore();
+        } else {
+          ctx.fillStyle = CORES[idx];
+          ctx.beginPath();
+          ctx.arc(j.x, j.y, TILE * 0.32, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+
+      ctx.font = "bold 12px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      jogadores.forEach((j, idx) => {
+        ctx.fillStyle = j.vivo ? CORES[idx] : "rgba(90,107,130,0.6)";
+        const rotulo = `${NOMES[idx]}${idx === meuIndice ? " (você)" : ""}${j.vivo ? "" : " ✕"}`;
+        ctx.fillText(rotulo, 8, 8 + idx * 15);
+      });
+
+      // Placar persistente (vitórias acumuladas desde que a sala foi criada)
+      if (jogadores.length) {
+        const largura = 118;
+        const altura = 10 + jogadores.length * 16;
+        ctx.fillStyle = "rgba(10,14,20,0.6)";
+        ctx.fillRect(L - largura - 8, 6, largura, altura);
+        ctx.strokeStyle = "rgba(255,255,255,0.08)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(L - largura - 8, 6, largura, altura);
+        jogadores.forEach((_, idx) => {
+          const y = 12 + idx * 16;
+          ctx.textAlign = "left";
+          ctx.fillStyle = CORES[idx];
+          ctx.fillText(NOMES[idx].replace("Jogador ", "J"), L - largura, y);
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#e8f0ff";
+          ctx.fillText(String(placares[idx] || 0), L - 14, y);
+        });
+        ctx.textAlign = "left";
+      }
+    }
+
+    let ultimoTempo = performance.now();
+    function loop(agora) {
+      const dt = Math.min(50, agora - ultimoTempo);
+      ultimoTempo = agora;
+      atualizar(dt);
+      desenhar();
+      requestAnimationFrame(loop);
+    }
+
+    // Controles
+    document.addEventListener("keydown", (e) => {
+      teclas[e.key] = true;
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
+    });
+    document.addEventListener("keyup", (e) => { teclas[e.key] = false; });
+
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      if (btn.textContent === "Voltar ao início") {
+        resetarParaInicio();
+      } else if (modo === "host") {
+        iniciarPartidaHost();
+      } else if (modo === "solo") {
+        iniciarPartidaSolo(jogadores.length);
+      }
+    });
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

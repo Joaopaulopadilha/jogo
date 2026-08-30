@@ -1,18 +1,18 @@
-<!-- pong.html -->
-<!-- Pong moderno: jogador vs CPU ou online (2 jogadores via PeerJS/WebRTC) em canvas -->
+<!-- index.html -->
+<!-- Página inicial: menu com os jogos disponíveis -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pong</title>
+  <title>Jogos</title>
   <style>
     :root {
       --bg: #0a0e14;
-      --grid: #121a26;
       --ink: #e8f0ff;
       --accent: #4de2c2;
       --accent2: #ff5d73;
+      --accent3: #ffd166;
       --muted: #5a6b82;
     }
 
@@ -24,673 +24,79 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 20px;
-      background:
-        radial-gradient(1200px 600px at 50% -20%, #131c2b 0%, var(--bg) 60%);
+      gap: 28px;
+      background: radial-gradient(1200px 600px at 50% -20%, #131c2b 0%, var(--bg) 60%);
       color: var(--ink);
       font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
       letter-spacing: 0.02em;
       padding: 20px;
     }
 
-    header {
-      display: flex;
-      align-items: baseline;
-      gap: 14px;
-    }
-
     h1 {
-      font-size: clamp(28px, 6vw, 48px);
+      font-size: clamp(28px, 6vw, 44px);
       font-weight: 800;
-      letter-spacing: 0.35em;
+      letter-spacing: 0.3em;
       text-transform: uppercase;
-      background: linear-gradient(90deg, var(--accent), #8be9ff 60%, var(--accent2));
+      background: linear-gradient(90deg, var(--accent), var(--accent3) 50%, var(--accent2));
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
     }
 
-    header span {
-      color: var(--muted);
-      font-size: 12px;
-      letter-spacing: 0.2em;
-    }
-
-    .wrap {
-      position: relative;
-      border-radius: 14px;
-      padding: 2px;
-      background: linear-gradient(135deg, rgba(77,226,194,0.5), rgba(255,93,115,0.4));
-      box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset;
-    }
-
-    canvas {
-      display: block;
-      border-radius: 12px;
-      background:
-        repeating-linear-gradient(0deg, transparent 0 28px, rgba(255,255,255,0.015) 28px 29px),
-        var(--grid);
-      max-width: 100%;
-      height: auto;
-      touch-action: none;
-      cursor: none;
-    }
-
-    .overlay {
-      position: absolute;
-      inset: 2px;
+    .grade {
       display: flex;
-      flex-direction: column;
-      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
       justify-content: center;
-      gap: 16px;
-      border-radius: 12px;
-      background: rgba(6,10,16,0.72);
-      backdrop-filter: blur(3px);
-      text-align: center;
-      padding: 24px;
+      max-width: 720px;
     }
 
-    .overlay.hidden { display: none; }
-    .painel.hidden { display: none; }
-
-    .painel {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .overlay p { color: var(--muted); font-size: 13px; line-height: 1.8; }
-    .overlay b { color: var(--ink); }
-
-    .botoes {
+    a.jogo {
       display: flex;
       flex-direction: column;
       gap: 10px;
-      width: 100%;
-      max-width: 260px;
-    }
-
-    button {
-      font-family: inherit;
-      font-size: 14px;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: var(--bg);
-      background: var(--accent);
-      border: none;
-      border-radius: 8px;
-      padding: 12px 26px;
-      cursor: pointer;
-      font-weight: 700;
-      transition: transform 0.08s ease, box-shadow 0.2s ease;
-      box-shadow: 0 6px 20px rgba(77,226,194,0.35);
-    }
-    button:hover { transform: translateY(-1px); box-shadow: 0 8px 26px rgba(77,226,194,0.5); }
-    button:active { transform: translateY(1px); }
-    button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-
-    button.secundario {
-      background: transparent;
+      width: 260px;
+      padding: 22px;
+      border-radius: 14px;
+      text-decoration: none;
       color: var(--ink);
-      box-shadow: inset 0 0 0 1px rgba(232,240,255,0.25);
+      background: rgba(255,255,255,0.03);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset, 0 20px 40px rgba(0,0,0,0.4);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    a.jogo:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset, 0 24px 50px rgba(0,0,0,0.5);
     }
 
-    input#inputCodigo {
-      font-family: inherit;
+    a.jogo .titulo {
       font-size: 20px;
-      letter-spacing: 0.2em;
-      text-align: center;
-      text-transform: lowercase;
-      color: var(--ink);
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(232,240,255,0.2);
-      border-radius: 8px;
-      padding: 10px 14px;
-      width: 100%;
-      max-width: 220px;
-    }
-    input#inputCodigo:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-    .codigo {
-      font-size: 32px;
       font-weight: 800;
-      letter-spacing: 0.25em;
-      color: var(--accent);
-      background: rgba(77,226,194,0.1);
-      border: 1px dashed rgba(77,226,194,0.5);
-      border-radius: 8px;
-      padding: 10px 20px;
-      user-select: all;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
     }
+    a.jogo.pong .titulo { color: var(--accent); }
+    a.jogo.bomberman .titulo { color: var(--accent3); }
+
+    a.jogo .desc { font-size: 13px; color: var(--muted); line-height: 1.6; }
 
     footer { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
-
-    @media (prefers-reduced-motion: reduce) {
-      button { transition: none; }
-    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Pong</h1>
-    <span id="subtitulo">até 7 pontos</span>
-  </header>
+  <h1>Jogos</h1>
 
-  <div class="wrap">
-    <canvas id="jogo" width="800" height="500"></canvas>
-    <div class="overlay" id="overlay">
-
-      <div class="painel" id="painelInicial">
-        <p>
-          Mova com o <b>mouse</b> ou as setas <b>↑ ↓</b> (ou W / S)<br>
-          <b>P</b> pausa &nbsp;·&nbsp; primeiro a fazer <b>7</b> vence
-        </p>
-        <div class="botoes">
-          <button id="btnSolo">Jogar vs CPU</button>
-          <button id="btnHost" class="secundario">Criar sala online</button>
-          <button id="btnJoin" class="secundario">Entrar em sala online</button>
-        </div>
-      </div>
-
-      <div class="painel hidden" id="painelHost">
-        <p>Compartilhe este código com o outro jogador:</p>
-        <div class="codigo" id="codigoHost">----</div>
-        <p id="statusHost">Gerando sala...</p>
-        <button id="btnVoltarHost" class="secundario">Voltar</button>
-      </div>
-
-      <div class="painel hidden" id="painelJoin">
-        <p>Digite o código da sala:</p>
-        <input id="inputCodigo" maxlength="12" placeholder="código" autocomplete="off" />
-        <button id="btnConectar">Conectar</button>
-        <p id="statusJoin"></p>
-        <button id="btnVoltarJoin" class="secundario">Voltar</button>
-      </div>
-
-      <div class="painel hidden" id="painelFim">
-        <p id="msg"></p>
-        <button id="btn">Jogar de novo</button>
-      </div>
-
-    </div>
+  <div class="grade">
+    <a class="jogo pong" href="pong.html">
+      <span class="titulo">Pong</span>
+      <span class="desc">Clássico 1x1. Jogue sozinho contra a CPU ou online com um amigo via WebRTC.</span>
+    </a>
+    <a class="jogo bomberman" href="bomberman.html">
+      <span class="titulo">Bomberman</span>
+      <span class="desc">Explosões e labirinto destrutível para 2 ou 3 jogadores online.</span>
+    </a>
   </div>
 
   <footer>feito com canvas 2d + PeerJS (WebRTC)</footer>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
-  <script>
-    const canvas = document.getElementById("jogo");
-    const ctx = canvas.getContext("2d");
-    const overlay = document.getElementById("overlay");
-    const msg = document.getElementById("msg");
-    const btn = document.getElementById("btn");
-    const subtitulo = document.getElementById("subtitulo");
-
-    const painelInicial = document.getElementById("painelInicial");
-    const painelHost = document.getElementById("painelHost");
-    const painelJoin = document.getElementById("painelJoin");
-    const painelFim = document.getElementById("painelFim");
-
-    const btnSolo = document.getElementById("btnSolo");
-    const btnHost = document.getElementById("btnHost");
-    const btnJoin = document.getElementById("btnJoin");
-    const btnVoltarHost = document.getElementById("btnVoltarHost");
-    const btnVoltarJoin = document.getElementById("btnVoltarJoin");
-    const btnConectar = document.getElementById("btnConectar");
-    const codigoHost = document.getElementById("codigoHost");
-    const statusHost = document.getElementById("statusHost");
-    const statusJoin = document.getElementById("statusJoin");
-    const inputCodigo = document.getElementById("inputCodigo");
-
-    const L = canvas.width;
-    const A = canvas.height;
-    const PONTOS_VITORIA = 7;
-
-    // Raquetes
-    const RAQ_L = 12, RAQ_A = 90;
-    const jogador = { x: 24, y: A / 2 - RAQ_A / 2, vy: 0 };
-    const cpu = { x: L - 24 - RAQ_L, y: A / 2 - RAQ_A / 2, vy: 0 };
-    const VEL_JOGADOR = 7;
-    const VEL_CPU = 3; // limitada de propósito para dar chance ao jogador (só no modo solo)
-
-    // Bola
-    const RAIO = 9;
-    const bola = { x: L / 2, y: A / 2, vx: 0, vy: 0, vel: 2 };
-
-    // Rastro da bola
-    const rastro = [];
-
-    let placarJogador = 0;
-    let placarCpu = 0;
-    let rodando = false;
-    let pausado = false;
-    let acabou = false;
-
-    const teclas = {};
-
-    // ---- Multiplayer (PeerJS) ----
-    // modo: 'solo' | 'host' | 'guest'
-    let modo = "solo";
-    let minhaRaquete = jogador;
-    let peer = null;
-    let conn = null;
-
-    // Posições-alvo recebidas do host (convidado interpola até elas a cada frame,
-    // em vez de "saltar" direto — evita soluços por causa da chegada irregular de pacotes)
-    let alvoJogadorY = jogador.y;
-    let alvoBolaX = bola.x;
-    let alvoBolaY = bola.y;
-
-    function gerarCodigo() {
-      const alfabeto = "abcdefghjkmnpqrstuvwxyz23456789";
-      let c = "";
-      for (let i = 0; i < 5; i++) c += alfabeto[Math.floor(Math.random() * alfabeto.length)];
-      return "pong-" + c;
-    }
-
-    function mostrarPainel(nome) {
-      overlay.classList.remove("hidden");
-      for (const p of [painelInicial, painelHost, painelJoin, painelFim]) {
-        p.classList.toggle("hidden", p.id !== nome);
-      }
-    }
-
-    function encerrarConexao() {
-      if (conn) { try { conn.close(); } catch (e) {} conn = null; }
-      if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
-    }
-
-    function resetarParaInicio() {
-      encerrarConexao();
-      modo = "solo";
-      minhaRaquete = jogador;
-      rodando = false;
-      acabou = false;
-      subtitulo.textContent = "até 7 pontos";
-      mostrarPainel("painelInicial");
-    }
-
-    // ---- Criar sala (host) ----
-    btnHost.addEventListener("click", () => {
-      mostrarPainel("painelHost");
-      codigoHost.textContent = "----";
-      statusHost.textContent = "Gerando sala...";
-
-      peer = new Peer(gerarCodigo());
-
-      peer.on("open", (id) => {
-        codigoHost.textContent = id;
-        statusHost.textContent = "Aguardando o outro jogador entrar...";
-      });
-
-      peer.on("connection", (c) => {
-        conn = c;
-        configurarConexao();
-        conn.on("open", () => {
-          modo = "host";
-          minhaRaquete = jogador;
-          subtitulo.textContent = "online · você é o Jogador 1 (esquerda)";
-          statusHost.textContent = "Jogador 2 conectado! Iniciando...";
-          setTimeout(novoJogo, 400);
-        });
-      });
-
-      peer.on("error", (err) => {
-        statusHost.textContent = "Erro: " + err.type;
-      });
-    });
-
-    // ---- Entrar em sala (guest) ----
-    btnJoin.addEventListener("click", () => {
-      mostrarPainel("painelJoin");
-      statusJoin.textContent = "";
-      inputCodigo.value = "";
-      inputCodigo.focus();
-    });
-
-    btnConectar.addEventListener("click", conectarComoConvidado);
-    inputCodigo.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") conectarComoConvidado();
-    });
-
-    function conectarComoConvidado() {
-      const codigo = inputCodigo.value.trim().toLowerCase();
-      if (!codigo) return;
-
-      statusJoin.textContent = "Conectando...";
-      btnConectar.disabled = true;
-
-      peer = new Peer();
-      peer.on("open", () => {
-        conn = peer.connect(codigo, { reliable: true });
-        configurarConexao();
-
-        conn.on("open", () => {
-          modo = "guest";
-          minhaRaquete = cpu;
-          subtitulo.textContent = "online · você é o Jogador 2 (direita)";
-          statusJoin.textContent = "Conectado! Aguardando o host iniciar...";
-        });
-      });
-
-      peer.on("error", (err) => {
-        btnConectar.disabled = false;
-        statusJoin.textContent = "Erro: " + err.type + " (verifique o código)";
-      });
-    }
-
-    function configurarConexao() {
-      conn.on("data", handleData);
-      conn.on("close", () => {
-        mostrarPainel("painelFim");
-        msg.innerHTML = `<b style="color:var(--accent2)">Conexão perdida</b><br>O outro jogador saiu.`;
-        btn.textContent = "Voltar ao início";
-        btn.disabled = false;
-        rodando = false;
-      });
-      conn.on("error", () => {});
-    }
-
-    btnVoltarHost.addEventListener("click", resetarParaInicio);
-    btnVoltarJoin.addEventListener("click", resetarParaInicio);
-
-    function handleData(data) {
-      if (modo === "host") {
-        if (data.type === "input") {
-          cpu.y = Math.max(0, Math.min(A - RAQ_A, data.y));
-        }
-      } else if (modo === "guest") {
-        if (data.type === "state") {
-          // A raquete do convidado (cpu.y) NÃO é sobrescrita aqui: ela é controlada
-          // localmente (mousemove/teclado) para resposta instantânea. Sobrescrever com o
-          // valor "eco" do host (que reflete um input de ~1 ida-e-volta atrás) causava a
-          // sensação de travamento/atraso ao mover o mouse.
-          alvoJogadorY = data.jogadorY;
-          alvoBolaX = data.bolaX;
-          alvoBolaY = data.bolaY;
-          placarJogador = data.placarJogador;
-          placarCpu = data.placarCpu;
-
-          const eraAcabou = acabou;
-          rodando = data.rodando;
-          pausado = data.pausado;
-          acabou = data.acabou;
-
-          if (acabou && !eraAcabou) {
-            const euVenci = placarCpu > placarJogador;
-            mostrarFim(euVenci, false);
-          } else if (rodando) {
-            overlay.classList.add("hidden");
-          }
-        }
-      }
-    }
-
-    // ---- Jogo ----
-
-    function resetarBola(direcao) {
-      bola.x = L / 2;
-      bola.y = A / 2;
-      bola.vel = 2;
-      const ang = (Math.random() * 2 - 1) * (Math.PI / 4); // -45º a 45º
-      bola.vx = direcao * bola.vel * Math.cos(ang);
-      bola.vy = bola.vel * Math.sin(ang);
-      rastro.length = 0;
-    }
-
-    function novoJogo() {
-      placarJogador = 0;
-      placarCpu = 0;
-      acabou = false;
-      jogador.y = A / 2 - RAQ_A / 2;
-      cpu.y = A / 2 - RAQ_A / 2;
-      resetarBola(Math.random() < 0.5 ? -1 : 1);
-      rodando = true;
-      pausado = false;
-      overlay.classList.add("hidden");
-    }
-
-    function pontuar(quem) {
-      if (quem === "jogador") placarJogador++;
-      else placarCpu++;
-
-      if (placarJogador >= PONTOS_VITORIA || placarCpu >= PONTOS_VITORIA) {
-        acabou = true;
-        rodando = false;
-        const jogadorVenceu = placarJogador > placarCpu;
-        const euVenci = modo === "guest" ? !jogadorVenceu : jogadorVenceu;
-        mostrarFim(euVenci, modo !== "guest");
-      } else {
-        // saque em direção a quem levou o ponto
-        resetarBola(quem === "jogador" ? 1 : -1);
-      }
-    }
-
-    function mostrarFim(euVenci, possoReiniciar) {
-      msg.innerHTML = `<b style="color:${euVenci ? "var(--accent)" : "var(--accent2)"}">${euVenci ? "Você venceu!" : "Você perdeu"}</b><br>Placar final ${placarJogador} × ${placarCpu}`;
-      btn.textContent = possoReiniciar ? "Jogar de novo" : "Aguardando o host...";
-      btn.disabled = !possoReiniciar;
-      mostrarPainel("painelFim");
-    }
-
-    function atualizarLocalConvidado() {
-      minhaRaquete.vy = 0;
-      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) minhaRaquete.vy = -VEL_JOGADOR;
-      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) minhaRaquete.vy = VEL_JOGADOR;
-      minhaRaquete.y += minhaRaquete.vy;
-      minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, minhaRaquete.y));
-      if (conn && conn.open) conn.send({ type: "input", y: minhaRaquete.y });
-
-      // Suaviza a raquete do host e a bola até a última posição recebida da rede
-      const suavizacao = 0.35;
-      jogador.y += (alvoJogadorY - jogador.y) * suavizacao;
-      bola.x += (alvoBolaX - bola.x) * suavizacao;
-      bola.y += (alvoBolaY - bola.y) * suavizacao;
-    }
-
-    function atualizar() {
-      if (modo === "guest") {
-        atualizarLocalConvidado();
-        return; // física roda no host; aqui só enviamos nosso input
-      }
-
-      if (!rodando || pausado) return;
-
-      // Movimento do jogador (teclado) — controla `jogador`, que é `minhaRaquete` em solo/host
-      jogador.vy = 0;
-      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) jogador.vy = -VEL_JOGADOR;
-      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) jogador.vy = VEL_JOGADOR;
-      jogador.y += jogador.vy;
-      jogador.y = Math.max(0, Math.min(A - RAQ_A, jogador.y));
-
-      if (modo === "solo") {
-        // IA da CPU: segue o centro da bola com velocidade limitada
-        const centroCpu = cpu.y + RAQ_A / 2;
-        const alvo = bola.y;
-        if (centroCpu < alvo - 10) cpu.y += VEL_CPU;
-        else if (centroCpu > alvo + 10) cpu.y -= VEL_CPU;
-        cpu.y = Math.max(0, Math.min(A - RAQ_A, cpu.y));
-      } else if (modo === "host") {
-        // cpu.y já é atualizado pelos inputs recebidos do convidado (handleData)
-        cpu.y = Math.max(0, Math.min(A - RAQ_A, cpu.y));
-      }
-
-      // Rastro
-      rastro.push({ x: bola.x, y: bola.y });
-      if (rastro.length > 12) rastro.shift();
-
-      // Movimento da bola
-      bola.x += bola.vx;
-      bola.y += bola.vy;
-
-      // Quicar em cima/baixo
-      if (bola.y - RAIO <= 0) { bola.y = RAIO; bola.vy = -bola.vy; }
-      if (bola.y + RAIO >= A) { bola.y = A - RAIO; bola.vy = -bola.vy; }
-
-      // Colisão com raquete do jogador
-      if (
-        bola.x - RAIO <= jogador.x + RAQ_L &&
-        bola.x - RAIO >= jogador.x &&
-        bola.y >= jogador.y &&
-        bola.y <= jogador.y + RAQ_A &&
-        bola.vx < 0
-      ) {
-        rebater(jogador, 1);
-      }
-
-      // Colisão com raquete da CPU
-      if (
-        bola.x + RAIO >= cpu.x &&
-        bola.x + RAIO <= cpu.x + RAQ_L &&
-        bola.y >= cpu.y &&
-        bola.y <= cpu.y + RAQ_A &&
-        bola.vx > 0
-      ) {
-        rebater(cpu, -1);
-      }
-
-      // Pontos
-      if (bola.x + RAIO < 0) pontuar("cpu");
-      if (bola.x - RAIO > L) pontuar("jogador");
-
-      // Envia o estado autoritativo para o convidado
-      if (modo === "host" && conn && conn.open) {
-        conn.send({
-          type: "state",
-          jogadorY: jogador.y,
-          cpuY: cpu.y,
-          bolaX: bola.x,
-          bolaY: bola.y,
-          placarJogador,
-          placarCpu,
-          rodando,
-          pausado,
-          acabou,
-        });
-      }
-    }
-
-    // Rebate a bola mudando o ângulo conforme onde bateu na raquete, e acelera um pouco
-    function rebater(raq, direcao) {
-      const rel = (bola.y - (raq.y + RAQ_A / 2)) / (RAQ_A / 2); // -1 (topo) a 1 (base)
-      const ang = rel * (Math.PI / 3); // até 60º
-      bola.vel = Math.min(bola.vel + 0.15, 5);
-      bola.vx = direcao * bola.vel * Math.cos(ang);
-      bola.vy = bola.vel * Math.sin(ang);
-    }
-
-    function desenhar() {
-      ctx.clearRect(0, 0, L, A);
-
-      // Linha central pontilhada
-      ctx.strokeStyle = "rgba(90,107,130,0.45)";
-      ctx.lineWidth = 3;
-      ctx.setLineDash([12, 16]);
-      ctx.beginPath();
-      ctx.moveTo(L / 2, 0);
-      ctx.lineTo(L / 2, A);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Placar
-      ctx.fillStyle = "rgba(232,240,255,0.15)";
-      ctx.font = "bold 90px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(placarJogador, L / 2 - 80, 100);
-      ctx.fillText(placarCpu, L / 2 + 80, 100);
-
-      // Raquetes
-      ctx.fillStyle = "#4de2c2";
-      arredondado(jogador.x, jogador.y, RAQ_L, RAQ_A, 6);
-      ctx.fillStyle = "#ff5d73";
-      arredondado(cpu.x, cpu.y, RAQ_L, RAQ_A, 6);
-
-      // Rastro da bola
-      for (let i = 0; i < rastro.length; i++) {
-        const p = rastro[i];
-        const t = i / rastro.length;
-        ctx.fillStyle = `rgba(232,240,255,${t * 0.25})`;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, RAIO * t, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Bola
-      ctx.fillStyle = "#e8f0ff";
-      ctx.shadowColor = "#8be9ff";
-      ctx.shadowBlur = 18;
-      ctx.beginPath();
-      ctx.arc(bola.x, bola.y, RAIO, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    // Retângulo com cantos arredondados preenchido
-    function arredondado(x, y, w, h, r) {
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.arcTo(x + w, y, x + w, y + h, r);
-      ctx.arcTo(x + w, y + h, x, y + h, r);
-      ctx.arcTo(x, y + h, x, y, r);
-      ctx.arcTo(x, y, x + w, y, r);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    function loop() {
-      atualizar();
-      desenhar();
-      requestAnimationFrame(loop);
-    }
-
-    // Controles
-    document.addEventListener("keydown", (e) => {
-      teclas[e.key] = true;
-      if (e.key === "p" || e.key === "P") {
-        if (modo !== "guest" && rodando && !acabou) pausado = !pausado;
-      }
-      if (["ArrowUp", "ArrowDown"].includes(e.key)) e.preventDefault();
-    });
-    document.addEventListener("keyup", (e) => { teclas[e.key] = false; });
-
-    // Controle por mouse
-    canvas.addEventListener("mousemove", (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const escala = A / rect.height;
-      const my = (e.clientY - rect.top) * escala;
-      minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
-    });
-
-    // Controle por toque
-    canvas.addEventListener("touchmove", (e) => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const escala = A / rect.height;
-      const my = (e.touches[0].clientY - rect.top) * escala;
-      minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
-    }, { passive: false });
-
-    btnSolo.addEventListener("click", () => {
-      modo = "solo";
-      minhaRaquete = jogador;
-      subtitulo.textContent = "até 7 pontos · vs CPU";
-      novoJogo();
-    });
-
-    btn.addEventListener("click", () => {
-      if (btn.disabled) return;
-      if (modo === "guest") return;
-      if (btn.textContent === "Voltar ao início") {
-        resetarParaInicio();
-      } else {
-        novoJogo();
-      }
-    });
-
-    loop();
-  </script>
 </body>
 </html>
