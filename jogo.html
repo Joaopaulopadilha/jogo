@@ -1,5 +1,5 @@
 <!-- pong.html -->
-<!-- Pong moderno: jogador vs CPU em canvas, com placar, efeitos e controles por teclado/mouse -->
+<!-- Pong moderno: jogador vs CPU ou online (2 jogadores via PeerJS/WebRTC) em canvas -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -92,9 +92,25 @@
     }
 
     .overlay.hidden { display: none; }
+    .painel.hidden { display: none; }
+
+    .painel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
 
     .overlay p { color: var(--muted); font-size: 13px; line-height: 1.8; }
     .overlay b { color: var(--ink); }
+
+    .botoes {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-width: 260px;
+    }
 
     button {
       font-family: inherit;
@@ -114,6 +130,41 @@
     button:hover { transform: translateY(-1px); box-shadow: 0 8px 26px rgba(77,226,194,0.5); }
     button:active { transform: translateY(1px); }
     button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    button.secundario {
+      background: transparent;
+      color: var(--ink);
+      box-shadow: inset 0 0 0 1px rgba(232,240,255,0.25);
+    }
+
+    input#inputCodigo {
+      font-family: inherit;
+      font-size: 20px;
+      letter-spacing: 0.2em;
+      text-align: center;
+      text-transform: lowercase;
+      color: var(--ink);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(232,240,255,0.2);
+      border-radius: 8px;
+      padding: 10px 14px;
+      width: 100%;
+      max-width: 220px;
+    }
+    input#inputCodigo:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .codigo {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: 0.25em;
+      color: var(--accent);
+      background: rgba(77,226,194,0.1);
+      border: 1px dashed rgba(77,226,194,0.5);
+      border-radius: 8px;
+      padding: 10px 20px;
+      user-select: all;
+    }
 
     footer { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
 
@@ -125,29 +176,74 @@
 <body>
   <header>
     <h1>Pong</h1>
-    <span>até 7 pontos</span>
+    <span id="subtitulo">até 7 pontos</span>
   </header>
 
   <div class="wrap">
     <canvas id="jogo" width="800" height="500"></canvas>
     <div class="overlay" id="overlay">
-      <p id="msg">
-        <b>Você</b> à esquerda &nbsp;·&nbsp; <b>CPU</b> à direita<br>
-        Mova com o <b>mouse</b> ou as setas <b>↑ ↓</b> (ou W / S)<br>
-        <b>P</b> pausa &nbsp;·&nbsp; primeiro a fazer <b>7</b> vence
-      </p>
-      <button id="btn">Jogar</button>
+
+      <div class="painel" id="painelInicial">
+        <p>
+          Mova com o <b>mouse</b> ou as setas <b>↑ ↓</b> (ou W / S)<br>
+          <b>P</b> pausa &nbsp;·&nbsp; primeiro a fazer <b>7</b> vence
+        </p>
+        <div class="botoes">
+          <button id="btnSolo">Jogar vs CPU</button>
+          <button id="btnHost" class="secundario">Criar sala online</button>
+          <button id="btnJoin" class="secundario">Entrar em sala online</button>
+        </div>
+      </div>
+
+      <div class="painel hidden" id="painelHost">
+        <p>Compartilhe este código com o outro jogador:</p>
+        <div class="codigo" id="codigoHost">----</div>
+        <p id="statusHost">Gerando sala...</p>
+        <button id="btnVoltarHost" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelJoin">
+        <p>Digite o código da sala:</p>
+        <input id="inputCodigo" maxlength="12" placeholder="código" autocomplete="off" />
+        <button id="btnConectar">Conectar</button>
+        <p id="statusJoin"></p>
+        <button id="btnVoltarJoin" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelFim">
+        <p id="msg"></p>
+        <button id="btn">Jogar de novo</button>
+      </div>
+
     </div>
   </div>
 
-  <footer>feito com canvas 2d</footer>
+  <footer>feito com canvas 2d + PeerJS (WebRTC)</footer>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
   <script>
     const canvas = document.getElementById("jogo");
     const ctx = canvas.getContext("2d");
     const overlay = document.getElementById("overlay");
     const msg = document.getElementById("msg");
     const btn = document.getElementById("btn");
+    const subtitulo = document.getElementById("subtitulo");
+
+    const painelInicial = document.getElementById("painelInicial");
+    const painelHost = document.getElementById("painelHost");
+    const painelJoin = document.getElementById("painelJoin");
+    const painelFim = document.getElementById("painelFim");
+
+    const btnSolo = document.getElementById("btnSolo");
+    const btnHost = document.getElementById("btnHost");
+    const btnJoin = document.getElementById("btnJoin");
+    const btnVoltarHost = document.getElementById("btnVoltarHost");
+    const btnVoltarJoin = document.getElementById("btnVoltarJoin");
+    const btnConectar = document.getElementById("btnConectar");
+    const codigoHost = document.getElementById("codigoHost");
+    const statusHost = document.getElementById("statusHost");
+    const statusJoin = document.getElementById("statusJoin");
+    const inputCodigo = document.getElementById("inputCodigo");
 
     const L = canvas.width;
     const A = canvas.height;
@@ -158,7 +254,7 @@
     const jogador = { x: 24, y: A / 2 - RAQ_A / 2, vy: 0 };
     const cpu = { x: L - 24 - RAQ_L, y: A / 2 - RAQ_A / 2, vy: 0 };
     const VEL_JOGADOR = 7;
-    const VEL_CPU = 3; // limitada de propósito para dar chance ao jogador
+    const VEL_CPU = 3; // limitada de propósito para dar chance ao jogador (só no modo solo)
 
     // Bola
     const RAIO = 9;
@@ -174,6 +270,157 @@
     let acabou = false;
 
     const teclas = {};
+
+    // ---- Multiplayer (PeerJS) ----
+    // modo: 'solo' | 'host' | 'guest'
+    let modo = "solo";
+    let minhaRaquete = jogador;
+    let peer = null;
+    let conn = null;
+
+    function gerarCodigo() {
+      const alfabeto = "abcdefghjkmnpqrstuvwxyz23456789";
+      let c = "";
+      for (let i = 0; i < 5; i++) c += alfabeto[Math.floor(Math.random() * alfabeto.length)];
+      return "pong-" + c;
+    }
+
+    function mostrarPainel(nome) {
+      overlay.classList.remove("hidden");
+      for (const p of [painelInicial, painelHost, painelJoin, painelFim]) {
+        p.classList.toggle("hidden", p.id !== nome);
+      }
+    }
+
+    function encerrarConexao() {
+      if (conn) { try { conn.close(); } catch (e) {} conn = null; }
+      if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+    }
+
+    function resetarParaInicio() {
+      encerrarConexao();
+      modo = "solo";
+      minhaRaquete = jogador;
+      rodando = false;
+      acabou = false;
+      subtitulo.textContent = "até 7 pontos";
+      mostrarPainel("painelInicial");
+    }
+
+    // ---- Criar sala (host) ----
+    btnHost.addEventListener("click", () => {
+      mostrarPainel("painelHost");
+      codigoHost.textContent = "----";
+      statusHost.textContent = "Gerando sala...";
+
+      peer = new Peer(gerarCodigo());
+
+      peer.on("open", (id) => {
+        codigoHost.textContent = id;
+        statusHost.textContent = "Aguardando o outro jogador entrar...";
+      });
+
+      peer.on("connection", (c) => {
+        conn = c;
+        configurarConexao();
+        conn.on("open", () => {
+          modo = "host";
+          minhaRaquete = jogador;
+          subtitulo.textContent = "online · você é o Jogador 1 (esquerda)";
+          statusHost.textContent = "Jogador 2 conectado! Iniciando...";
+          setTimeout(novoJogo, 400);
+        });
+      });
+
+      peer.on("error", (err) => {
+        statusHost.textContent = "Erro: " + err.type;
+      });
+    });
+
+    // ---- Entrar em sala (guest) ----
+    btnJoin.addEventListener("click", () => {
+      mostrarPainel("painelJoin");
+      statusJoin.textContent = "";
+      inputCodigo.value = "";
+      inputCodigo.focus();
+    });
+
+    btnConectar.addEventListener("click", conectarComoConvidado);
+    inputCodigo.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") conectarComoConvidado();
+    });
+
+    function conectarComoConvidado() {
+      const codigo = inputCodigo.value.trim().toLowerCase();
+      if (!codigo) return;
+
+      statusJoin.textContent = "Conectando...";
+      btnConectar.disabled = true;
+
+      peer = new Peer();
+      peer.on("open", () => {
+        conn = peer.connect(codigo, { reliable: true });
+        configurarConexao();
+
+        conn.on("open", () => {
+          modo = "guest";
+          minhaRaquete = cpu;
+          subtitulo.textContent = "online · você é o Jogador 2 (direita)";
+          statusJoin.textContent = "Conectado! Aguardando o host iniciar...";
+        });
+      });
+
+      peer.on("error", (err) => {
+        btnConectar.disabled = false;
+        statusJoin.textContent = "Erro: " + err.type + " (verifique o código)";
+      });
+    }
+
+    function configurarConexao() {
+      conn.on("data", handleData);
+      conn.on("close", () => {
+        mostrarPainel("painelFim");
+        msg.innerHTML = `<b style="color:var(--accent2)">Conexão perdida</b><br>O outro jogador saiu.`;
+        btn.textContent = "Voltar ao início";
+        btn.disabled = false;
+        rodando = false;
+      });
+      conn.on("error", () => {});
+    }
+
+    btnVoltarHost.addEventListener("click", resetarParaInicio);
+    btnVoltarJoin.addEventListener("click", resetarParaInicio);
+
+    function handleData(data) {
+      if (modo === "host") {
+        if (data.type === "input") {
+          cpu.y = Math.max(0, Math.min(A - RAQ_A, data.y));
+        }
+      } else if (modo === "guest") {
+        if (data.type === "state") {
+          jogador.y = data.jogadorY;
+          cpu.y = data.cpuY;
+          bola.x = data.bolaX;
+          bola.y = data.bolaY;
+          placarJogador = data.placarJogador;
+          placarCpu = data.placarCpu;
+
+          const eraAcabou = acabou;
+          rodando = data.rodando;
+          pausado = data.pausado;
+          acabou = data.acabou;
+
+          if (acabou && !eraAcabou) {
+            const euVenci = placarCpu > placarJogador;
+            mostrarFim(euVenci, false);
+          } else if (rodando) {
+            overlay.classList.add("hidden");
+          }
+        }
+      }
+    }
+
+    // ---- Jogo ----
 
     function resetarBola(direcao) {
       bola.x = L / 2;
@@ -204,32 +451,57 @@
       if (placarJogador >= PONTOS_VITORIA || placarCpu >= PONTOS_VITORIA) {
         acabou = true;
         rodando = false;
-        const venceu = placarJogador > placarCpu;
-        msg.innerHTML = `<b style="color:${venceu ? 'var(--accent)' : 'var(--accent2)'}">${venceu ? "Você venceu!" : "CPU venceu"}</b><br>Placar final ${placarJogador} × ${placarCpu}`;
-        btn.textContent = "Jogar de novo";
-        overlay.classList.remove("hidden");
+        const jogadorVenceu = placarJogador > placarCpu;
+        const euVenci = modo === "guest" ? !jogadorVenceu : jogadorVenceu;
+        mostrarFim(euVenci, modo !== "guest");
       } else {
         // saque em direção a quem levou o ponto
         resetarBola(quem === "jogador" ? 1 : -1);
       }
     }
 
+    function mostrarFim(euVenci, possoReiniciar) {
+      msg.innerHTML = `<b style="color:${euVenci ? "var(--accent)" : "var(--accent2)"}">${euVenci ? "Você venceu!" : "Você perdeu"}</b><br>Placar final ${placarJogador} × ${placarCpu}`;
+      btn.textContent = possoReiniciar ? "Jogar de novo" : "Aguardando o host...";
+      btn.disabled = !possoReiniciar;
+      mostrarPainel("painelFim");
+    }
+
+    function atualizarLocalConvidado() {
+      minhaRaquete.vy = 0;
+      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) minhaRaquete.vy = -VEL_JOGADOR;
+      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) minhaRaquete.vy = VEL_JOGADOR;
+      minhaRaquete.y += minhaRaquete.vy;
+      minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, minhaRaquete.y));
+      if (conn && conn.open) conn.send({ type: "input", y: minhaRaquete.y });
+    }
+
     function atualizar() {
+      if (modo === "guest") {
+        atualizarLocalConvidado();
+        return; // física roda no host; aqui só enviamos nosso input
+      }
+
       if (!rodando || pausado) return;
 
-      // Movimento do jogador (teclado)
+      // Movimento do jogador (teclado) — controla `jogador`, que é `minhaRaquete` em solo/host
       jogador.vy = 0;
       if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) jogador.vy = -VEL_JOGADOR;
       if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) jogador.vy = VEL_JOGADOR;
       jogador.y += jogador.vy;
       jogador.y = Math.max(0, Math.min(A - RAQ_A, jogador.y));
 
-      // IA da CPU: segue o centro da bola com velocidade limitada
-      const centroCpu = cpu.y + RAQ_A / 2;
-      const alvo = bola.y;
-      if (centroCpu < alvo - 10) cpu.y += VEL_CPU;
-      else if (centroCpu > alvo + 10) cpu.y -= VEL_CPU;
-      cpu.y = Math.max(0, Math.min(A - RAQ_A, cpu.y));
+      if (modo === "solo") {
+        // IA da CPU: segue o centro da bola com velocidade limitada
+        const centroCpu = cpu.y + RAQ_A / 2;
+        const alvo = bola.y;
+        if (centroCpu < alvo - 10) cpu.y += VEL_CPU;
+        else if (centroCpu > alvo + 10) cpu.y -= VEL_CPU;
+        cpu.y = Math.max(0, Math.min(A - RAQ_A, cpu.y));
+      } else if (modo === "host") {
+        // cpu.y já é atualizado pelos inputs recebidos do convidado (handleData)
+        cpu.y = Math.max(0, Math.min(A - RAQ_A, cpu.y));
+      }
 
       // Rastro
       rastro.push({ x: bola.x, y: bola.y });
@@ -268,6 +540,22 @@
       // Pontos
       if (bola.x + RAIO < 0) pontuar("cpu");
       if (bola.x - RAIO > L) pontuar("jogador");
+
+      // Envia o estado autoritativo para o convidado
+      if (modo === "host" && conn && conn.open) {
+        conn.send({
+          type: "state",
+          jogadorY: jogador.y,
+          cpuY: cpu.y,
+          bolaX: bola.x,
+          bolaY: bola.y,
+          placarJogador,
+          placarCpu,
+          rodando,
+          pausado,
+          acabou,
+        });
+      }
     }
 
     // Rebate a bola mudando o ângulo conforme onde bateu na raquete, e acelera um pouco
@@ -347,7 +635,7 @@
     document.addEventListener("keydown", (e) => {
       teclas[e.key] = true;
       if (e.key === "p" || e.key === "P") {
-        if (rodando && !acabou) pausado = !pausado;
+        if (modo !== "guest" && rodando && !acabou) pausado = !pausado;
       }
       if (["ArrowUp", "ArrowDown"].includes(e.key)) e.preventDefault();
     });
@@ -358,7 +646,7 @@
       const rect = canvas.getBoundingClientRect();
       const escala = A / rect.height;
       const my = (e.clientY - rect.top) * escala;
-      jogador.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
+      minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
     });
 
     // Controle por toque
@@ -367,10 +655,25 @@
       const rect = canvas.getBoundingClientRect();
       const escala = A / rect.height;
       const my = (e.touches[0].clientY - rect.top) * escala;
-      jogador.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
+      minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, my - RAQ_A / 2));
     }, { passive: false });
 
-    btn.addEventListener("click", novoJogo);
+    btnSolo.addEventListener("click", () => {
+      modo = "solo";
+      minhaRaquete = jogador;
+      subtitulo.textContent = "até 7 pontos · vs CPU";
+      novoJogo();
+    });
+
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      if (modo === "guest") return;
+      if (btn.textContent === "Voltar ao início") {
+        resetarParaInicio();
+      } else {
+        novoJogo();
+      }
+    });
 
     loop();
   </script>
