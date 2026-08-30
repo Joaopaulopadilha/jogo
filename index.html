@@ -278,6 +278,12 @@
     let peer = null;
     let conn = null;
 
+    // Posições-alvo recebidas do host (convidado interpola até elas a cada frame,
+    // em vez de "saltar" direto — evita soluços por causa da chegada irregular de pacotes)
+    let alvoJogadorY = jogador.y;
+    let alvoBolaX = bola.x;
+    let alvoBolaY = bola.y;
+
     function gerarCodigo() {
       const alfabeto = "abcdefghjkmnpqrstuvwxyz23456789";
       let c = "";
@@ -398,10 +404,13 @@
         }
       } else if (modo === "guest") {
         if (data.type === "state") {
-          jogador.y = data.jogadorY;
-          cpu.y = data.cpuY;
-          bola.x = data.bolaX;
-          bola.y = data.bolaY;
+          // A raquete do convidado (cpu.y) NÃO é sobrescrita aqui: ela é controlada
+          // localmente (mousemove/teclado) para resposta instantânea. Sobrescrever com o
+          // valor "eco" do host (que reflete um input de ~1 ida-e-volta atrás) causava a
+          // sensação de travamento/atraso ao mover o mouse.
+          alvoJogadorY = data.jogadorY;
+          alvoBolaX = data.bolaX;
+          alvoBolaY = data.bolaY;
           placarJogador = data.placarJogador;
           placarCpu = data.placarCpu;
 
@@ -474,6 +483,12 @@
       minhaRaquete.y += minhaRaquete.vy;
       minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, minhaRaquete.y));
       if (conn && conn.open) conn.send({ type: "input", y: minhaRaquete.y });
+
+      // Suaviza a raquete do host e a bola até a última posição recebida da rede
+      const suavizacao = 0.35;
+      jogador.y += (alvoJogadorY - jogador.y) * suavizacao;
+      bola.x += (alvoBolaX - bola.x) * suavizacao;
+      bola.y += (alvoBolaY - bola.y) * suavizacao;
     }
 
     function atualizar() {
