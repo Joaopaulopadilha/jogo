@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Pac-Man HTML</title>
+<style>
+  body { background:#000; color:#fff; font-family:sans-serif; text-align:center; margin:0; padding:20px; }
+  canvas { background:#000; border:4px solid #222; display:block; margin:10px auto; }
+  #info { margin-top:10px; font-size:18px; }
+  #info span { margin:0 15px; }
+  nav a { color:#8ab4ff; font-size:13px; text-decoration:none; }
+  nav a:hover { text-decoration:underline; }
+</style>
+</head>
+<body>
+<h1>Pac-Man</h1>
+<nav><a href="index.html">← início</a></nav>
+<canvas id="game"></canvas>
+<div id="info">
+  <span>Pontos: <b id="score">0</b></span>
+  <span>Vidas: <b id="lives">3</b></span>
+  <span id="msg"></span>
+</div>
+<p>Use ← ↑ → ↓ ou WASD para mover. R para reiniciar. Coma as frutas 🍒🍎🍇🍉 para ficar invencível e comer os fantasmas!</p>
+
+<script>
+const TILE = 24;
+const COLS = 21;
+const ROWS = 21;
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+canvas.width = COLS * TILE;
+canvas.height = ROWS * TILE;
+
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const msgEl = document.getElementById('msg');
+
+let grid, pacman, ghosts, fruits, score, lives, pellets, gameOver, gameWin, powerMode, powerTimer;
+
+// Imagens do fim de jogo (recortadas de pac_musculos.png e pac_triste.png)
+const IMG_VITORIA = new Image(); IMG_VITORIA.src = 'sprites_pacman/vitoria.png';
+const IMG_DERROTA = new Image(); IMG_DERROTA.src = 'sprites_pacman/derrota.png';
+let fimTempo = null; // instante em que a partida terminou, para a animação
+
+// Velocidades: ms entre cada passo na grade. Aumente o valor para ficar MAIS LENTO.
+const PACMAN_TICK = 140; // passo do Pac-Man
+const GHOST_TICK  = 380; // passo dos fantasmas (bem mais lento => mais fácil de avaliar)
+const POWER_TIME  = 6000; // ms de invencibilidade ao comer uma fruta
+const POWER_SCORE = 100;  // pontos de cada fruta
+const GHOST_EAT_SCORE = 200; // pontos por fantasma comido em power mode
+// frutas (power pellets) em tiles de passagem, desenhadas com emoji
+const FRUITS = [
+  {x:10,y:1,  emoji:'🍒'},
+  {x:1, y:10, emoji:'🍎'},
+  {x:19,y:10, emoji:'🍇'},
+  {x:10,y:19, emoji:'🍉'}
+];
+let lastTime = 0, pacmanTimer = 0, ghostTimer = 0;
+
+// ===== TELA DE ABERTURA (intro) =====
+const INTRO = {
+  lines: [
+    { text:'CAPS STUDIOS', y:0.30, size:26, color:'#8ab4ff', delay:300 },
+    { text:'APRESENTA',   y:0.45, size:18, color:'#ffffff', delay:1500 },
+    { text:'PACMANO',     y:0.63, size:54, color:'#ffde00', delay:2500 }
+  ],
+  stagger: 80,    // ms entre cada letra surgindo
+  letterDur: 380, // duração do "surge" de cada letra
+  hold: 1300,     // tempo segurando tudo antes de esmaecer
+  fade: 900       // duração do esmaecer final
+};
+// duração total da intro (calculada a partir da última linha)
+(function(){
+  const last = INTRO.lines[INTRO.lines.length-1];
+  INTRO.fadeStart = last.delay + (last.text.length-1)*INTRO.stagger + INTRO.letterDur + INTRO.hold;
+  INTRO.total = INTRO.fadeStart + INTRO.fade;
+})();
+let introActive = true, introStart = 0;
+
+function init() {
+  grid = [];
+  for(let y=0;y<ROWS;y++){
+    grid[y]=[];
+    for(let x=0;x<COLS;x++){
+      if(x===0||y===0||x===COLS-1||y===ROWS-1) grid[y][x]='#';
+      else if(x%2===0 && y%2===0) grid[y][x]='#';
+      else grid[y][x]='.';
+    }
+  }
+  pacman = {x:1,y:1,fromX:1,fromY:1,t:1,dir:{x:0,y:0},nextDir:{x:0,y:0},mouth:0};
+  ghosts = [
+    {x:COLS-2,y:ROWS-2,color:'#f00'},
+    {x:COLS-2,y:2,color:'#ffb8de'},
+    {x:2,y:ROWS-2,color:'#00f'}
+  ].map(g=>({...g,spawnX:g.x,spawnY:g.y,fromX:g.x,fromY:g.y,t:1,dir:{x:0,y:0},eaten:false}));
+  // frutas: marca o tile na grade e guarda o emoji para desenhar
+  fruits = FRUITS.map(f=>({...f}));
+  fruits.forEach(f=>{ grid[f.y][f.x]='P'; });
+  score=0; lives=3; gameOver=false; gameWin=false;
+  powerMode=false; powerTimer=0;
+  fimTempo=null;
+  msgEl.textContent='';
+  pellets = countPellets();
+  lastTime=0; pacmanTimer=0; ghostTimer=0;
+  updateUI();
+}
+
+function countPellets(){
+  let c=0; for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(grid[y][x]==='.') c++;
+  return c;
+}
+
+function canMove(x,y){ return x>0 && y>0 && x<COLS-1 && y<ROWS-1 && grid[y][x]!=='#'; }
+// interpolação linear: suaviza o desenho entre o tile anterior e o atual
+function lerp(a,b,t){ return a + (b-a)*t; }
+
+function movePacman(){
+  // direção do Pac-Man
+  if(pacman.nextDir.x!==0 || pacman.nextDir.y!==0){
+    if(canMove(pacman.x+pacman.nextDir.x, pacman.y+pacman.nextDir.y)){
+      pacman.dir = {...pacman.nextDir};
+    }
+  }
+  if(pacman.dir.x!==0 || pacman.dir.y!==0){
+    const nx = pacman.x + pacman.dir.x;
+    const ny = pacman.y + pacman.dir.y;
+    if(canMove(nx,ny)){
+      pacman.fromX = pacman.x; pacman.fromY = pacman.y;
+      pacman.x = nx; pacman.y = ny;
+      pacman.t = 0;
+      if(grid[ny][nx]==='.'){
+        grid[ny][nx]=' ';
+        pellets--; score+=10;
+        updateUI();
+      } else if(grid[ny][nx]==='P'){
+        // comeu uma fruta: power mode!
+        grid[ny][nx]=' ';
+        fruits = fruits.filter(f=>!(f.x===nx && f.y===ny));
+        score += POWER_SCORE;
+        powerMode = true; powerTimer = POWER_TIME;
+        updateUI();
+      }
+    }
+  }
+}
+
+function moveGhosts(){
+  ghosts.forEach(g=>{
+    if(g.eaten) return; // comido: parado no spawn até o power mode acabar
+    // escolhe nova direção: evita voltar exatamente para trás (mais justo)
+    const dirs = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
+    let options = dirs.filter(d=>{
+      if(d.x === -g.dir.x && d.y === -g.dir.y) return false; // não reverte
+      return canMove(g.x+d.x, g.y+d.y);
+    });
+    if(options.length===0) options = dirs.filter(d=>canMove(g.x+d.x, g.y+d.y));
+    if(options.length) g.dir = options[Math.floor(Math.random()*options.length)];
+
+    const nx = g.x + g.dir.x;
+    const ny = g.y + g.dir.y;
+    if(canMove(nx,ny)){
+      g.fromX=g.x; g.fromY=g.y;
+      g.x=nx; g.y=ny;
+      g.t=0;
+    }
+    if(g.x===pacman.x && g.y===pacman.y){
+      if(powerMode){
+        // Pac-Man come o fantasma
+        g.eaten = true;
+        g.fromX=g.spawnX; g.fromY=g.spawnY; g.x=g.spawnX; g.y=g.spawnY; g.t=1; g.dir={x:0,y:0};
+        score += GHOST_EAT_SCORE;
+        updateUI();
+      } else {
+        lives--; updateUI();
+        if(lives<=0){ gameOver=true; msgEl.textContent='Game Over!'; }
+        else {
+          pacman.x=1; pacman.y=1;
+          pacman.fromX=1; pacman.fromY=1; pacman.t=1;
+          pacman.dir={x:0,y:0};
+        }
+      }
+    }
+  });
+
+  if(pellets<=0){ gameWin=true; msgEl.textContent='Você venceu!'; }
+}
+
+// ---- utilidades da intro ----
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function easeOutBack(x){
+  const c1=1.70158, c3=c1+1;
+  return 1 + c3*Math.pow(x-1,3) + c1*Math.pow(x-1,2);
+}
+
+// desenha a tela de abertura; letras surgem (pop+fade) e depois tudo esmaece
+function drawIntro(elapsed){
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.textBaseline='middle';
+
+  // esmaecer global no final
+  let globalAlpha = 1;
+  if(elapsed > INTRO.fadeStart){
+    globalAlpha = 1 - clamp((elapsed-INTRO.fadeStart)/INTRO.fade, 0, 1);
+  }
+
+  INTRO.lines.forEach(line=>{
+    const chars = line.text.split('');
+    ctx.font = 'bold '+line.size+'px sans-serif';
+    const widths = chars.map(c=>ctx.measureText(c).width);
+    const totalW = widths.reduce((a,b)=>a+b,0);
+    let cx = (canvas.width-totalW)/2;
+    const cy = line.y*canvas.height;
+    chars.forEach((c,i)=>{
+      const p = clamp((elapsed - line.delay - i*INTRO.stagger)/INTRO.letterDur, 0, 1);
+      if(p>0){
+        const e = easeOutBack(p);
+        const scale = 0.3 + 0.7*e;      // pop: cresce até o tamanho final
+        const yOff = (1-e)*22;          // surge subindo
+        ctx.save();
+        ctx.globalAlpha = p*globalAlpha;
+        ctx.fillStyle = line.color;
+        ctx.textAlign='center';
+        ctx.translate(cx+widths[i]/2, cy+yOff);
+        ctx.scale(scale,scale);
+        ctx.fillText(c,0,0);
+        ctx.restore();
+      }
+      cx += widths[i];
+    });
+  });
+
+  // dica de pular (aparece após o título, some no esmaecer)
+  const lastLine = INTRO.lines[INTRO.lines.length-1];
+  const hintStart = lastLine.delay + (lastLine.text.length-1)*INTRO.stagger;
+  const hintP = clamp((elapsed-hintStart)/400,0,1);
+  if(hintP>0 && globalAlpha>0.05){
+    const blink = 0.55 + 0.45*Math.sin(elapsed/300);
+    ctx.save();
+    ctx.globalAlpha = hintP*globalAlpha*blink;
+    ctx.fillStyle='#99aabb';
+    ctx.font='14px sans-serif';
+    ctx.textAlign='center';
+    //ctx.fillText('PRESSIONE QUALQUER TECLA', canvas.width/2, canvas.height*0.82);
+    ctx.restore();
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // paredes
+  ctx.fillStyle='#1a73e8';
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    if(grid[y][x]==='#'){
+      ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+    }
+  }
+
+  // pellets
+  ctx.fillStyle='#fff';
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    if(grid[y][x]==='.'){
+      ctx.beginPath();
+      ctx.arc(x*TILE+TILE/2, y*TILE+TILE/2, 3,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // frutas (power pellets) com emoji
+  ctx.font = (TILE*0.7)+'px serif';
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  fruits.forEach(f=>{
+    ctx.fillText(f.emoji, f.x*TILE+TILE/2, f.y*TILE+TILE/2+1);
+  });
+
+  // Pac-Man (posição interpolada entre o tile anterior e o atual)
+  const px = lerp(pacman.fromX, pacman.x, pacman.t)*TILE+TILE/2;
+  const py = lerp(pacman.fromY, pacman.y, pacman.t)*TILE+TILE/2;
+  const angle = Math.atan2(pacman.dir.y,pacman.dir.x);
+  const mouth = 0.5 + 0.5*Math.sin(pacman.mouth); // abertura da boca (rad)
+  ctx.fillStyle='#ffde00';
+  ctx.beginPath();
+  ctx.moveTo(px,py);
+  // Pinta o CORPO (caminho longo), deixando a fatia da boca vazia/preta.
+  ctx.arc(px,py,TILE*0.4, angle + mouth, angle - mouth);
+  ctx.closePath();
+  ctx.fill();
+
+  // fantasmas
+  ghosts.forEach(g=>{
+    const gx = lerp(g.fromX, g.x, g.t)*TILE+TILE/2;
+    const gy = lerp(g.fromY, g.y, g.t)*TILE+TILE/2;
+    const frightened = powerMode && !g.eaten;
+
+    if(!g.eaten){
+      // corpo: azul quando medroso, cor normal caso contrário
+      ctx.fillStyle = frightened ? '#2b6cff' : g.color;
+      ctx.beginPath();
+      ctx.arc(gx,gy,TILE*0.4,Math.PI,0);
+      ctx.rect(gx-TILE*0.4,gy-TILE*0.4,TILE*0.8,TILE*0.4);
+      ctx.fill();
+    }
+    // olhos (sempre visíveis; quando "comido" ficam só eles)
+    ctx.fillStyle='#fff';
+    ctx.beginPath();
+    ctx.arc(gx-6,gy-4,4,0,Math.PI*2);
+    ctx.arc(gx+6,gy-4,4,0,Math.PI*2);
+    ctx.fill();
+    if(!g.eaten){
+      if(frightened){
+        // carinha de medo: pupila branca + boca em zigue-zague
+        ctx.fillStyle='#fff';
+        ctx.beginPath();
+        ctx.arc(gx-6,gy-4,2,0,Math.PI*2);
+        ctx.arc(gx+6,gy-4,2,0,Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+        ctx.beginPath();
+        ctx.moveTo(gx-7,gy+5); ctx.lineTo(gx-4,gy+2);
+        ctx.lineTo(gx-1,gy+5); ctx.lineTo(gx+2,gy+2);
+        ctx.lineTo(gx+5,gy+5);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle='#000';
+        ctx.beginPath();
+        ctx.arc(gx-6,gy-4,2,0,Math.PI*2);
+        ctx.arc(gx+6,gy-4,2,0,Math.PI*2);
+        ctx.fill();
+      }
+    }
+  });
+
+  drawFim(); // por último, para ficar por cima de tudo
+}
+
+// Tela de fim: escurece o tabuleiro e mostra o Pac-Man comemorando ou derrotado
+function drawFim(){
+  if(!gameOver && !gameWin) return;
+  if(fimTempo === null) fimTempo = performance.now();
+
+  const t = Math.min(1, (performance.now() - fimTempo) / 450);
+  const suave = 1 - Math.pow(1 - t, 3); // ease-out: entra rápido e desacelera
+
+  ctx.fillStyle = 'rgba(0,0,0,'+(0.8*suave)+')';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  const venceu = gameWin;
+  const img = venceu ? IMG_VITORIA : IMG_DERROTA;
+
+  ctx.save();
+  ctx.globalAlpha = suave;
+  ctx.textAlign = 'center';
+
+  if(img.complete && img.naturalWidth){
+    const altura = 250 * (0.75 + 0.25*suave); // pequeno "pop" ao surgir
+    const largura = altura * (img.naturalWidth / img.naturalHeight);
+    ctx.drawImage(img, canvas.width/2 - largura/2, canvas.height/2 - altura/2 + 14, largura, altura);
+  }
+
+  ctx.fillStyle = venceu ? '#ffde00' : '#ff4b4b';
+  ctx.font = 'bold 42px sans-serif';
+  ctx.fillText(venceu ? 'VOCÊ VENCEU!' : 'GAME OVER', canvas.width/2, 72);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillText('Pontos: '+score, canvas.width/2, 106);
+
+  ctx.fillStyle = '#99aabb';
+  ctx.font = '16px sans-serif';
+  ctx.fillText('Pressione R para jogar de novo', canvas.width/2, canvas.height - 28);
+  ctx.restore();
+}
+
+function updateUI(){
+  scoreEl.textContent=score;
+  livesEl.textContent=lives;
+}
+
+function loop(ts){
+  if(!lastTime) lastTime = ts;
+  let dt = ts - lastTime;
+  lastTime = ts;
+  if(dt > 200) dt = 200; // evita "salto" quando a aba fica em segundo plano
+
+  // TELA DE ABERTURA: mostra a intro antes de iniciar o jogo
+  if(introActive){
+    if(!introStart) introStart = ts;
+    const elapsed = ts - introStart;
+    drawIntro(elapsed);
+    if(elapsed >= INTRO.total){
+      introActive = false;
+      lastTime = ts; pacmanTimer = 0; ghostTimer = 0; // jogo começa do zero
+    }
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  if(!gameOver && !gameWin){
+    pacmanTimer += dt;
+    ghostTimer  += dt;
+    while(pacmanTimer >= PACMAN_TICK){ movePacman(); pacmanTimer -= PACMAN_TICK; }
+    while(ghostTimer  >= GHOST_TICK){  moveGhosts(); ghostTimer  -= GHOST_TICK;  }
+    pacman.mouth += 0.25;
+    if(powerMode){
+      powerTimer -= dt;
+      if(powerTimer<=0){
+        powerMode=false;
+        ghosts.forEach(g=>g.eaten=false); // fantasmas comidos voltam ao normal
+      }
+    }
+  }
+
+  // interpolação visual: desliza suavemente entre tiles (remove o "picotado")
+  pacman.t = Math.min(1, pacman.t + dt / PACMAN_TICK);
+  ghosts.forEach(g => g.t = Math.min(1, g.t + dt / GHOST_TICK));
+
+  draw();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('keydown',e=>{
+  if(introActive){ // qualquer tecla pula a intro
+    introActive=false;
+    lastTime=performance.now(); pacmanTimer=0; ghostTimer=0;
+    return;
+  }
+  if(gameOver||gameWin){ if(e.key.toLowerCase()==='r') init(); return; }
+  let d={x:0,y:0};
+  if(e.key==='ArrowUp'||e.key==='w') d={x:0,y:-1};
+  else if(e.key==='ArrowDown'||e.key==='s') d={x:0,y:1};
+  else if(e.key==='ArrowLeft'||e.key==='a') d={x:-1,y:0};
+  else if(e.key==='ArrowRight'||e.key==='d') d={x:1,y:0};
+  else if(e.key.toLowerCase()==='r') init();
+  if(d.x!==0||d.y!==0) pacman.nextDir=d;
+});
+
+init();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
