@@ -166,6 +166,36 @@
       user-select: all;
     }
 
+    .controles {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+    }
+    .controles #velTxt { color: var(--ink); min-width: 34px; text-align: center; }
+    button.mini {
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--ink);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(232,240,255,0.2);
+      border-radius: 6px;
+      padding: 4px 11px;
+      cursor: pointer;
+      box-shadow: none;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    button.mini:hover { background: rgba(255,255,255,0.12); transform: none; box-shadow: none; }
+    button.mini:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.mini[data-dif] { font-size: 11px; font-weight: 400; padding: 5px 10px; letter-spacing: 0.08em; }
+    button.mini.ativo { background: rgba(77,226,194,0.16); border-color: var(--accent); color: var(--accent); }
+    .separador { width: 1px; height: 16px; background: rgba(232,240,255,0.15); }
+
     footer { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
 
     @media (prefers-reduced-motion: reduce) {
@@ -179,6 +209,20 @@
     <span id="subtitulo">até 7 pontos</span>
   </header>
   <nav style="display:flex;gap:14px"><a href="index.html" style="color:var(--muted);font-size:12px;letter-spacing:0.1em;text-decoration:none">← início</a> &nbsp;·&nbsp; <a href="bomberman.html" style="color:var(--muted);font-size:12px;letter-spacing:0.1em;text-decoration:none">Bomberman →</a></nav>
+
+  <div class="controles">
+    <span class="controles-rotulo">Velocidade</span>
+    <button class="mini" id="btnVelMenos" title="Diminuir velocidade">−</button>
+    <span id="velTxt">1.0x</span>
+    <button class="mini" id="btnVelMais" title="Aumentar velocidade">+</button>
+
+    <span class="separador"></span>
+
+    <span class="controles-rotulo">CPU</span>
+    <button class="mini" data-dif="facil">Fácil</button>
+    <button class="mini" data-dif="normal">Normal</button>
+    <button class="mini" data-dif="dificil">Difícil</button>
+  </div>
 
   <div class="wrap">
     <canvas id="jogo" width="800" height="500"></canvas>
@@ -255,7 +299,6 @@
     const jogador = { x: 24, y: A / 2 - RAQ_A / 2, vy: 0 };
     const cpu = { x: L - 24 - RAQ_L, y: A / 2 - RAQ_A / 2, vy: 0 };
     const VEL_JOGADOR = 7;
-    const VEL_CPU = 3; // limitada de propósito para dar chance ao jogador (só no modo solo)
 
     // Bola
     const RAIO = 9;
@@ -269,6 +312,71 @@
     let rodando = false;
     let pausado = false;
     let acabou = false;
+
+    // ---- Velocidade ajustável ----
+    // Multiplica bola, CPU e raquetes juntos, pra mudar o ritmo sem desequilibrar.
+    // O mínimo NÃO pode ser muito baixo: a bola já sai devagar (2px por passo) e
+    // num ângulo fechado sobra só metade disso na horizontal. Em 0.6x dava 0,65px
+    // por passo — 20 segundos pra atravessar o campo, parecia travada no meio.
+    const FATOR_MIN = 0.8, FATOR_MAX = 2.4, FATOR_PASSO = 0.2;
+    const velTxt = document.getElementById("velTxt");
+    const btnVelMenos = document.getElementById("btnVelMenos");
+    const btnVelMais = document.getElementById("btnVelMais");
+
+    let fatorVel = Number(localStorage.getItem("pong_velocidade")) || 1;
+    fatorVel = Math.min(FATOR_MAX, Math.max(FATOR_MIN, fatorVel));
+
+    // ---- Dificuldade da CPU ----
+    // A raquete tem 90px, então um erro de mira pequeno nunca faz a CPU perder a
+    // bola. O que decide é a "escorregada": a cada aproximação existe uma chance
+    // de ela mirar bem longe do ponto certo. Medido em simulação, a CPU aguenta
+    // ~2 rebatidas no fácil, ~3 no normal e ~13 no difícil antes de errar.
+    // vel também fica sempre abaixo de 4.33 (|vy| máximo da bola), senão ela
+    // consegue perseguir qualquer ângulo e volta a ser imbatível.
+    const DIFICULDADES = {
+      facil:   { vel: 2.8, chance: 0.35, grande: 85, pequeno: 14 },
+      normal:  { vel: 3.5, chance: 0.22, grande: 70, pequeno: 10 },
+      dificil: { vel: 4.1, chance: 0.10, grande: 60, pequeno: 7 },
+    };
+    const botoesDif = document.querySelectorAll("button[data-dif]");
+
+    let dificuldade = localStorage.getItem("pong_dificuldade") || "normal";
+    if (!DIFICULDADES[dificuldade]) dificuldade = "normal";
+    let cpuErro = 0;        // erro de mira da rebatida atual
+    let cpuVxAnterior = 0;  // pra saber quando a bola passa a vir na direção da CPU
+
+    function mostrarFator() {
+      velTxt.textContent = fatorVel.toFixed(1) + "x";
+      btnVelMenos.disabled = modo === "guest" || fatorVel <= FATOR_MIN + 0.001;
+      btnVelMais.disabled = modo === "guest" || fatorVel >= FATOR_MAX - 0.001;
+      botoesDif.forEach((b) => {
+        b.classList.toggle("ativo", b.dataset.dif === dificuldade);
+        b.disabled = modo !== "solo"; // no online não existe CPU
+      });
+    }
+
+    botoesDif.forEach((b) => {
+      b.addEventListener("click", () => {
+        dificuldade = b.dataset.dif;
+        localStorage.setItem("pong_dificuldade", dificuldade);
+        mostrarFator();
+      });
+    });
+
+    // Reescala a bola que já está em jogo pra mudança valer na hora
+    function definirFator(novo) {
+      novo = Math.round(Math.min(FATOR_MAX, Math.max(FATOR_MIN, novo)) * 10) / 10;
+      const escala = novo / fatorVel;
+      fatorVel = novo;
+      bola.vx *= escala;
+      bola.vy *= escala;
+      bola.vel *= escala;
+      localStorage.setItem("pong_velocidade", String(fatorVel));
+      mostrarFator();
+    }
+
+    btnVelMenos.addEventListener("click", () => definirFator(fatorVel - FATOR_PASSO));
+    btnVelMais.addEventListener("click", () => definirFator(fatorVel + FATOR_PASSO));
 
     const teclas = {};
 
@@ -311,6 +419,7 @@
       rodando = false;
       acabou = false;
       subtitulo.textContent = "até 7 pontos";
+      mostrarFator(); // reabilita os botões de velocidade ao sair do modo convidado
       mostrarPainel("painelInicial");
     }
 
@@ -332,6 +441,7 @@
         configurarConexao();
         conn.on("open", () => {
           modo = "host";
+          mostrarFator();
           minhaRaquete = jogador;
           subtitulo.textContent = "online · você é o Jogador 1 (esquerda)";
           statusHost.textContent = "Jogador 2 conectado! Iniciando...";
@@ -371,6 +481,7 @@
 
         conn.on("open", () => {
           modo = "guest";
+          mostrarFator();
           minhaRaquete = cpu;
           subtitulo.textContent = "online · você é o Jogador 2 (direita)";
           statusJoin.textContent = "Conectado! Aguardando o host iniciar...";
@@ -415,6 +526,12 @@
           placarJogador = data.placarJogador;
           placarCpu = data.placarCpu;
 
+          // quem manda na velocidade é o host (ele simula a bola)
+          if (data.fator && data.fator !== fatorVel) {
+            fatorVel = data.fator;
+            mostrarFator();
+          }
+
           const eraAcabou = acabou;
           rodando = data.rodando;
           pausado = data.pausado;
@@ -435,7 +552,7 @@
     function resetarBola(direcao) {
       bola.x = L / 2;
       bola.y = A / 2;
-      bola.vel = 2;
+      bola.vel = 2 * fatorVel;
       const ang = (Math.random() * 2 - 1) * (Math.PI / 4); // -45º a 45º
       bola.vx = direcao * bola.vel * Math.cos(ang);
       bola.vy = bola.vel * Math.sin(ang);
@@ -479,8 +596,8 @@
 
     function atualizarLocalConvidado() {
       minhaRaquete.vy = 0;
-      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) minhaRaquete.vy = -VEL_JOGADOR;
-      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) minhaRaquete.vy = VEL_JOGADOR;
+      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) minhaRaquete.vy = -VEL_JOGADOR * fatorVel;
+      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) minhaRaquete.vy = VEL_JOGADOR * fatorVel;
       minhaRaquete.y += minhaRaquete.vy;
       minhaRaquete.y = Math.max(0, Math.min(A - RAQ_A, minhaRaquete.y));
       if (conn && conn.open) conn.send({ type: "input", y: minhaRaquete.y });
@@ -502,17 +619,41 @@
 
       // Movimento do jogador (teclado) — controla `jogador`, que é `minhaRaquete` em solo/host
       jogador.vy = 0;
-      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) jogador.vy = -VEL_JOGADOR;
-      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) jogador.vy = VEL_JOGADOR;
+      if (teclas["ArrowUp"] || teclas["w"] || teclas["W"]) jogador.vy = -VEL_JOGADOR * fatorVel;
+      if (teclas["ArrowDown"] || teclas["s"] || teclas["S"]) jogador.vy = VEL_JOGADOR * fatorVel;
       jogador.y += jogador.vy;
       jogador.y = Math.max(0, Math.min(A - RAQ_A, jogador.y));
 
       if (modo === "solo") {
-        // IA da CPU: segue o centro da bola com velocidade limitada
+        // IA da CPU. Antes ela espelhava a bola o tempo todo com mira perfeita, o
+        // que a tornava imbatível: a bola leva no mínimo 160 quadros pra cruzar o
+        // campo e nesse tempo a raquete cobre mais que a altura inteira dele.
+        // Agora ela só persegue quando a bola vem, erra um pouco a mira, e volta
+        // devagar pro meio enquanto a bola está do outro lado.
+        const cfg = DIFICULDADES[dificuldade];
+        const velCpu = cfg.vel * fatorVel;
         const centroCpu = cpu.y + RAQ_A / 2;
-        const alvo = bola.y;
-        if (centroCpu < alvo - 10) cpu.y += VEL_CPU;
-        else if (centroCpu > alvo + 10) cpu.y -= VEL_CPU;
+
+        // a cada vez que a bola passa a vir pra cá, sorteia a mira: quase sempre
+        // um errinho pequeno, e de vez em quando uma escorregada de verdade
+        if (bola.vx > 0 && cpuVxAnterior <= 0) {
+          const escorregou = Math.random() < cfg.chance;
+          const sinal = Math.random() < 0.5 ? -1 : 1;
+          cpuErro = escorregou
+            ? sinal * cfg.grande * (0.6 + Math.random() * 0.4)
+            : sinal * Math.random() * cfg.pequeno;
+        }
+        cpuVxAnterior = bola.vx;
+
+        if (bola.vx > 0) {
+          const alvo = bola.y + cpuErro;
+          if (centroCpu < alvo - 10) cpu.y += velCpu;
+          else if (centroCpu > alvo + 10) cpu.y -= velCpu;
+        } else {
+          const meio = A / 2;
+          if (centroCpu < meio - 12) cpu.y += velCpu * 0.45;
+          else if (centroCpu > meio + 12) cpu.y -= velCpu * 0.45;
+        }
         cpu.y = Math.max(0, Math.min(A - RAQ_A, cpu.y));
       } else if (modo === "host") {
         // cpu.y já é atualizado pelos inputs recebidos do convidado (handleData)
@@ -570,6 +711,7 @@
           rodando,
           pausado,
           acabou,
+          fator: fatorVel,
         });
       }
     }
@@ -578,7 +720,7 @@
     function rebater(raq, direcao) {
       const rel = (bola.y - (raq.y + RAQ_A / 2)) / (RAQ_A / 2); // -1 (topo) a 1 (base)
       const ang = rel * (Math.PI / 3); // até 60º
-      bola.vel = Math.min(bola.vel + 0.15, 5);
+      bola.vel = Math.min(bola.vel + 0.15 * fatorVel, 5 * fatorVel);
       bola.vx = direcao * bola.vel * Math.cos(ang);
       bola.vy = bola.vel * Math.sin(ang);
     }
@@ -619,14 +761,20 @@
         ctx.fill();
       }
 
-      // Bola
+      // Bola — o brilho é feito com dois círculos translúcidos em vez de
+      // ctx.shadowBlur, que é caro no canvas 2d e engasgava a cada quadro.
+      ctx.fillStyle = "rgba(139,233,255,0.10)";
+      ctx.beginPath();
+      ctx.arc(bola.x, bola.y, RAIO * 2.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(139,233,255,0.20)";
+      ctx.beginPath();
+      ctx.arc(bola.x, bola.y, RAIO * 1.45, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = "#e8f0ff";
-      ctx.shadowColor = "#8be9ff";
-      ctx.shadowBlur = 18;
       ctx.beginPath();
       ctx.arc(bola.x, bola.y, RAIO, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
     }
 
     // Retângulo com cantos arredondados preenchido
@@ -641,8 +789,30 @@
       ctx.fill();
     }
 
-    function loop() {
-      atualizar();
+    // Passo fixo de simulação: a física sempre avança em fatias de 1/60s, então
+    // um quadro atrasado não faz a bola "parar e pular", e a velocidade não muda
+    // conforme a taxa de atualização do monitor (60Hz, 144Hz...).
+    const PASSO_MS = 1000 / 60;
+    let ultimoTempo = performance.now();
+    let acumulador = 0;
+
+    function loop(agora) {
+      let dt = agora - ultimoTempo;
+      ultimoTempo = agora;
+      if (dt > 250) dt = 250; // aba em segundo plano: não tenta recuperar tudo
+
+      acumulador += dt;
+      // A tolerância de 10% é essencial: numa tela de 60Hz o quadro dura ~16,6ms e
+      // o passo 16,667ms, então sem ela o acumulador não fechava um passo e ficava
+      // alternando entre 0 e 2 passos por quadro — o que aparecia como engasgo.
+      let passos = 0;
+      while (acumulador >= PASSO_MS * 0.9 && passos < 5) {
+        atualizar();
+        acumulador = Math.max(0, acumulador - PASSO_MS);
+        passos++;
+      }
+      if (passos === 5) acumulador = 0; // travada grande: não acumula dívida
+
       desenhar();
       requestAnimationFrame(loop);
     }
@@ -678,6 +848,7 @@
       modo = "solo";
       minhaRaquete = jogador;
       subtitulo.textContent = "até 7 pontos · vs CPU";
+      mostrarFator();
       novoJogo();
     });
 
@@ -691,7 +862,8 @@
       }
     });
 
-    loop();
+    mostrarFator();
+    requestAnimationFrame(loop);
   </script>
 </body>
 </html>
