@@ -1,5 +1,5 @@
 <!-- bomberman.html -->
-<!-- Bomberman online (2 ou 3 jogadores) via PeerJS/WebRTC, host autoritativo -->
+<!-- Bomberman online (2 a 4 jogadores) via PeerJS/WebRTC, host autoritativo -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -158,6 +158,31 @@
     }
     input#inputCodigo:focus { outline: 2px solid var(--accent3); outline-offset: 2px; }
 
+    #previewPersonagem {
+      width: 110px;
+      height: 110px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,209,102,0.3);
+      border-radius: 12px;
+      padding: 6px;
+    }
+
+    input#inputNome {
+      font-family: inherit;
+      font-size: 16px;
+      text-align: center;
+      color: var(--ink);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(232,240,255,0.2);
+      border-radius: 8px;
+      padding: 10px 14px;
+      width: 100%;
+      max-width: 220px;
+    }
+    input#inputNome:focus { outline: 2px solid var(--accent3); outline-offset: 2px; }
+
     .codigo {
       font-size: 30px;
       font-weight: 800;
@@ -220,7 +245,7 @@
 <body>
   <header>
     <h1>Bomberman</h1>
-    <span id="subtitulo">online · 2 a 3 jogadores</span>
+    <span id="subtitulo">online · 2 a 4 jogadores</span>
   </header>
   <nav><a href="index.html">← início</a> &nbsp;·&nbsp; <a href="pong.html">Pong →</a></nav>
 
@@ -228,20 +253,25 @@
     <canvas id="jogo" width="660" height="572"></canvas>
     <div class="overlay" id="overlay">
 
-      <div class="painel" id="painelInicial">
+      <div class="painel" id="painelPersonagem">
+        <p>Escolha seu personagem e digite seu nome</p>
+        <img id="previewPersonagem" alt="personagem escolhido" />
+        <div class="skins" id="skinsLista"></div>
+        <input id="inputNome" maxlength="14" placeholder="Seu nome" autocomplete="off" />
+        <button id="btnContinuar">Continuar</button>
+      </div>
+
+      <div class="painel hidden" id="painelInicial">
         <p>
           Mova com <b>WASD</b> ou as setas &nbsp;·&nbsp; <b>Espaço</b> solta bomba<br>
           Destrua blocos, pegue itens e seja o último de pé
         </p>
-        <p style="margin-bottom:-8px">Escolha seu personagem:</p>
-        <div class="skins" id="skinsLista"></div>
         <div class="botoes">
-          <button id="btnSolo2">Jogar sozinho (2 jogadores)</button>
-          <button id="btnSolo3">Jogar sozinho (3 jogadores)</button>
-          <button id="btnHost2" class="secundario">Criar sala online (2 jogadores)</button>
-          <button id="btnHost3" class="secundario">Criar sala online (3 jogadores)</button>
+          <button id="btnSolo">Jogar sozinho (vs CPU)</button>
+          <button id="btnHost" class="secundario">Criar sala online</button>
           <button id="btnJoin" class="secundario">Entrar em sala online</button>
         </div>
+        <button id="btnTrocarPersonagem" class="secundario">🧑 trocar personagem/nome</button>
       </div>
 
       <div class="painel hidden" id="painelHost">
@@ -280,26 +310,29 @@
     const btn = document.getElementById("btn");
     const subtitulo = document.getElementById("subtitulo");
 
+    const painelPersonagem = document.getElementById("painelPersonagem");
     const painelInicial = document.getElementById("painelInicial");
     const painelHost = document.getElementById("painelHost");
     const painelJoin = document.getElementById("painelJoin");
     const painelFim = document.getElementById("painelFim");
 
-    const btnSolo2 = document.getElementById("btnSolo2");
-    const btnSolo3 = document.getElementById("btnSolo3");
-    const btnHost2 = document.getElementById("btnHost2");
-    const btnHost3 = document.getElementById("btnHost3");
+    const btnSolo = document.getElementById("btnSolo");
+    const btnHost = document.getElementById("btnHost");
     const btnJoin = document.getElementById("btnJoin");
     const btnVoltarHost = document.getElementById("btnVoltarHost");
     const btnVoltarJoin = document.getElementById("btnVoltarJoin");
     const btnConectar = document.getElementById("btnConectar");
     const btnIniciar = document.getElementById("btnIniciar");
+    const btnContinuar = document.getElementById("btnContinuar");
+    const btnTrocarPersonagem = document.getElementById("btnTrocarPersonagem");
     const codigoHost = document.getElementById("codigoHost");
     const statusHost = document.getElementById("statusHost");
     const statusJoin = document.getElementById("statusJoin");
     const inputCodigo = document.getElementById("inputCodigo");
+    const inputNome = document.getElementById("inputNome");
     const listaHost = document.getElementById("listaHost");
     const skinsLista = document.getElementById("skinsLista");
+    const previewPersonagem = document.getElementById("previewPersonagem");
 
     // ---- Config do mapa ----
     const COLS = 15, ROWS = 13, TILE = 44;
@@ -308,9 +341,11 @@
       { x: 1, y: 1 },
       { x: COLS - 2, y: ROWS - 2 },
       { x: COLS - 2, y: 1 },
+      { x: 1, y: ROWS - 2 },
     ];
-    const CORES = ["#4de2c2", "#ff5d73", "#ffd166"];
-    const NOMES = ["Jogador 1", "Jogador 2", "Jogador 3"];
+    const MAX_JOGADORES = 4;
+    const CORES = ["#4de2c2", "#ff5d73", "#ffd166", "#7c9cff"];
+    const NOMES = ["Jogador 1", "Jogador 2", "Jogador 3", "Jogador 4"];
     const RAIO_J = TILE * 0.33;
     const TEMPO_BOMBA = 2200;
     const TEMPO_EXPLOSAO = 450;
@@ -331,7 +366,8 @@
     ];
     const TROCA_QUADRO_ANDAR = 160; // ms entre alternar idle/andar enquanto se move
 
-    let meuSkin = 0;
+    let meuSkin = Number(localStorage.getItem("bomberman_skin")) || 0;
+    let meuNome = localStorage.getItem("bomberman_nome") || "";
 
     function montarSeletorSkins() {
       skinsLista.innerHTML = "";
@@ -347,8 +383,21 @@
         });
         skinsLista.appendChild(btn);
       });
+      previewPersonagem.src = SKINS[meuSkin].idle.src;
     }
     montarSeletorSkins();
+    inputNome.value = meuNome;
+
+    btnContinuar.addEventListener("click", () => {
+      meuNome = inputNome.value.trim().slice(0, 14);
+      localStorage.setItem("bomberman_nome", meuNome);
+      localStorage.setItem("bomberman_skin", String(meuSkin));
+      if (conn && conn.open) conn.send({ type: "nome", nome: meuNome });
+      mostrarPainel("painelInicial");
+    });
+    inputNome.addEventListener("keydown", (e) => { if (e.key === "Enter") btnContinuar.click(); });
+
+    btnTrocarPersonagem.addEventListener("click", () => mostrarPainel("painelPersonagem"));
 
     canvas.width = L;
     canvas.height = A;
@@ -374,7 +423,7 @@
     // ---- Multiplayer ----
     // modo: null | 'solo' | 'host' | 'guest'
     let modo = null;
-    let maxJogadores = 2;
+    let maxJogadores = MAX_JOGADORES;
     let meuIndice = 0;
     let peer = null;
     let conn = null;   // usado pelo convidado (conexão única com o host)
@@ -391,7 +440,7 @@
 
     function mostrarPainel(nome) {
       overlay.classList.remove("hidden");
-      for (const p of [painelInicial, painelHost, painelJoin, painelFim]) {
+      for (const p of [painelPersonagem, painelInicial, painelHost, painelJoin, painelFim]) {
         p.classList.toggle("hidden", p.id !== nome);
       }
     }
@@ -408,7 +457,7 @@
       grid = [];
       botEstados = {};
       placares = [];
-      subtitulo.textContent = "online · 2 a 3 jogadores";
+      subtitulo.textContent = "online · 2 a 4 jogadores";
       mostrarPainel("painelInicial");
     }
 
@@ -425,7 +474,8 @@
       const skinsDisponiveis = SKINS.map((_, i) => i).filter((i) => i !== meuSkin);
       for (let i = 0; i < participantes; i++) {
         const skin = i === 0 ? meuSkin : skinsDisponiveis[(i - 1) % skinsDisponiveis.length];
-        jogadores.push(criarJogador(i, skin));
+        const nome = i === 0 ? (meuNome || NOMES[0]) : `CPU ${i + 1}`;
+        jogadores.push(criarJogador(i, skin, nome));
         entradas.push({});
       }
       modo = "solo";
@@ -437,12 +487,11 @@
       overlay.classList.add("hidden");
     }
 
-    btnSolo2.addEventListener("click", () => iniciarPartidaSolo(2));
-    btnSolo3.addEventListener("click", () => iniciarPartidaSolo(3));
+    btnSolo.addEventListener("click", () => iniciarPartidaSolo(MAX_JOGADORES));
 
     // ---- Criar sala (host) ----
-    function criarSala(max) {
-      maxJogadores = max;
+    function criarSala() {
+      maxJogadores = MAX_JOGADORES;
       mostrarPainel("painelHost");
       codigoHost.textContent = "----";
       statusHost.textContent = "Gerando sala...";
@@ -473,11 +522,11 @@
       });
     }
 
-    btnHost2.addEventListener("click", () => criarSala(2));
-    btnHost3.addEventListener("click", () => criarSala(3));
+    btnHost.addEventListener("click", () => criarSala());
 
     function configurarConexaoHost(c, idx) {
       c.skinEscolhida = 0;
+      c.nomeEscolhido = NOMES[idx];
       c.on("open", () => {
         atualizarListaHost();
       });
@@ -493,6 +542,9 @@
           colocarBomba(idx);
         } else if (data.type === "skin") {
           c.skinEscolhida = data.skin;
+        } else if (data.type === "nome") {
+          c.nomeEscolhido = (data.nome || "").trim().slice(0, 14) || NOMES[idx];
+          atualizarListaHost();
         }
       });
       c.on("close", () => {
@@ -511,7 +563,8 @@
       for (let i = 0; i < total; i++) {
         const div = document.createElement("div");
         const bolinha = `<span class="ponto" style="background:${CORES[i]}"></span>`;
-        div.innerHTML = `${bolinha} ${NOMES[i]}${i === 0 ? " (você, host)" : ""}`;
+        const nome = i === 0 ? (meuNome || NOMES[0]) : conns[i - 1].nomeEscolhido;
+        div.innerHTML = `${bolinha} ${nome}${i === 0 ? " (você, host)" : ""}`;
         listaHost.appendChild(div);
       }
       btnIniciar.disabled = total < 2;
@@ -549,6 +602,7 @@
         conn.on("open", () => {
           statusJoin.textContent = "Conectado! Aguardando o host iniciar...";
           conn.send({ type: "skin", skin: meuSkin });
+          conn.send({ type: "nome", nome: meuNome });
         });
         conn.on("data", handleDataConvidado);
         conn.on("close", () => {
@@ -593,7 +647,7 @@
       return novoGrid;
     }
 
-    function criarJogador(idx, skin) {
+    function criarJogador(idx, skin, nome) {
       const canto = CANTOS[idx];
       return {
         x: canto.x * TILE + TILE / 2,
@@ -610,6 +664,7 @@
         movendo: false,
         olhandoEsquerda: false,
         skin: skin !== undefined ? skin : idx % SKINS.length,
+        nome: nome || NOMES[idx],
         quadroAndar: false,
         proximaTroca: 0,
       };
@@ -627,7 +682,8 @@
       garantirPlacares(participantes);
       for (let i = 0; i < participantes; i++) {
         const skin = i === 0 ? meuSkin : (conns[i - 1] ? conns[i - 1].skinEscolhida : i % SKINS.length);
-        jogadores.push(criarJogador(i, skin));
+        const nome = i === 0 ? (meuNome || NOMES[0]) : (conns[i - 1] ? conns[i - 1].nomeEscolhido : NOMES[i]);
+        jogadores.push(criarJogador(i, skin, nome));
         entradas.push({});
       }
       modo = "host";
@@ -635,13 +691,14 @@
       jogoAtivo = true;
       jogoAcabou = false;
       vencedorIdx = null;
-      subtitulo.textContent = `online · você é o ${NOMES[0]}`;
+      subtitulo.textContent = `online · você é o ${jogadores[0].nome}`;
       overlay.classList.add("hidden");
 
       const skins = jogadores.map((j) => j.skin);
+      const nomes = jogadores.map((j) => j.nome);
       conns.forEach((c) => {
         if (c.open) {
-          c.send({ type: "mapa", grid, participantes, voce: c.jogadorIdx, skins });
+          c.send({ type: "mapa", grid, participantes, voce: c.jogadorIdx, skins, nomes });
         }
       });
     }
@@ -654,7 +711,9 @@
         modo = "guest";
         jogadores = [];
         for (let i = 0; i < data.participantes; i++) {
-          jogadores.push(criarJogador(i, data.skins ? data.skins[i] : i % SKINS.length));
+          const skin = data.skins ? data.skins[i] : i % SKINS.length;
+          const nome = data.nomes ? data.nomes[i] : NOMES[i];
+          jogadores.push(criarJogador(i, skin, nome));
         }
         bombas = [];
         explosoes = [];
@@ -662,7 +721,7 @@
         jogoAtivo = true;
         jogoAcabou = false;
         vencedorIdx = null;
-        subtitulo.textContent = `online · você é o ${NOMES[meuIndice]}`;
+        subtitulo.textContent = `online · você é o ${jogadores[meuIndice].nome}`;
         overlay.classList.add("hidden");
       } else if (data.type === "estado") {
         data.jogadores.forEach((jd, idx) => {
@@ -811,6 +870,10 @@
       if (i !== -1) bombas.splice(i, 1);
     }
 
+    function nomeDe(idx) {
+      return (jogadores[idx] && jogadores[idx].nome) || NOMES[idx] || `Jogador ${idx + 1}`;
+    }
+
     function mostrarFimBomberman() {
       let texto;
       if (vencedorIdx === null) {
@@ -818,10 +881,10 @@
       } else if (vencedorIdx === meuIndice) {
         texto = `<b style="color:var(--accent)">Você venceu!</b>`;
       } else {
-        texto = `<b style="color:var(--accent2)">${NOMES[vencedorIdx]} venceu</b>`;
+        texto = `<b style="color:var(--accent2)">${nomeDe(vencedorIdx)} venceu</b>`;
       }
       const resumoPlacar = jogadores
-        .map((_, idx) => `${NOMES[idx].replace("Jogador ", "J")}: ${placares[idx] || 0}`)
+        .map((_, idx) => `${nomeDe(idx).slice(0, 8)}: ${placares[idx] || 0}`)
         .join(" · ");
       msg.innerHTML = `${texto}<br><span style="font-size:11px">${resumoPlacar}</span>`;
       const possoReiniciar = modo === "host" || modo === "solo";
@@ -996,15 +1059,15 @@
 
     function lerEntradaLocal() {
       return {
-        cima: !!(teclas["ArrowUp"] || teclas["w"] || teclas["W"]),
-        baixo: !!(teclas["ArrowDown"] || teclas["s"] || teclas["S"]),
-        esquerda: !!(teclas["ArrowLeft"] || teclas["a"] || teclas["A"]),
-        direita: !!(teclas["ArrowRight"] || teclas["d"] || teclas["D"]),
+        cima: !!(teclas["ArrowUp"] || teclas["KeyW"]),
+        baixo: !!(teclas["ArrowDown"] || teclas["KeyS"]),
+        esquerda: !!(teclas["ArrowLeft"] || teclas["KeyA"]),
+        direita: !!(teclas["ArrowRight"] || teclas["KeyD"]),
       };
     }
 
     function verificarBomba() {
-      const pressionada = !!teclas[" "];
+      const pressionada = !!teclas["Space"];
       if (pressionada && !bombaTeclaAnterior) {
         if (modo === "host" || modo === "solo") colocarBomba(0);
         else if (modo === "guest" && conn && conn.open) conn.send({ type: "bomba" });
@@ -1117,6 +1180,7 @@
 
         const img = j.movendo && j.quadroAndar ? personagem.andar : personagem.idle;
         const pesX = j.x, pesY = j.y + TILE * 0.32;
+        const altura = ALTURA_SPRITE;
 
         if (idx === meuIndice) {
           ctx.beginPath();
@@ -1127,7 +1191,6 @@
         }
 
         if (img.complete && img.naturalWidth) {
-          const altura = ALTURA_SPRITE;
           const largura = altura * (img.naturalWidth / img.naturalHeight);
           ctx.save();
           if (j.olhandoEsquerda) {
@@ -1144,6 +1207,13 @@
           ctx.arc(j.x, j.y, TILE * 0.32, 0, Math.PI * 2);
           ctx.fill();
         }
+
+        // nome flutuando acima do personagem
+        ctx.font = "bold 10px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillStyle = idx === meuIndice ? "#e8f0ff" : CORES[idx];
+        ctx.fillText(nomeDe(idx), pesX, pesY - altura - 4);
       });
 
       ctx.font = "bold 12px ui-monospace, monospace";
@@ -1151,7 +1221,7 @@
       ctx.textBaseline = "top";
       jogadores.forEach((j, idx) => {
         ctx.fillStyle = j.vivo ? CORES[idx] : "rgba(90,107,130,0.6)";
-        const rotulo = `${NOMES[idx]}${idx === meuIndice ? " (você)" : ""}${j.vivo ? "" : " ✕"}`;
+        const rotulo = `${nomeDe(idx)}${idx === meuIndice ? " (você)" : ""}${j.vivo ? "" : " ✕"}`;
         ctx.fillText(rotulo, 8, 8 + idx * 15);
       });
 
@@ -1168,7 +1238,7 @@
           const y = 12 + idx * 16;
           ctx.textAlign = "left";
           ctx.fillStyle = CORES[idx];
-          ctx.fillText(NOMES[idx].replace("Jogador ", "J"), L - largura, y);
+          ctx.fillText(nomeDe(idx).slice(0, 8), L - largura, y);
           ctx.textAlign = "right";
           ctx.fillStyle = "#e8f0ff";
           ctx.fillText(String(placares[idx] || 0), L - 14, y);
@@ -1187,11 +1257,22 @@
     }
 
     // Controles
+    // Usa e.code (tecla física) em vez de e.key: com e.key, segurar "a" e apertar
+    // Shift faz o keyup chegar como "A", deixando "a" preso como true pra sempre.
     document.addEventListener("keydown", (e) => {
-      teclas[e.key] = true;
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
+      teclas[e.code] = true;
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
     });
-    document.addEventListener("keyup", (e) => { teclas[e.key] = false; });
+    document.addEventListener("keyup", (e) => { teclas[e.code] = false; });
+
+    // Se a janela perde o foco (alt+tab, clicar fora), o keyup nunca chega e a
+    // tecla ficaria presa — então limpamos tudo.
+    function limparTeclas() {
+      for (const k of Object.keys(teclas)) teclas[k] = false;
+      bombaTeclaAnterior = false;
+    }
+    window.addEventListener("blur", limparTeclas);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) limparTeclas(); });
 
     btn.addEventListener("click", () => {
       if (btn.disabled) return;
