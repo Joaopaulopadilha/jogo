@@ -1,0 +1,147 @@
+<!-- index.html -->
+<!-- CS Caps: FPS 3D online (2 a 4 jogadores) via PeerJS/WebRTC, host autoritativo -->
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CS Caps</title>
+  <script type="module" crossorigin src="./assets/index-By4mAH9q.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-c3lJpZdD.css">
+</head>
+<body>
+  <header>
+    <h1>CS Caps</h1>
+    <span id="subtitulo">online · 2 a 4 jogadores · 3D</span>
+  </header>
+
+  <nav><a href="../index.html">← início</a></nav>
+
+  <div class="wrap" id="wrap">
+    <canvas id="jogo"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="mira"></div>
+      <div id="hitmarker"></div>
+      <div id="dano"></div>
+      <div id="topo"><span id="placarTopo"></span><span id="relogio"></span></div>
+      <div id="faixa"></div>
+      <div id="killfeed"></div>
+      <div id="armas"></div>
+      <div id="status"><span id="vida">100</span><span id="municao">30</span></div>
+      <div id="tabela" class="hidden"></div>
+    </div>
+
+    <div class="overlay" id="overlay">
+
+      <div class="painel" id="painelNome">
+        <p>Digite seu nome</p>
+        <input id="inputNome" maxlength="14" placeholder="Seu nome" autocomplete="off" />
+        <button id="btnContinuar">Continuar</button>
+      </div>
+
+      <div class="painel hidden" id="painelInicial">
+        <p>
+          Mova com <b>WASD</b> · mire com o <b>mouse</b> · <b>clique</b> atira<br>
+          <b>1</b> rifle · <b>2</b> pistola · <b>3</b> granada (1 por round)<br>
+          <b>Espaço</b> pula · <b>R</b> recarrega · <b>Tab</b> placar<br>
+          Último de pé vence o round. Primeiro a 5 rounds vence.
+        </p>
+        <div class="botoes">
+          <button id="btnSolo">Jogar sozinho (vs CPU)</button>
+          <button id="btnHost" class="secundario">Criar sala online</button>
+          <button id="btnJoin" class="secundario">Entrar em sala online</button>
+          <button id="btnAmigos" class="secundario">Amigos</button>
+        </div>
+        <button id="btnTrocarNome" class="secundario">trocar nome</button>
+      </div>
+
+      <div class="painel hidden" id="painelSolo">
+        <p>Treino contra bots. A partida usa as mesmas regras do online.</p>
+        <label class="campo">Adversários
+          <select id="selBots">
+            <option value="1">1 CPU</option>
+            <option value="2">2 CPUs</option>
+            <option value="3" selected>3 CPUs</option>
+          </select>
+        </label>
+        <label class="campo">Dificuldade
+          <select id="selDificuldade">
+            <option value="facil">Fácil</option>
+            <option value="normal" selected>Normal</option>
+            <option value="dificil">Difícil</option>
+          </select>
+        </label>
+        <button id="btnComecarSolo">Começar</button>
+        <button id="btnVoltarSolo" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelAmigos">
+        <p id="statusAmigos"></p>
+        <p>Seu código de amigo (mande só para quem você confia):</p>
+        <div class="codigo codigo-amigo" id="meuCodigoAmigo">----</div>
+        <div class="linha">
+          <button id="btnCopiar" class="secundario">Copiar</button>
+          <button id="btnNovoCodigo" class="secundario">Gerar novo</button>
+        </div>
+        <p>Adicionar amigo (cole o código dele):</p>
+        <input id="inputCodigoAmigo" placeholder="código do amigo" autocomplete="off" />
+        <button id="btnAdicionar">Adicionar</button>
+        <p id="msgAmigos"></p>
+        <div class="lista-amigos" id="listaAmigos"></div>
+        <button id="btnVoltarAmigos" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelCriar">
+        <p>Escolha a senha da sala (letras e números).<br>Deixe em branco para gerar uma aleatória.</p>
+        <input id="inputSenha" maxlength="12" placeholder="ex.: uva" autocomplete="off" />
+        <p id="statusCriar"></p>
+        <button id="btnCriar">Criar sala</button>
+        <button id="btnVoltarCriar" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelHost">
+        <p>Passe esta senha para os outros jogadores:</p>
+        <div class="codigo" id="codigoHost">----</div>
+        <p id="statusHost">Gerando sala...</p>
+        <div class="lista-jogadores" id="listaHost"></div>
+        <div class="lista-amigos" id="amigosConvidar"></div>
+        <button id="btnIniciar" disabled>Iniciar partida</button>
+        <button id="btnVoltarHost" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelJoin">
+        <p>Digite a senha da sala:</p>
+        <input id="inputCodigo" maxlength="12" placeholder="senha" autocomplete="off" />
+        <button id="btnConectar">Conectar</button>
+        <p id="statusJoin"></p>
+        <div class="lista-jogadores" id="listaJoin"></div>
+        <button id="btnVoltarJoin" class="secundario">Voltar</button>
+      </div>
+
+      <div class="painel hidden" id="painelPausa">
+        <p>Partida em andamento</p>
+        <button id="btnRetomar">Clique para jogar</button>
+        <button id="btnSair" class="secundario">Sair da partida</button>
+      </div>
+
+      <div class="painel hidden" id="painelFim">
+        <p id="msg"></p>
+        <div class="lista-jogadores" id="listaFim"></div>
+        <button id="btnJogarDeNovo">Jogar de novo</button>
+        <button id="btnSairFim" class="secundario">Voltar ao início</button>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="convite" class="hidden">
+    <span id="textoConvite"></span>
+    <button id="btnAceitarConvite">Entrar</button>
+    <button id="btnIgnorarConvite" class="secundario">Ignorar</button>
+  </div>
+
+  <footer>feito com three.js + PeerJS (WebRTC) + TypeScript</footer>
+
+</body>
+</html>
