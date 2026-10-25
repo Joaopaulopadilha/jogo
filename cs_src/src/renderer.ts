@@ -3,7 +3,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { ALTURA, CAIXAS, CARROS, OLHO } from "./shared";
+import { ALTURA, CAIXAS, OBJETOS, OLHO } from "./shared";
 import type { GranadaSnap, PlayerInfo, PlayerSnap, Vec3 } from "./types";
 import { desligarVAO, suporteWebGL } from "./webgl";
 
@@ -213,7 +213,7 @@ export class Renderer {
     chao.rotation.x = -Math.PI / 2;
     this.scene.add(chao);
 
-    this.carregarCarros();
+    this.carregarObjetos();
 
     for (const c of CAIXAS) {
       if (c.oculta) continue;
@@ -245,10 +245,17 @@ export class Renderer {
     this.redimensionar();
   }
 
-  // carros destruídos do cenário: um modelo carregado uma vez e copiado para cada lugar
-  private carregarCarros(): void {
-    new GLTFLoader().load(
-      `${import.meta.env.BASE_URL}modelos/carro_destruido.glb`,
+  // objetos 3D do cenário (carros, blindado): cada arquivo é carregado uma vez e copiado para cada lugar
+  private carregarObjetos(): void {
+    const loader = new GLTFLoader();
+    for (const arquivo of new Set(OBJETOS.map((o) => o.arquivo))) {
+      this.carregarModelo(loader, arquivo, OBJETOS.filter((o) => o.arquivo === arquivo));
+    }
+  }
+
+  private carregarModelo(loader: GLTFLoader, arquivo: string, lugares: { x: number; z: number; yaw: number }[]): void {
+    loader.load(
+      `${import.meta.env.BASE_URL}modelos/${arquivo}.glb`,
       (gltf) => {
         const v2 = suporteWebGL().v2;
         gltf.scene.traverse((o) => {
@@ -259,7 +266,7 @@ export class Renderer {
           malha.material = v2 ? antigo : new THREE.MeshLambertMaterial({ map: antigo.map });
           if (v2) { antigo.roughness = 0.9; antigo.metalness = 0; }
         });
-        for (const c of CARROS) {
+        for (const c of lugares) {
           const copia = gltf.scene.clone(true);
           copia.position.set(c.x, 0, c.z);
           copia.rotation.y = c.yaw;

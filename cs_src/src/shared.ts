@@ -72,8 +72,8 @@ export const CAIXAS: Caixa[] = [
   { x: 0, z: 20.5, w: 42, d: 1, h: 5, cor: PAREDE },
   { x: -20.5, z: 0, w: 1, d: 42, h: 5, cor: PAREDE },
   { x: 20.5, z: 0, w: 1, d: 42, h: 5, cor: PAREDE },
-  // bloco central
-  { x: 0, z: 0, w: 5, d: 5, h: 3, cor: BLOCO },
+  // centro: blindado semidestruído (a colisão é uma caixa; o desenho vem do modelo 3D, ver OBJETOS)
+  { x: 0, z: 0, w: 6.2, d: 2.7, h: 2.15, cor: BLOCO, oculta: true },
   // muros baixos (dá pra pular)
   { x: 0, z: -8, w: 6, d: 1, h: 1, cor: MURO },
   { x: 0, z: 8, w: 6, d: 1, h: 1, cor: MURO },
@@ -94,10 +94,12 @@ export const CAIXAS: Caixa[] = [
   { x: 14, z: -4.5, w: 1.9, d: 4.3, h: 1.4, cor: CAIXA, oculta: true },
 ];
 
-// onde ficam os modelos dos carros (yaw em radianos; o carro aponta para +X no modelo)
-export const CARROS: { x: number; z: number; yaw: number }[] = [
-  { x: -14, z: 4.5, yaw: Math.PI / 2 },
-  { x: 14, z: -4.5, yaw: -Math.PI / 2 },
+// modelos 3D do cenário (yaw em radianos; nos modelos a frente aponta para +X)
+export interface Objeto3D { arquivo: string; x: number; z: number; yaw: number }
+export const OBJETOS: Objeto3D[] = [
+  { arquivo: "carro_destruido", x: -14, z: 4.5, yaw: Math.PI / 2 },
+  { arquivo: "carro_destruido", x: 14, z: -4.5, yaw: -Math.PI / 2 },
+  { arquivo: "blindado_semidestruido", x: 0, z: 0, yaw: 0 },
 ];
 
 export interface Spawn {
