@@ -16,22 +16,33 @@ const CHAVE = "cs_amigos";
 const REPETIR_MS = 15000;   // de quanto em quanto tempo procura amigos offline
 const TIMEOUT_MS = 8000;    // tempo máximo para completar o handshake
 const MAX_PEDIDOS = 5;      // pedidos de amizade pendentes ao mesmo tempo
+const VALIDADE_LINK_MS = 3 * 24 * 60 * 60 * 1000; // um link de convite vale 3 dias
+const MAX_LINKS = 20;       // links ativos guardados ao mesmo tempo
 
 export const APELIDO_MIN = 3;
 export const APELIDO_MAX = 12;
 const RE_APELIDO = /^[a-z0-9]{3,20}$/;  // aceita também os IDs longos de versões antigas
 const RE_SEGREDO = /^[a-z0-9]{20}$/;
+export const RE_TOKEN = /^[a-z0-9]{16}$/;
 
 export interface Amigo {
   id: string;        // apelido do amigo
   nome: string;      // nome de jogador dele (atualizado a cada conexão)
   secret: string;    // "" = pedido enviado, ainda não aceito
   confirmado: boolean; // o outro lado já reconheceu você (handshake concluído ao menos uma vez)
+  token?: string;    // código de um link de convite, enviado junto do pedido até ele ser aceito
+}
+
+// código de uso único embutido num link de convite: quem o apresenta é aceito sem aprovação manual
+interface LinkConvite {
+  token: string;
+  expira: number; // ms desde 1970
 }
 
 interface Armazem {
   meuId: string;
   amigos: Amigo[];
+  convites: LinkConvite[];
 }
 
 export interface Pedido {
@@ -83,11 +94,14 @@ function carregar(store?: Memoria): Armazem {
       const d = JSON.parse(bruto) as Armazem;
       if (RE_APELIDO.test(d.meuId) && Array.isArray(d.amigos)) {
         d.amigos = d.amigos.filter((a) => RE_APELIDO.test(a.id) && (a.secret === "" || RE_SEGREDO.test(a.secret)));
-        return { meuId: d.meuId, amigos: d.amigos };
+        const convites = Array.isArray(d.convites)
+          ? d.convites.filter((c) => RE_TOKEN.test(c.token) && c.expira > Date.now())
+          : [];
+        return { meuId: d.meuId, amigos: d.amigos, convites };
       }
     }
   } catch { /* dados corrompidos: gera novos */ }
-  return { meuId: aleatorio(10), amigos: [] };
+  return { meuId: aleatorio(10), amigos: [], convites: [] };
 }
 
 // o ID do outro lado vem do servidor de sinalização (conn.peer), não do que ele diz ser
@@ -115,7 +129,7 @@ export class Amigos {
     if (typeof crypto === "undefined" || !crypto.subtle) {
       // WebCrypto só existe em https ou localhost
       this.estado = "indisponivel";
-      this.dados = { meuId: "", amigos: [] };
+      this.dados = { meuId: "", amigos: [], convites: [] };
       return;
     }
     this.dados = carregar(store);
@@ -203,7 +217,7 @@ export class Amigos {
     if (!novo) return `O apelido precisa ter de ${APELIDO_MIN} a ${APELIDO_MAX} letras ou números.`;
     if (novo === this.dados.meuId && this.estado !== "ocupado") return null;
     this.parar();
-    this.dados = { meuId: novo, amigos: [] };
+    this.dados = { meuId: novo, amigos: [], convites: [] };
     this.salvar();
     this.estado = "conectando";
     this.iniciar();
@@ -212,14 +226,34 @@ export class Amigos {
 
   // ---- Gerenciar amigos ----
 
-  // envia um pedido de amizade; retorna uma mensagem de erro, ou null se deu certo
-  adicionar(texto: string): string | null {
+  // gera um código de uso único para um link de convite e devolve "apelido.codigo"
+  criarConvite(): string {
+    if (this.estado === "indisponivel") return "";
+    const token = aleatorio(16);
+    this.dados.convites = [...this.dados.convites.filter((c) => c.expira > Date.now()), { token, expira: Date.now() + VALIDADE_LINK_MS }]
+      .slice(-MAX_LINKS);
+    this.salvar();
+    return `${this.dados.meuId}.${token}`;
+  }
+
+  // gasta o código de um link (uso único); false se não existe, já foi usado ou expirou
+  private consumirToken(token: string): boolean {
+    const i = this.dados.convites.findIndex((c) => c.token === token && c.expira > Date.now());
+    if (i < 0) return false;
+    this.dados.convites.splice(i, 1);
+    this.salvar();
+    return true;
+  }
+
+  // envia um pedido de amizade (com o código do link, se veio de um); retorna erro, ou null se deu certo
+  adicionar(texto: string, token?: string): string | null {
     if (this.estado === "indisponivel") return "Amigos exige https ou localhost.";
     const id = apelidoValido(texto);
     if (!id) return `Digite o apelido do amigo (${APELIDO_MIN} a ${APELIDO_MAX} letras ou números).`;
     if (id === this.dados.meuId) return "Esse é o seu próprio apelido.";
     if (this.dados.amigos.some((a) => a.id === id)) return "Essa pessoa já está na sua lista.";
     const amigo: Amigo = { id, nome: id, secret: "", confirmado: false };
+    if (token && RE_TOKEN.test(token)) amigo.token = token;
     this.dados.amigos.push(amigo);
     this.salvar();
     this.ev.aoMudar();
@@ -240,11 +274,15 @@ export class Amigos {
     const p = this.pedidosRecebidos.get(id);
     if (!p) return;
     this.pedidosRecebidos.delete(id);
+    this.aceitarAgora(id, p.nome, p.conn);
+  }
+
+  private aceitarAgora(id: string, nome: string, conn: DataConnection): void {
     this.fecharOnline(id); // se já era amigo, o segredo antigo deixa de valer
     const segredo = aleatorio(20);
-    this.guardarAmigo(id, p.nome, segredo);
-    p.conn.send({ t: "aceito", s: segredo, nome: limparNome(this.nome()) });
-    window.setTimeout(() => { try { p.conn.close(); } catch { /* ignore */ } }, 1000);
+    this.guardarAmigo(id, nome, segredo);
+    conn.send({ t: "aceito", s: segredo, nome: limparNome(this.nome()) });
+    window.setTimeout(() => { try { conn.close(); } catch { /* ignore */ } }, 1000);
     this.ev.aoMudar();
   }
 
@@ -269,6 +307,7 @@ export class Amigos {
     if (existente) {
       existente.secret = segredo;
       existente.confirmado = true;
+      delete existente.token;
       if (nome) existente.nome = nome;
     } else {
       this.dados.amigos.push({ id, nome: nome || id, secret: segredo, confirmado: true });
@@ -310,7 +349,7 @@ export class Amigos {
       try { conn.close(); } catch { /* ignore */ }
     }, TIMEOUT_MS);
 
-    conn.on("open", () => conn.send({ t: "pedido", nome: limparNome(this.nome()) }));
+    conn.on("open", () => conn.send({ t: "pedido", nome: limparNome(this.nome()), token: amigo.token }));
     conn.on("close", encerrar);
     conn.on("error", encerrar);
 
@@ -344,7 +383,7 @@ export class Amigos {
 
   // ---- Pedido de amizade: quem recebe ----
 
-  private registrarPedido(id: string, nome: string, conn: DataConnection): void {
+  private registrarPedido(id: string, nome: string, conn: DataConnection, token: string): void {
     const meu = this.dados.amigos.find((a) => a.id === id);
 
     // os dois se adicionaram ao mesmo tempo: o menor apelido decide o segredo, o outro espera receber
@@ -359,6 +398,13 @@ export class Amigos {
       } else {
         conn.send({ t: "aguardando" });
       }
+      return;
+    }
+
+    // veio de um link que eu mesmo gerei: aceita sem precisar de aprovação
+    if (token && RE_TOKEN.test(token) && this.consumirToken(token)) {
+      this.aceitarAgora(id, nome, conn);
+      this.ev.aoAviso(`${nome || id} entrou na sua lista de amigos pelo seu link.`);
       return;
     }
 
@@ -443,7 +489,7 @@ export class Amigos {
     conn.on("close", () => window.clearTimeout(limite));
 
     conn.on("data", async (dado) => {
-      const m = dado as { t?: string; id?: unknown; n?: unknown; mac?: unknown; nome?: unknown };
+      const m = dado as { t?: string; id?: unknown; n?: unknown; mac?: unknown; nome?: unknown; token?: unknown };
       if (autenticado) { this.tratar(idRemoto, m); return; }
       if (pedido) return;
 
@@ -451,7 +497,7 @@ export class Amigos {
         if (!RE_APELIDO.test(idConexao) || idConexao === this.dados.meuId) { conn.close(); return; }
         pedido = true;
         window.clearTimeout(limite);
-        this.registrarPedido(idConexao, limparNome(m.nome), conn);
+        this.registrarPedido(idConexao, limparNome(m.nome), conn, typeof m.token === "string" ? m.token : "");
         return;
       }
 

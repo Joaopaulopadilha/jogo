@@ -125,10 +125,15 @@ $("armas").addEventListener("pointerdown", (e) => {
 // ---- Nome ----
 
 inputNome.value = meuNome;
+let acaoAposNome: (() => void) | null = null; // ex.: aceitar um link de convite antes de ter nome
+
 $("btnContinuar").addEventListener("click", () => {
   meuNome = inputNome.value.trim().slice(0, 14);
   localStorage.setItem("cs_nome", meuNome);
-  mostrarPainel("painelInicial");
+  const acao = acaoAposNome;
+  acaoAposNome = null;
+  if (acao) acao();
+  else mostrarPainel("painelInicial");
 });
 inputNome.addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnContinuar").click(); });
 $("btnTrocarNome").addEventListener("click", () => mostrarPainel("painelNome"));
@@ -257,34 +262,105 @@ amigosConvidar.addEventListener("click", (e) => {
   if (amigos.convidar(id, sala)) { convidados.add(id); renderAmigos(); }
 });
 
-// convite recebido
+// aviso com botão de aceitar (convite de sala de um amigo, ou link de convite recebido)
 const caixaConvite = $("convite");
-let conviteSala = "";
+let conviteAcao: (() => void) | null = null;
 let conviteTimer: number | undefined;
 
 function esconderConvite(): void {
   caixaConvite.classList.add("hidden");
   window.clearTimeout(conviteTimer);
+  conviteAcao = null;
 }
 
-function mostrarConvite(nome: string, sala: string): void {
-  if (rodando && overlay.classList.contains("hidden")) return; // não interrompe quem está jogando
-  conviteSala = sala;
-  $("textoConvite").textContent = `${nome} te chamou para uma sala`;
+function mostrarAviso(texto: string, rotulo: string, acao: () => void, duracaoMs = 60000): void {
+  conviteAcao = acao;
+  $("textoConvite").textContent = texto;
+  $("btnAceitarConvite").textContent = rotulo;
   caixaConvite.classList.remove("hidden");
   window.clearTimeout(conviteTimer);
-  conviteTimer = window.setTimeout(esconderConvite, 60000);
+  conviteTimer = window.setTimeout(esconderConvite, duracaoMs);
 }
 
-$("btnIgnorarConvite").addEventListener("click", esconderConvite);
-$("btnAceitarConvite").addEventListener("click", () => {
-  const sala = conviteSala;
-  esconderConvite();
+function entrarNaSala(sala: string): void {
   resetarParaInicio();
   inputCodigo.value = sala;
   mostrarPainel("painelJoin");
   conectar();
+}
+
+function mostrarConvite(nome: string, sala: string): void {
+  if (rodando && overlay.classList.contains("hidden")) return; // não interrompe quem está jogando
+  mostrarAviso(`${nome} te chamou para uma sala`, "Entrar", () => entrarNaSala(sala));
+}
+
+$("btnIgnorarConvite").addEventListener("click", esconderConvite);
+$("btnAceitarConvite").addEventListener("click", () => {
+  const acao = conviteAcao;
+  esconderConvite();
+  acao?.();
 });
+
+// ---- Link de convite (WhatsApp) ----
+
+// o link leva o apelido e um código de uso único; no #hash para nunca ir ao servidor
+function linkConvite(sala?: string): string {
+  const payload = amigos.criarConvite();
+  if (!payload) return "";
+  const p = new URLSearchParams({ amigo: payload });
+  if (sala) p.set("sala", sala);
+  return `${location.origin}${location.pathname}#${p}`;
+}
+
+function enviarPorWhatsApp(aviso: HTMLElement, sala?: string): void {
+  const link = linkConvite(sala);
+  if (!link) { aviso.textContent = "Amigos exige https ou localhost."; return; }
+  const texto = `${meuNome || "Um amigo"} te chamou para jogar CS Caps${sala ? " (a sala já está pronta!)" : ""}: ${link}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+}
+
+function copiarLink(aviso: HTMLElement, sala?: string): void {
+  const link = linkConvite(sala);
+  if (!link) { aviso.textContent = "Amigos exige https ou localhost."; return; }
+  navigator.clipboard.writeText(link).then(
+    () => { aviso.textContent = "Link copiado! Cole no WhatsApp ou onde quiser."; },
+    () => { aviso.textContent = "Não consegui copiar o link."; },
+  );
+}
+
+function salaAtual(): string {
+  const sala = codigoHost.textContent ?? "";
+  return /^[a-z0-9]+$/.test(sala) ? sala : "";
+}
+
+$("btnLinkWhats").addEventListener("click", () => enviarPorWhatsApp(msgAmigos));
+$("btnLinkCopiar").addEventListener("click", () => copiarLink(msgAmigos));
+$("btnSalaWhats").addEventListener("click", () => { const s = salaAtual(); if (s) enviarPorWhatsApp(statusHost, s); });
+$("btnSalaCopiar").addEventListener("click", () => { const s = salaAtual(); if (s) copiarLink(statusHost, s); });
+
+// quem abre um link recebido: confirma, adiciona o amigo e, se tiver sala, já entra nela
+interface LinkRecebido { apelido: string; token: string; sala: string }
+
+function lerLinkRecebido(): LinkRecebido | null {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const m = /^([a-z0-9]{3,20})\.([a-z0-9]{16})$/.exec((p.get("amigo") ?? "").toLowerCase());
+  if (!m) return null;
+  // limpa o endereço: atualizar a página não repete o convite
+  history.replaceState(null, "", location.pathname + location.search);
+  return { apelido: m[1], token: m[2], sala: normalizarCodigo(p.get("sala") ?? "") };
+}
+
+function aceitarLink(link: LinkRecebido): void {
+  const executar = () => {
+    const erro = amigos.adicionar(link.apelido, link.token);
+    if (link.sala) { entrarNaSala(link.sala); return; }
+    msgAmigos.textContent = erro ?? `Pedido enviado para ${link.apelido}. Você entra na lista assim que ele estiver online.`;
+    renderAmigos();
+    mostrarPainel("painelAmigos");
+  };
+  if (!meuNome) { acaoAposNome = executar; mostrarPainel("painelNome"); return; } // precisa de um nome antes
+  executar();
+}
 
 // ---- Voltar ao início ----
 
@@ -765,4 +841,18 @@ function quadro(agora: number): void {
 amigos.iniciar();
 renderAmigos();
 mostrarPainel(meuNome ? "painelInicial" : "painelNome");
+
+// o link vale ao abrir a página e também ao colá-lo numa aba onde o jogo já está aberto (só muda o #)
+function tratarLinkRecebido(): void {
+  const link = lerLinkRecebido();
+  if (!link || link.apelido === amigos.apelido) return;
+  mostrarAviso(
+    `${link.apelido} te chamou para jogar${link.sala ? " numa sala" : ""}`,
+    "Aceitar",
+    () => aceitarLink(link),
+    10 * 60000,
+  );
+}
+tratarLinkRecebido();
+window.addEventListener("hashchange", tratarLinkRecebido);
 requestAnimationFrame(quadro);

@@ -96,7 +96,12 @@
           <button id="btnSalvarApelido">Salvar</button>
           <button id="btnCopiar" class="secundario">Copiar</button>
         </div>
-        <p>Adicionar amigo (apelido dele):</p>
+        <p>Convidar por link (quem abrir vira seu amigo):</p>
+        <div class="linha">
+          <button id="btnLinkWhats">WhatsApp</button>
+          <button id="btnLinkCopiar" class="secundario">Copiar link</button>
+        </div>
+        <p>Ou adicionar pelo apelido dele:</p>
         <input id="inputCodigoAmigo" maxlength="12" placeholder="apelido do amigo" autocomplete="off" />
         <button id="btnAdicionar">Enviar pedido</button>
         <p id="msgAmigos"></p>
@@ -119,6 +124,11 @@
         <p id="statusHost">Gerando sala...</p>
         <div class="lista-jogadores" id="listaHost"></div>
         <div class="lista-amigos" id="amigosConvidar"></div>
+        <p>Ou mande o link da sala (já adiciona como amigo):</p>
+        <div class="linha">
+          <button id="btnSalaWhats" class="secundario">WhatsApp</button>
+          <button id="btnSalaCopiar" class="secundario">Copiar link</button>
+        </div>
         <button id="btnIniciar" disabled>Iniciar partida</button>
         <button id="btnVoltarHost" class="secundario">Voltar</button>
       </div>
