@@ -48,6 +48,7 @@ function rms(an: AnalyserNode, buf: Uint8Array<ArrayBuffer>): number {
 
 export class Voz {
   microfone = false; // microfone aberto (enviando a voz)
+  private abrindo = false;
   volume = 1;        // volume do que ouço (0 a 1)
 
   private ac: AudioContext | null = null;
@@ -94,10 +95,12 @@ export class Voz {
 
   // liga ou desliga o microfone; devolve uma mensagem de erro (ou null se deu certo)
   async alternarMicrofone(): Promise<string | null> {
+    if (this.abrindo) return null; // já está pedindo o microfone (ex.: ligação automática e clique ao mesmo tempo)
     if (this.microfone) { this.desligarMicrofone(); return null; }
     if (!Voz.suportado()) return "A voz precisa de https e de um navegador com acesso ao microfone.";
     this.fluxo; // garante a trilha de silêncio antes de trocar
     this.retomar();
+    this.abrindo = true;
     try {
       const m = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -121,6 +124,8 @@ export class Voz {
       if (nome === "NotFoundError" || nome === "OverconstrainedError") return "Nenhum microfone foi encontrado neste aparelho.";
       if (nome === "NotReadableError") return "O microfone está em uso por outro programa.";
       return "Não consegui abrir o microfone.";
+    } finally {
+      this.abrindo = false;
     }
   }
 
@@ -174,7 +179,7 @@ export class Voz {
     call.on("close", () => this.remover(l, false));
     call.on("error", () => this.remover(l, false));
     // chamada que nunca conecta (o outro lado não atendeu): descarta para quem usa poder tentar de novo
-    window.setTimeout(() => { if (!l.conectada && this.ligacoes.get(peerId) === l) this.remover(l, true); }, 12000);
+    window.setTimeout(() => { if (!l.conectada && this.ligacoes.get(peerId) === l) this.remover(l, true); }, 7000);
     this.ev.aoMudar();
   }
 
@@ -219,6 +224,12 @@ export class Voz {
     for (const l of [...this.ligacoes.values()]) {
       if (l.contexto === contexto && !peerIds.includes(l.peerId)) this.remover(l, true);
     }
+  }
+
+  // tentativa que ainda não conectou (o outro lado não estava pronto): fecha para ligar de novo agora
+  descartarSeNaoConectou(peerId: string): void {
+    const l = this.ligacoes.get(peerId);
+    if (l && !l.conectada) this.remover(l, true);
   }
 
   fecharContexto(contexto: ContextoVoz): void {

@@ -203,8 +203,8 @@ $("btnTrocarNome").addEventListener("click", () => mostrarPainel("painelNome"));
 // ---- Amigos ----
 
 const amigos = new Amigos(() => meuNome || "Jogador", {
-  aoMudar: () => { grupo.sincronizar(); renderAmigos(); renderLobby(); sincronizarVozGrupo(); },
-  aoGrupo: (de, m) => grupo.aoMensagem(de.id, de.nome, m),
+  aoMudar: () => { grupo.sincronizar(); renderAmigos(); renderLobby(); avisarPresencaGrupo(); sincronizarVozGrupo(); },
+  aoGrupo: (de, m) => (m.t === "g-voz" ? aoVozPronta(de.id, de.nome) : grupo.aoMensagem(de.id, de.nome, m)),
   aoChamada: (call, apelido) => aoChamadaGrupo(call, apelido),
   aoConvite: (de, sala) => mostrarConvite(de.nome, sala),
   aoAviso: (msg) => { msgAmigos.textContent = msg; mostrarToast(msg); },
@@ -830,6 +830,8 @@ aplicarAjustes();
 
 // ---- Voz ----
 
+if (import.meta.env.DEV) (window as unknown as { __csDbg?: unknown }).__csDbg = () => ({ rodando, modo, estado: amigos.estado, eu: amigos.apelido, membros: grupo.membros.map((m) => [m.id, amigos.estaOnline(m.id)]) });
+
 function rotuloVoz(p: Participante): string {
   if (p.contexto === "partida") {
     const r = rosterVoz.find((x) => x.peerId === p.peerId);
@@ -840,18 +842,60 @@ function rotuloVoz(p: Participante): string {
 }
 
 // grupo do lobby: cada par de membros online tem uma chamada (quem tem o apelido "maior" liga)
-function sincronizarVozGrupo(): void {
+function sincronizarVozGrupo(refazer?: string): void {
   if (!Voz.suportado()) return;
   if (rodando) { voz.fecharContexto("grupo"); return; }
   const meuId = amigos.apelido;
   if (!meuId || amigos.estado !== "pronto") return;
   const alvos = grupo.membros.filter((m) => m.id !== meuId && amigos.estaOnline(m.id)).map((m) => m.id);
   voz.manter("grupo", alvos.map(peerIdDeApelido));
+  // a pessoa acabou de voltar: descarta a tentativa antiga que ela não atendeu e liga de novo agora
+  if (refazer) voz.descartarSeNaoConectou(peerIdDeApelido(refazer));
   for (const a of alvos) {
     if (meuId > a && !voz.temLigacao(peerIdDeApelido(a))) {
       const call = amigos.ligarVoz(a, voz.fluxo);
       if (call) voz.chamou(call, "grupo");
     }
+  }
+}
+
+// avisa o grupo que estou no lobby (a voz já pode ligar); quem tem o apelido maior liga na hora
+function avisarVozPronta(): void {
+  const meuId = amigos.apelido;
+  if (!meuId) return;
+  for (const m of grupo.membros) if (m.id !== meuId && amigos.estaOnline(m.id)) amigos.enviar(m.id, { t: "g-voz" });
+}
+
+function aoVozPronta(id: string, nome: string): void {
+  if (!grupo.membros.some((m) => m.id === id)) return;
+  mostrarToast(`${nome} voltou ao lobby`);
+  const meuId = amigos.apelido;
+  if (meuId && meuId < id && !rodando) avisarVozPronta(); // quem deve ligar para mim fica sabendo que já posso atender
+  sincronizarVozGrupo(id);
+}
+
+// avisos de quem caiu / voltou (membros do grupo no lobby e jogadores na partida)
+const onlineGrupo = new Map<string, boolean>();
+function avisarPresencaGrupo(): void {
+  const meuId = amigos.apelido;
+  const vistos = new Set<string>();
+  for (const m of grupo.membros) {
+    if (m.id === meuId) continue;
+    vistos.add(m.id);
+    const on = amigos.estaOnline(m.id);
+    const antes = onlineGrupo.get(m.id);
+    if (antes !== undefined && antes !== on) mostrarToast(on ? `${m.nome} voltou` : `${m.nome} caiu`);
+    onlineGrupo.set(m.id, on);
+  }
+  for (const id of [...onlineGrupo.keys()]) if (!vistos.has(id)) onlineGrupo.delete(id);
+}
+
+let presencaPartida: boolean[] = [];
+function avisarPresencaPartida(snap: Snapshot): void {
+  for (const p of snap.ps) {
+    if (p.id === eu) continue;
+    if (presencaPartida[p.id] === true && !p.on) mostrarToast(`${infos[p.id]?.nome ?? "Jogador"} caiu da partida`);
+    presencaPartida[p.id] = p.on;
   }
 }
 
@@ -893,9 +937,27 @@ function aoChamadaPartida(call: MediaConnection): void {
   voz.atender(call, "partida");
 }
 
+// o microfone liga sozinho (no primeiro toque, que o navegador exige para pedir a permissão); só fica desligado se a pessoa desligar
+const CHAVE_MIC_DESLIGADO = "cscaps-mic-desligado";
+function micDesligadoPorMim(): boolean {
+  try { return localStorage.getItem(CHAVE_MIC_DESLIGADO) === "1"; } catch { return false; }
+}
+function lembrarMic(desligado: boolean): void {
+  try { if (desligado) localStorage.setItem(CHAVE_MIC_DESLIGADO, "1"); else localStorage.removeItem(CHAVE_MIC_DESLIGADO); } catch { /* sem armazenamento */ }
+}
+
 async function alternarMic(): Promise<void> {
   const erro = await voz.alternarMicrofone();
+  if (!erro) lembrarMic(!voz.microfone);
   mostrarToast(erro ?? (voz.microfone ? "Microfone ligado: os outros ouvem você." : "Microfone desligado."));
+}
+
+let tentouMicAuto = false;
+async function ligarMicAutomatico(): Promise<void> {
+  if (tentouMicAuto || voz.microfone || !meuNome || micDesligadoPorMim() || !Voz.suportado()) return;
+  tentouMicAuto = true;
+  const erro = await voz.alternarMicrofone();
+  mostrarToast(erro ?? "Microfone ligado: os outros ouvem você. (Toque em 🎤 para desligar)");
 }
 
 // indicadores leves (só classes e a lista de quem fala); rodam várias vezes por segundo
@@ -955,10 +1017,10 @@ document.addEventListener("keydown", (e) => {
   if (e.code === "KeyM" && !e.repeat && rodando && entrada.travado) void alternarMic();
 });
 // o navegador só toca áudio depois de um gesto: retoma a cada toque/clique
-for (const ev of ["pointerdown", "click", "keydown"]) document.addEventListener(ev, () => voz.retomar(), { capture: true });
+for (const ev of ["pointerdown", "click", "keydown"]) document.addEventListener(ev, () => { voz.retomar(); void ligarMicAutomatico(); }, { capture: true });
 // reavalia a cada checagem (e não só quando alguém começa a falar): senão o aviso de "falando" ficava na tela depois de a pessoa parar
 window.setInterval(() => { voz.atualizarNiveis(); atualizarIndicadoresVoz(); }, 100);
-window.setInterval(() => { sincronizarVozGrupo(); sincronizarVozPartida(); }, 4000);
+window.setInterval(() => { sincronizarVozGrupo(); sincronizarVozPartida(); }, 2500);
 
 // ---- Voltar ao início ----
 
@@ -990,9 +1052,11 @@ function resetarParaInicio(): void {
   btnConectar.disabled = false;
   voz.fecharContexto("partida");
   rosterVoz = [];
+  presencaPartida = [];
   mostrarPainel("painelLobby");
   renderLobby();
   sincronizarVozGrupo();
+  avisarVozPronta();
   renderVoz();
 }
 
@@ -1166,6 +1230,7 @@ function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "gu
   fimInicio = 0;
   ultimaRodada = 0;
   corpo = null;
+  presencaPartida = [];
   ultimaSnap = null;
   pendentes = [];
   saida = [];
@@ -1421,6 +1486,7 @@ function quadro(agora: number): void {
 
     const snap = modo !== "guest" ? jogo!.snapshot() : ultimaSnap;
     if (snap) {
+      avisarPresencaPartida(snap);
       for (const p of snap.ps) if (p.id !== eu) renderer.atualizarRemoto(p);
       const meu = snap.ps[eu];
       if (meu && meu.gr <= 0 && entrada.arma === SLOT_GRANADA) entrada.arma = 0;
