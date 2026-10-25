@@ -72,7 +72,7 @@ export class Entrada {
 
   travar(): void {
     if (this.toque) {
-      this.telaCheia();
+      this.prepararTela();
       if (!this.travado) { this.travado = true; this.aoMudarTravamento(true); }
       return;
     }
@@ -89,16 +89,17 @@ export class Entrada {
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
-  // esconde as barras do navegador e tenta travar em paisagem (não existe em todos os aparelhos)
-  private telaCheia(): void {
+  // celular/tablet: tela cheia (esconde as barras do navegador) e orientação travada na horizontal.
+  // Precisa de um toque do usuário. No Android funciona; no iPhone não existe, e quem cobre é o aviso "gire o aparelho".
+  prepararTela(): void {
+    if (!this.toque) return;
+    const travarPaisagem = () => {
+      const o = screen.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined;
+      o?.lock?.("landscape")?.catch(() => {});
+    };
     const el = document.documentElement;
-    if (document.fullscreenElement || !el.requestFullscreen) return;
-    el.requestFullscreen()
-      .then(() => {
-        const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-        o.lock?.("landscape")?.catch(() => {});
-      })
-      .catch(() => {});
+    if (document.fullscreenElement || !el.requestFullscreen) { travarPaisagem(); return; }
+    el.requestFullscreen().then(travarPaisagem).catch(travarPaisagem);
   }
 
   // ---- Toque ----

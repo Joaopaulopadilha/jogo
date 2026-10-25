@@ -109,6 +109,8 @@ const entrada = new Entrada(canvas, (travado) => {
 
 if (entrada.toque) {
   document.body.classList.add("toque");
+  // primeiro toque em qualquer lugar: tela cheia e paisagem travada (precisa de um gesto do usuário)
+  document.addEventListener("click", () => entrada.prepararTela(), { once: true, capture: true });
   montarToque(entrada, () => entrada.soltar());
   $("btnRetomar").textContent = "Toque para jogar";
   $("ajudaControles").innerHTML =

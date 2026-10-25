@@ -365,9 +365,14 @@ body.toque #faixa { top: 22%; }
 /* em pé, o jogo pede para girar o aparelho */
 #girar {
   display: none; position: fixed; inset: 0; z-index: 30; align-items: center; justify-content: center;
-  text-align: center; padding: 32px; background: rgba(6,10,16,0.96); color: var(--ink); font-size: 18px; line-height: 1.6;
+  text-align: center; padding: 32px; background: var(--bg); color: var(--ink); font-size: 18px; line-height: 1.6;
 }
-@media (orientation: portrait) { body.toque.jogando #girar { display: flex; } }
+/* celular/tablet em pé: bloqueia tudo, do primeiro menu à partida */
+@media (orientation: portrait) { body.toque #girar { display: flex; } }
+#girar small { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+#girar .giro { font-size: 64px; margin-bottom: 14px; animation: girar 2.4s ease-in-out infinite; }
+@keyframes girar { 0%, 15% { transform: rotate(0deg); } 55%, 100% { transform: rotate(-90deg); } }
+@media (prefers-reduced-motion: reduce) { #girar .giro { animation: none; transform: rotate(-90deg); } }
 
 /* ---- Painel de amigos ---- */
 .painel.largo { max-width: 780px; }
