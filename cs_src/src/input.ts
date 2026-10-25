@@ -11,6 +11,7 @@ export class Entrada {
   travado = false; // no toque significa apenas "partida ativa, sem pausa"
   placar = false;
   arma = 0; // slot selecionado: 0 rifle, 1 pistola, 2 granada
+  sensibilidade = 1; // multiplicador da mira (ajuste do jogador)
 
   // celular/tablet: dedo como ponteiro principal, sem mouse
   readonly toque = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
@@ -32,8 +33,8 @@ export class Entrada {
 
     document.addEventListener("mousemove", (e) => {
       if (this.toque || !this.travado) return;
-      this.yaw -= e.movementX * SENSIBILIDADE;
-      this.pitch -= e.movementY * SENSIBILIDADE;
+      this.yaw -= e.movementX * SENSIBILIDADE * this.sensibilidade;
+      this.pitch -= e.movementY * SENSIBILIDADE * this.sensibilidade;
       this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
     });
 
@@ -106,8 +107,8 @@ export class Entrada {
 
   olharToque(dx: number, dy: number): void {
     if (!this.travado) return;
-    this.yaw -= dx * SENSIBILIDADE_TOQUE;
-    this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - dy * SENSIBILIDADE_TOQUE));
+    this.yaw -= dx * SENSIBILIDADE_TOQUE * this.sensibilidade;
+    this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - dy * SENSIBILIDADE_TOQUE * this.sensibilidade));
   }
 
   moverToque(x: number, y: number): void {

@@ -30,6 +30,7 @@
       <div id="btnRecarregar" class="tbtn" role="button" aria-label="Recarregar">R</div>
       <div id="btnPlacar" class="tbtn" role="button" aria-label="Placar">TAB</div>
       <div id="btnPausa" class="tbtn" role="button" aria-label="Pausar">II</div>
+      <div id="btnAjustesJogo" class="tbtn" role="button" aria-label="Ajustes">⚙</div>
     </div>
 
     <div id="hud" class="hidden">
@@ -61,6 +62,7 @@
             <button id="btnHost" class="mini secundario">Criar sala</button>
             <button id="btnJoin" class="mini secundario">Entrar em sala</button>
             <button id="btnAmigos" class="mini secundario">Amigos</button>
+            <button id="btnAjustes" class="mini secundario engrenagem" aria-label="Ajustes" title="Ajustes">⚙</button>
           </span>
         </div>
 
@@ -104,6 +106,42 @@
         <div class="lobby-rodape">
           <p id="lobbyProntoStatus"></p>
           <button id="btnPronto" class="grande">JOGAR</button>
+        </div>
+      </div>
+
+      <div class="painel ajustes hidden" id="painelAjustes">
+        <h3 class="titulo-secao">⚙ Ajustes</h3>
+
+        <div class="aj-grupo">
+          <h4>Vídeo</h4>
+          <label class="aj-linha">
+            <span>Brilho</span>
+            <input type="range" id="ajBrilho" min="60" max="220" step="5" />
+            <output id="ajBrilhoValor">100%</output>
+          </label>
+          <p class="ajuda">Se a imagem estiver escura no seu aparelho, aumente o brilho. Você vê o efeito na hora.</p>
+          <label class="aj-linha">
+            <span>Qualidade</span>
+            <select id="ajQualidade">
+              <option value="baixa">Baixa (aparelhos fracos)</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="aj-grupo">
+          <h4>Controles</h4>
+          <label class="aj-linha">
+            <span>Sensibilidade da mira</span>
+            <input type="range" id="ajSens" min="40" max="250" step="5" />
+            <output id="ajSensValor">100%</output>
+          </label>
+        </div>
+
+        <div class="aj-rodape">
+          <button id="btnAjustesPadrao" class="secundario">Restaurar padrão</button>
+          <button id="btnAjustesVoltar">Voltar</button>
         </div>
       </div>
 
@@ -188,6 +226,7 @@
       <div class="painel hidden" id="painelPausa">
         <p>Partida em andamento</p>
         <button id="btnRetomar">Clique para jogar</button>
+        <button id="btnAjustesPausa" class="secundario">⚙ Ajustes</button>
         <button id="btnSair" class="secundario">Sair da partida</button>
       </div>
 

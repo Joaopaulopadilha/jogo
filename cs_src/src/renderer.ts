@@ -156,6 +156,7 @@ export class Renderer {
   private lobbyPersonagens: THREE.Group[] = []; // o personagem em si (gira/balança dentro da vaga)
   private lobbyTempo = 0;
   private lobbyFracCentro = 0.4; // fração da largura da tela livre entre os painéis laterais
+  private qualidade: "baixa" | "media" | "alta" = window.matchMedia("(hover: none) and (pointer: coarse)").matches ? "media" : "alta";
   private camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 200);
   private remotos = new Map<number, Remoto>();
   private rastros: Rastro[] = [];
@@ -169,9 +170,7 @@ export class Renderer {
 
   constructor(canvas: HTMLCanvasElement, private wrap: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    // celulares têm telas muito densas: 1.5x já fica nítido e poupa bateria/GPU
-    const toque = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, toque ? 1.5 : 2));
+    this.aplicarRazaoPixel();
 
     this.scene.background = new THREE.Color(0x0a0e14);
     this.scene.fog = new THREE.Fog(0x0a0e14, 20, 70);
@@ -217,7 +216,20 @@ export class Renderer {
     this.redimensionar();
   }
 
+  // resolução da renderização: telas densas pesam na bateria/GPU, então a qualidade escolhida limita os pixels desenhados
+  private aplicarRazaoPixel(): void {
+    const dpr = window.devicePixelRatio || 1;
+    const razao = this.qualidade === "baixa" ? Math.max(0.5, Math.min(dpr, 1) * 0.75) : this.qualidade === "media" ? Math.min(dpr, 1.5) : Math.min(dpr, 2);
+    this.renderer.setPixelRatio(razao);
+  }
+
+  definirQualidade(q: "baixa" | "media" | "alta"): void {
+    this.qualidade = q;
+    this.redimensionar();
+  }
+
   private redimensionar(): void {
+    this.aplicarRazaoPixel();
     const w = Math.max(1, this.wrap.clientWidth);
     const h = Math.max(1, this.wrap.clientHeight);
     this.renderer.setSize(w, h, false);

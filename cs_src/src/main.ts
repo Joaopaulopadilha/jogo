@@ -5,6 +5,8 @@ import { somAcerto, somDano, somExplosao, somMorte, somTiro } from "./audio";
 import { HostGame } from "./hostgame";
 import { Entrada } from "./input";
 import { Amigos, apelidoValido } from "./amigos";
+import { LIMITES, ajustesPadrao, carregarAjustes, salvarAjustes } from "./ajustes";
+import type { Ajustes, Qualidade } from "./ajustes";
 import { Bot } from "./bot";
 import { Grupo } from "./grupo";
 import type { InicioPartida, ModoJogo } from "./grupo";
@@ -23,7 +25,7 @@ const wrap = $("wrap");
 const overlay = $("overlay");
 const hud = $("hud");
 
-const PAINEIS = ["painelNome", "painelLobby", "painelAmigos", "painelConectando", "painelCriar", "painelHost", "painelJoin", "painelPausa", "painelFim"];
+const PAINEIS = ["painelNome", "painelLobby", "painelAmigos", "painelAjustes", "painelConectando", "painelCriar", "painelHost", "painelJoin", "painelPausa", "painelFim"];
 
 const inputNome = $<HTMLInputElement>("inputNome");
 const inputCodigo = $<HTMLInputElement>("inputCodigo");
@@ -68,6 +70,7 @@ function listaHtml(infos: PlayerInfo[], eu = -1, hostId = 0): string {
 function mostrarPainel(nome: string): void {
   overlay.classList.remove("hidden");
   overlay.classList.toggle("lobby-ativo", nome === "painelLobby");
+  overlay.classList.toggle("ajustes-ativo", nome === "painelAjustes");
   for (const id of PAINEIS) $(id).classList.toggle("hidden", id !== nome);
 }
 
@@ -111,7 +114,7 @@ if (entrada.toque) {
   document.body.classList.add("toque");
   // primeiro toque em qualquer lugar: tela cheia e paisagem travada (precisa de um gesto do usuário)
   document.addEventListener("click", () => entrada.prepararTela(), { once: true, capture: true });
-  montarToque(entrada, () => entrada.soltar());
+  montarToque(entrada, () => entrada.soltar(), () => abrirAjustes());
   $("btnRetomar").textContent = "Toque para jogar";
   $("ajudaControles").innerHTML =
     "Arraste à esquerda para <b>andar</b> · à direita para <b>mirar</b><br>" +
@@ -674,6 +677,60 @@ $("btnAtualizar").addEventListener("click", () => location.reload());
 window.setTimeout(() => void verificarVersao(), 3000);
 window.setInterval(() => void verificarVersao(), 5 * 60_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void verificarVersao(); });
+
+// ---- Ajustes (brilho, qualidade, sensibilidade) ----
+
+let ajustes: Ajustes = carregarAjustes();
+let ajustesVoltarPara = "painelLobby";
+
+// o brilho age só na imagem 3D (o canvas): textos e botões continuam como estão
+function aplicarAjustes(): void {
+  canvas.style.filter = ajustes.brilho === 1 ? "" : `brightness(${ajustes.brilho})`;
+  renderer.definirQualidade(ajustes.qualidade);
+  entrada.sensibilidade = ajustes.sensibilidade;
+}
+
+function mostrarControlesAjustes(): void {
+  $<HTMLInputElement>("ajBrilho").value = String(Math.round(ajustes.brilho * 100));
+  $("ajBrilhoValor").textContent = `${Math.round(ajustes.brilho * 100)}%`;
+  $<HTMLSelectElement>("ajQualidade").value = ajustes.qualidade;
+  $<HTMLInputElement>("ajSens").value = String(Math.round(ajustes.sensibilidade * 100));
+  $("ajSensValor").textContent = `${Math.round(ajustes.sensibilidade * 100)}%`;
+}
+
+function abrirAjustes(): void {
+  // durante a partida volta para a pausa; fora dela, para o lobby
+  ajustesVoltarPara = rodando ? "painelPausa" : "painelLobby";
+  if (rodando) entrada.soltar();
+  mostrarControlesAjustes();
+  mostrarPainel("painelAjustes");
+}
+
+function mudouAjuste(): void {
+  const brilho = Number($<HTMLInputElement>("ajBrilho").value) / 100;
+  const sens = Number($<HTMLInputElement>("ajSens").value) / 100;
+  ajustes = {
+    brilho: Math.min(LIMITES.brilho.max, Math.max(LIMITES.brilho.min, brilho)),
+    qualidade: $<HTMLSelectElement>("ajQualidade").value as Qualidade,
+    sensibilidade: Math.min(LIMITES.sensibilidade.max, Math.max(LIMITES.sensibilidade.min, sens)),
+  };
+  salvarAjustes(ajustes);
+  aplicarAjustes();
+  mostrarControlesAjustes();
+}
+
+for (const id of ["ajBrilho", "ajSens"]) $(id).addEventListener("input", mudouAjuste);
+$("ajQualidade").addEventListener("change", mudouAjuste);
+$("btnAjustesPadrao").addEventListener("click", () => {
+  ajustes = ajustesPadrao();
+  salvarAjustes(ajustes);
+  aplicarAjustes();
+  mostrarControlesAjustes();
+});
+$("btnAjustesVoltar").addEventListener("click", () => mostrarPainel(ajustesVoltarPara));
+$("btnAjustes").addEventListener("click", abrirAjustes);
+$("btnAjustesPausa").addEventListener("click", abrirAjustes);
+aplicarAjustes();
 
 // ---- Voltar ao início ----
 
