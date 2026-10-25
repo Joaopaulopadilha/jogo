@@ -93,7 +93,8 @@ export type HostMsg =
   | { t: "snap"; s: Snapshot }
   | ShotMsg
   | KillMsg
-  | BoomMsg;
+  | BoomMsg
+  | { t: "voz"; pares: { pid: number; peerId: string }[] }; // quem está na sala (para ligar as chamadas de voz)
 
 export type GuestMsg =
   | { t: "hello"; nome: string; slot?: number } // slot: posição no grupo de amigos (define cor e vaga na partida)

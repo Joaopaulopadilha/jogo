@@ -8,10 +8,14 @@
 // nem para mandar convite.
 
 import Peer from "peerjs";
-import type { DataConnection } from "peerjs";
+import type { DataConnection, MediaConnection } from "peerjs";
 import { normalizarCodigo } from "./net";
 
 const PREFIXO = "cscaps-u-";
+
+// ID do apelido no servidor do PeerJS (também usado para identificar chamadas de voz)
+export const peerIdDeApelido = (apelido: string): string => PREFIXO + apelido;
+export const apelidoDePeerId = (peerId: string): string => (peerId.startsWith(PREFIXO) ? peerId.slice(PREFIXO.length) : "");
 const CHAVE = "cs_amigos";
 const REPETIR_MS = 10000;   // de quanto em quanto tempo procura amigos offline
 const RECRIAR_MS = 4000;    // espera antes de recriar a conexão com o servidor
@@ -73,6 +77,8 @@ export interface AmigosEventos {
   aoAviso(msg: string): void;
   // mensagens de grupo ("g-...") vindas de um amigo autenticado
   aoGrupo?(de: Amigo, m: Record<string, unknown>): void;
+  // chamada de voz recebida de um apelido (quem usa decide se aceita)
+  aoChamada?(call: MediaConnection, apelido: string): void;
 }
 
 const ALFABETO = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -239,6 +245,7 @@ export class Amigos {
       this.pulso = window.setInterval(() => this.batida(), this.op.batidaMs ?? BATIDA_MS);
     });
     peer.on("connection", (conn) => this.receber(conn));
+    peer.on("call", (call) => this.ev.aoChamada?.(call, apelidoDePeerId(call.peer)));
     peer.on("disconnected", () => { if (!peer.destroyed) peer.reconnect(); });
     peer.on("error", (err) => {
       if (err.type === "peer-unavailable") {
@@ -437,6 +444,12 @@ export class Amigos {
     try { p.conn.send({ t: "recusado" }); } catch { /* ignore */ }
     window.setTimeout(() => { try { p.conn.close(); } catch { /* ignore */ } }, 500);
     this.ev.aoMudar();
+  }
+
+  // inicia uma chamada de voz com um amigo (usa a conexão atual com o servidor)
+  ligarVoz(apelido: string, stream: MediaStream): MediaConnection | null {
+    if (!this.peer || this.peer.destroyed || this.peer.disconnected || this.estado !== "pronto") return null;
+    return this.peer.call(PREFIXO + apelido, stream);
   }
 
   convidar(id: string, sala: string): boolean {

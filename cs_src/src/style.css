@@ -355,6 +355,8 @@ body.toque canvas { touch-action: none; }
 #btnPausa { left: calc(env(safe-area-inset-left, 0px) + 10px); }
 #btnPlacar { left: calc(env(safe-area-inset-left, 0px) + 62px); }
 #btnAjustesJogo { left: calc(env(safe-area-inset-left, 0px) + 114px); width: 44px; height: 32px; border-radius: 10px; font-size: 16px; top: calc(env(safe-area-inset-top, 0px) + 10px); }
+#btnMicJogo { left: calc(env(safe-area-inset-left, 0px) + 218px); width: 44px; height: 32px; border-radius: 10px; font-size: 15px; top: calc(env(safe-area-inset-top, 0px) + 10px); }
+#btnMicJogo.ativo { border-color: var(--accent2); background: rgba(255,93,115,0.35); }
 #btnTelaCheiaJogo { left: calc(env(safe-area-inset-left, 0px) + 166px); width: 44px; height: 32px; border-radius: 10px; font-size: 16px; top: calc(env(safe-area-inset-top, 0px) + 10px); }
 
 /* HUD no toque: números acima da barra de armas (que vira botões) e fora do caminho dos dedos */
@@ -552,3 +554,28 @@ input[type=range] { padding: 0; max-width: none; width: 100%; border: none; back
 .erro-caixa button { align-self: flex-start; }
 
 .ajuda.hidden { display: none; }
+
+/* ---- Voz ---- */
+button.engrenagem[aria-pressed="true"] { border-color: var(--accent2); background: rgba(255,93,115,0.18); }
+.voz-pausa { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 300px; }
+.voz-pausa.hidden { display: none; }
+.voz-pausa .amigo .nome { gap: 6px; }
+
+/* botão de silenciar ao lado de cada pessoa */
+.voz-btn {
+  all: unset; cursor: pointer; font-size: 13px; line-height: 1; padding: 3px 5px; border-radius: 6px; color: var(--ink);
+}
+.voz-btn:hover { background: rgba(255,255,255,0.12); }
+.voz-btn:focus-visible { outline: 2px solid var(--accent3); }
+.voz-btn.silenciado { opacity: 0.55; }
+
+/* quem está falando */
+.chip.falando { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 10px rgba(77,226,194,0.45); }
+.amigo.falando .ponto { box-shadow: 0 0 0 3px rgba(77,226,194,0.45); }
+#vozFalando {
+  position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); top: calc(54px + env(safe-area-inset-top, 0px));
+  display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+}
+#vozFalando span { background: rgba(6,10,16,0.65); border-radius: 6px; padding: 3px 8px; border-left: 3px solid var(--accent); }
+body.toque #vozFalando { top: calc(52px + env(safe-area-inset-top, 0px)); }
+

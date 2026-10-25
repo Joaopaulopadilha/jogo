@@ -4,7 +4,10 @@
 import { somAcerto, somDano, somExplosao, somMorte, somTiro } from "./audio";
 import { HostGame } from "./hostgame";
 import { Entrada } from "./input";
-import { Amigos, apelidoValido } from "./amigos";
+import { Amigos, apelidoDePeerId, apelidoValido, peerIdDeApelido } from "./amigos";
+import type { MediaConnection } from "peerjs";
+import { Voz } from "./voz";
+import type { Participante } from "./voz";
 import { LIMITES, ajustesPadrao, carregarAjustes, salvarAjustes } from "./ajustes";
 import type { Ajustes, Qualidade } from "./ajustes";
 import { Bot } from "./bot";
@@ -86,6 +89,12 @@ try {
 }
 const renderer = rendererCriado;
 
+// chat de voz: um só objeto para o grupo do lobby e para a partida (o microfone ligado vale nos dois)
+const voz = new Voz({ aoMudar: () => renderVoz() });
+// só no servidor de desenvolvimento: deixa os testes automáticos enxergarem a voz
+if (import.meta.env.DEV) (window as unknown as { __csVoz?: unknown }).__csVoz = voz;
+let rosterVoz: { pid: number; peerId: string }[] = []; // quem está na partida e como ligar para essa pessoa
+
 // ---- Utilidades ----
 
 function esc(s: string): string {
@@ -158,7 +167,7 @@ if (entrada.toque) {
   // primeiro toque em qualquer lugar: tela cheia e paisagem travada (precisa de um gesto do usuário)
   // a cada toque, volta para a tela cheia se o navegador saiu dela (ex.: ao girar o aparelho)
   document.addEventListener("click", () => entrada.prepararTela(), { capture: true });
-  montarToque(entrada, () => entrada.soltar(), () => abrirAjustes(), () => alternarTelaCheia());
+  montarToque(entrada, () => entrada.soltar(), () => abrirAjustes(), () => alternarTelaCheia(), () => void alternarMic());
   $("btnRetomar").textContent = "Toque para jogar";
   $("ajudaControles").innerHTML =
     "Arraste à esquerda para <b>andar</b> · à direita para <b>mirar</b><br>" +
@@ -194,8 +203,9 @@ $("btnTrocarNome").addEventListener("click", () => mostrarPainel("painelNome"));
 // ---- Amigos ----
 
 const amigos = new Amigos(() => meuNome || "Jogador", {
-  aoMudar: () => { grupo.sincronizar(); renderAmigos(); renderLobby(); },
+  aoMudar: () => { grupo.sincronizar(); renderAmigos(); renderLobby(); sincronizarVozGrupo(); },
   aoGrupo: (de, m) => grupo.aoMensagem(de.id, de.nome, m),
+  aoChamada: (call, apelido) => aoChamadaGrupo(call, apelido),
   aoConvite: (de, sala) => mostrarConvite(de.nome, sala),
   aoAviso: (msg) => { msgAmigos.textContent = msg; mostrarToast(msg); },
 });
@@ -490,7 +500,7 @@ const grupo = new Grupo(
     ocupado: () => rodando || conectandoGrupo,
   },
   {
-    aoMudar: () => renderLobby(),
+    aoMudar: () => { renderLobby(); sincronizarVozGrupo(); },
     aoConvite: (_id, nome) =>
       mostrarAviso(`${nome} te chamou para o grupo`, "Entrar", () => grupo.aceitarConvite(), 60000, () => grupo.recusarConvite()),
     aoIniciar: (inicio) => iniciarDoGrupo(inicio),
@@ -532,11 +542,20 @@ function renderLobby(): void {
 
   // vagas do grupo
   $("tituloGrupo").textContent = `Grupo (${membros.length}/${MAX_JOGADORES})`;
+  const vozOk = Voz.suportado() && membros.length > 1;
   const vagas = membros.map((m, i) => {
     const euMesmo = m.id === meuId;
-    return `<div class="chip${euMesmo ? " eu" : ""}${m.pronto ? " pronto" : ""}"><span class="ponto" style="background:${CORES[i]}"></span>` +
+    const peerId = euMesmo ? "eu" : peerIdDeApelido(m.id);
+    // som: o próprio microfone (ligado/desligado) ou o botão de silenciar de cada pessoa
+    let som = "";
+    if (vozOk && euMesmo && voz.microfone) som = `<span class="voz-btn" title="Seu microfone está ligado">🎙</span>`;
+    else if (vozOk && !euMesmo) {
+      const sil = voz.estaSilenciado(peerId);
+      som = `<button class="voz-btn${sil ? " silenciado" : ""}" data-silenciar="${peerId}" title="${sil ? "Reativar o som de" : "Silenciar"} ${esc(m.nome)}" aria-label="${sil ? "Reativar o som de" : "Silenciar"} ${esc(m.nome)}">${sil ? "🔇" : "🔊"}</button>`;
+    }
+    return `<div class="chip${euMesmo ? " eu" : ""}${m.pronto ? " pronto" : ""}" data-peer="${peerId}"><span class="ponto" style="background:${CORES[i]}"></span>` +
       `<span class="nome">${m.id === grupo.lider ? "♛ " : ""}${esc(euMesmo ? nomeEu : m.nome)}</span>` +
-      `<small>${m.pronto ? "✓" : ""}</small></div>`;
+      `<small>${m.pronto ? "✓" : ""}</small>${som}</div>`;
   });
   const nivel = cfg.dificuldade === "facil" ? "fácil" : cfg.dificuldade === "dificil" ? "difícil" : "normal";
   for (let i = membros.length; i < MAX_JOGADORES; i++) {
@@ -690,6 +709,7 @@ function abrirSalaDoGrupo(inicio: InicioPartida): void {
       if (m.t === "cmds" && jogo) for (const c of m.cmds) jogo.aplicarComando(g.pid, c);
     },
     aoSair: (g) => jogo?.desconectar(g.pid),
+    aoChamada: aoChamadaPartida,
     aoErro: (msg) => falhaGrupo(`Não consegui abrir a sala do grupo (${msg}).`),
   });
 }
@@ -703,6 +723,7 @@ function entrarNaSalaDoGrupo(inicio: InicioPartida): void {
       if (rodando) perderConexao();
       else if (conectandoGrupo) falhaGrupo("A conexão com o grupo foi encerrada.");
     },
+    aoChamada: aoChamadaPartida,
     aoErro: (msg) => falhaGrupo(msg === "peer-unavailable" ? "Não encontrei a sala do grupo." : `Erro de conexão (${msg}).`),
   }, grupo.minhaVaga);
 }
@@ -758,6 +779,7 @@ function aplicarAjustes(): void {
   canvas.style.filter = ajustes.brilho === 1 ? "" : `brightness(${ajustes.brilho})`;
   renderer.definirQualidade(ajustes.qualidade);
   entrada.sensibilidade = ajustes.sensibilidade;
+  voz.definirVolume(ajustes.volumeVoz);
 }
 
 function mostrarControlesAjustes(): void {
@@ -767,6 +789,8 @@ function mostrarControlesAjustes(): void {
   $<HTMLSelectElement>("ajQualidade").value = ajustes.qualidade;
   $<HTMLInputElement>("ajSens").value = String(Math.round(ajustes.sensibilidade * 100));
   $("ajSensValor").textContent = `${Math.round(ajustes.sensibilidade * 100)}%`;
+  $<HTMLInputElement>("ajVoz").value = String(Math.round(ajustes.volumeVoz * 100));
+  $("ajVozValor").textContent = `${Math.round(ajustes.volumeVoz * 100)}%`;
 }
 
 function abrirAjustes(): void {
@@ -784,13 +808,14 @@ function mudouAjuste(): void {
     brilho: Math.min(LIMITES.brilho.max, Math.max(LIMITES.brilho.min, brilho)),
     qualidade: $<HTMLSelectElement>("ajQualidade").value as Qualidade,
     sensibilidade: Math.min(LIMITES.sensibilidade.max, Math.max(LIMITES.sensibilidade.min, sens)),
+    volumeVoz: Math.min(1, Math.max(0, Number($<HTMLInputElement>("ajVoz").value) / 100)),
   };
   salvarAjustes(ajustes);
   aplicarAjustes();
   mostrarControlesAjustes();
 }
 
-for (const id of ["ajBrilho", "ajSens"]) $(id).addEventListener("input", mudouAjuste);
+for (const id of ["ajBrilho", "ajSens", "ajVoz"]) $(id).addEventListener("input", mudouAjuste);
 $("ajQualidade").addEventListener("change", mudouAjuste);
 $("btnAjustesPadrao").addEventListener("click", () => {
   ajustes = ajustesPadrao();
@@ -802,6 +827,138 @@ $("btnAjustesVoltar").addEventListener("click", () => mostrarPainel(ajustesVolta
 $("btnAjustes").addEventListener("click", abrirAjustes);
 $("btnAjustesPausa").addEventListener("click", abrirAjustes);
 aplicarAjustes();
+
+// ---- Voz ----
+
+function rotuloVoz(p: Participante): string {
+  if (p.contexto === "partida") {
+    const r = rosterVoz.find((x) => x.peerId === p.peerId);
+    return (r && infos[r.pid]?.nome) || "Jogador";
+  }
+  const ap = apelidoDePeerId(p.peerId);
+  return grupo.membros.find((m) => m.id === ap)?.nome ?? ap;
+}
+
+// grupo do lobby: cada par de membros online tem uma chamada (quem tem o apelido "maior" liga)
+function sincronizarVozGrupo(): void {
+  if (!Voz.suportado()) return;
+  if (rodando) { voz.fecharContexto("grupo"); return; }
+  const meuId = amigos.apelido;
+  if (!meuId || amigos.estado !== "pronto") return;
+  const alvos = grupo.membros.filter((m) => m.id !== meuId && amigos.estaOnline(m.id)).map((m) => m.id);
+  voz.manter("grupo", alvos.map(peerIdDeApelido));
+  for (const a of alvos) {
+    if (meuId > a && !voz.temLigacao(peerIdDeApelido(a))) {
+      const call = amigos.ligarVoz(a, voz.fluxo);
+      if (call) voz.chamou(call, "grupo");
+    }
+  }
+}
+
+// só aceita chamada de quem está no grupo (e é amigo online)
+function aoChamadaGrupo(call: MediaConnection, apelido: string): void {
+  if (!Voz.suportado() || rodando || !apelido || !grupo.membros.some((m) => m.id === apelido) || !amigos.estaOnline(apelido)) {
+    call.close();
+    return;
+  }
+  voz.atender(call, "grupo");
+}
+
+// partida online: o host diz quem está na sala; cada jogador liga para os de posição menor
+function anunciarVoz(): void {
+  if (!hostNet) return;
+  const pares = [{ pid: 0, peerId: hostNet.peerId }, ...hostNet.convidados.map((g) => ({ pid: g.pid, peerId: g.conn.peer }))];
+  rosterVoz = pares;
+  hostNet.transmitir({ t: "voz", pares });
+  sincronizarVozPartida();
+}
+
+function sincronizarVozPartida(): void {
+  if (!Voz.suportado() || !rodando || modo === null || modo === "solo" || rosterVoz.length === 0) return;
+  const meuPeer = hostNet?.peerId ?? guestNet?.peerId;
+  if (!meuPeer) return;
+  const outros = rosterVoz.filter((p) => p.peerId !== meuPeer);
+  voz.manter("partida", outros.map((p) => p.peerId));
+  for (const p of outros) {
+    if (p.pid < eu && !voz.temLigacao(p.peerId)) {
+      const call = hostNet ? hostNet.ligar(p.peerId, voz.fluxo) : guestNet?.ligar(p.peerId, voz.fluxo) ?? null;
+      if (call) voz.chamou(call, "partida");
+    }
+  }
+}
+
+function aoChamadaPartida(call: MediaConnection): void {
+  if (!Voz.suportado() || !rodando || modo === null || modo === "solo") { call.close(); return; }
+  if (rosterVoz.length > 0 && !rosterVoz.some((p) => p.peerId === call.peer)) { call.close(); return; }
+  voz.atender(call, "partida");
+}
+
+async function alternarMic(): Promise<void> {
+  const erro = await voz.alternarMicrofone();
+  mostrarToast(erro ?? (voz.microfone ? "Microfone ligado: os outros ouvem você." : "Microfone desligado."));
+}
+
+// indicadores leves (só classes e a lista de quem fala); rodam várias vezes por segundo
+function atualizarIndicadoresVoz(): void {
+  const falando = new Set(voz.participantes().filter((p) => p.falando).map((p) => p.peerId));
+  if (voz.euFalando) falando.add("eu");
+  for (const el of document.querySelectorAll<HTMLElement>("#slotsGrupo [data-peer], #vozPausa [data-peer]")) {
+    el.classList.toggle("falando", falando.has(el.dataset.peer ?? ""));
+  }
+  const nomes = voz.participantes().filter((p) => p.falando).map(rotuloVoz);
+  if (voz.euFalando) nomes.unshift("Você");
+  definirHtml($("vozFalando"), nomes.map((n) => `<span>🎙 ${esc(n)}</span>`).join(""));
+}
+
+function renderVoz(): void {
+  const ligado = voz.microfone;
+  const btnMic = $("btnMic");
+  btnMic.setAttribute("aria-pressed", String(ligado));
+  btnMic.title = ligado ? "Desligar microfone" : "Ligar microfone";
+  btnMic.textContent = ligado ? "🎙" : "🎤";
+  $("btnMicJogo").classList.toggle("ativo", ligado);
+  $("btnMicJogo").textContent = ligado ? "🎙" : "🎤";
+  $("btnMicPausa").textContent = ligado ? "🎙 Desligar microfone" : "🎤 Ligar microfone";
+
+  // pausa: quem está na partida, com o botão de silenciar de cada um
+  const naPartida = rodando && modo !== null && modo !== "solo";
+  $("blocoVozPausa").classList.toggle("hidden", !naPartida);
+  if (naPartida) {
+    const meuPeer = hostNet?.peerId ?? guestNet?.peerId;
+    const outros = rosterVoz.filter((p) => p.peerId !== meuPeer);
+    definirHtml(
+      $("vozPausa"),
+      outros.length
+        ? outros.map((p) => {
+            const nome = infos[p.pid]?.nome ?? "Jogador";
+            const sil = voz.estaSilenciado(p.peerId);
+            const botao = `<button class="voz-btn${sil ? " silenciado" : ""}" data-silenciar="${p.peerId}" title="${sil ? "Reativar o som de" : "Silenciar"} ${esc(nome)}" aria-label="${sil ? "Reativar o som de" : "Silenciar"} ${esc(nome)}">${sil ? "🔇 Reativar" : "🔊 Silenciar"}</button>`;
+            return `<div class="amigo" data-peer="${p.peerId}"><span class="nome"><span class="ponto" style="background:${CORES[p.pid]}"></span><span>${esc(nome)}</span></span>${botao}</div>`;
+          }).join("")
+        : vazio("Carregando a lista de jogadores..."),
+    );
+  }
+  if (!$("painelLobby").classList.contains("hidden")) renderLobby();
+  atualizarIndicadoresVoz();
+}
+
+$("btnMic").addEventListener("click", () => void alternarMic());
+$("btnMicPausa").addEventListener("click", () => void alternarMic());
+for (const lista of [$("slotsGrupo"), $("vozPausa")]) {
+  lista.addEventListener("click", (e) => {
+    const id = dado(e, "silenciar");
+    if (id) voz.silenciar(id, !voz.estaSilenciado(id));
+  });
+}
+// tecla M liga/desliga o microfone durante a partida
+document.addEventListener("keydown", (e) => {
+  if (e.code === "KeyM" && !e.repeat && rodando && entrada.travado) void alternarMic();
+});
+// o navegador só toca áudio depois de um gesto: retoma a cada toque/clique
+for (const ev of ["pointerdown", "click", "keydown"]) document.addEventListener(ev, () => voz.retomar(), { capture: true });
+// reavalia a cada checagem (e não só quando alguém começa a falar): senão o aviso de "falando" ficava na tela depois de a pessoa parar
+window.setInterval(() => { voz.atualizarNiveis(); atualizarIndicadoresVoz(); }, 100);
+window.setInterval(() => { sincronizarVozGrupo(); sincronizarVozPartida(); }, 4000);
 
 // ---- Voltar ao início ----
 
@@ -831,8 +988,12 @@ function resetarParaInicio(): void {
   renderer.definirJogadores([], 0);
   subtitulo.textContent = "online · 2 a 4 jogadores · 3D";
   btnConectar.disabled = false;
+  voz.fecharContexto("partida");
+  rosterVoz = [];
   mostrarPainel("painelLobby");
   renderLobby();
+  sincronizarVozGrupo();
+  renderVoz();
 }
 
 $("btnVoltarHost").addEventListener("click", resetarParaInicio);
@@ -885,6 +1046,7 @@ function criarSala(): void {
       if (m.t === "cmds" && jogo) for (const c of m.cmds) jogo.aplicarComando(g.pid, c);
     },
     aoSair: (g) => jogo?.desconectar(g.pid),
+    aoChamada: aoChamadaPartida,
     aoErro: (msg) => {
       if (msg === "unavailable-id") {
         // a senha já está em uso por outra sala: volta para escolher outra
@@ -939,6 +1101,7 @@ function conectar(): void {
       }
       perderConexao();
     },
+    aoChamada: aoChamadaPartida,
     aoErro: (msg) => {
       btnConectar.disabled = false;
       statusJoin.textContent = msg === "peer-unavailable"
@@ -982,12 +1145,17 @@ function aoMensagemHost(m: HostMsg): void {
     case "boom":
       eventoExplosao(m);
       break;
+    case "voz":
+      rosterVoz = m.pares;
+      sincronizarVozPartida();
+      break;
   }
 }
 
 // ---- Início da partida ----
 
 function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "guest" | "solo"): void {
+  voz.fecharContexto("grupo"); // durante a partida a voz é a da sala
   window.clearTimeout(timerGrupo);
   conectandoGrupo = false;
   modo = como;
@@ -1025,6 +1193,8 @@ function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "gu
     jogo = null;
     mostrarPainel("painelPausa");
   }
+  if (como === "host") anunciarVoz();
+  renderVoz();
 }
 
 btnJogarDeNovo.addEventListener("click", () => {

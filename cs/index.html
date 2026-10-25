@@ -15,8 +15,8 @@
   <meta name="apple-mobile-web-app-title" content="CS Caps" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>CS Caps</title>
-  <script type="module" crossorigin src="./assets/index-BRu2Uk3p.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-Dggil7qP.css">
+  <script type="module" crossorigin src="./assets/index-DqQDVZan.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DN5P8m8x.css">
 </head>
 <body>
   <header>
@@ -41,6 +41,7 @@
       <div id="btnPausa" class="tbtn" role="button" aria-label="Pausar">II</div>
       <div id="btnAjustesJogo" class="tbtn" role="button" aria-label="Ajustes">⚙</div>
       <div id="btnTelaCheiaJogo" class="tbtn" role="button" aria-label="Tela cheia">⛶</div>
+      <div id="btnMicJogo" class="tbtn" role="button" aria-label="Microfone">🎤</div>
     </div>
 
     <div id="hud" class="hidden">
@@ -50,6 +51,7 @@
       <div id="topo"><span id="placarTopo"></span><span id="relogio"></span></div>
       <div id="faixa"></div>
       <div id="killfeed"></div>
+      <div id="vozFalando"></div>
       <div id="armas"></div>
       <div id="status"><span id="vida">100</span><span id="municao">30</span></div>
       <div id="tabela" class="hidden"></div>
@@ -72,6 +74,7 @@
             <button id="btnHost" class="mini secundario">Criar sala</button>
             <button id="btnJoin" class="mini secundario">Entrar em sala</button>
             <button id="btnAmigos" class="mini secundario">Amigos</button>
+            <button id="btnMic" class="mini secundario engrenagem" aria-label="Microfone" aria-pressed="false" title="Ligar microfone">🎤</button>
             <button id="btnTelaCheia" class="mini secundario engrenagem" aria-label="Tela cheia" title="Tela cheia">⛶</button>
             <button id="btnAjustes" class="mini secundario engrenagem" aria-label="Ajustes" title="Ajustes">⚙</button>
           </span>
@@ -151,6 +154,16 @@
               <option value="alta">Alta</option>
             </select>
           </label>
+        </div>
+
+        <div class="aj-grupo">
+          <h4>Voz</h4>
+          <label class="aj-linha">
+            <span>Volume da voz dos outros</span>
+            <input type="range" id="ajVoz" min="0" max="100" step="5" />
+            <output id="ajVozValor">100%</output>
+          </label>
+          <p class="ajuda">Para silenciar só uma pessoa, use o botão de som ao lado do nome dela (no grupo ou na pausa da partida).</p>
         </div>
 
         <div class="aj-grupo">
@@ -249,6 +262,11 @@
       <div class="painel hidden" id="painelPausa">
         <p>Partida em andamento</p>
         <button id="btnRetomar">Clique para jogar</button>
+        <div class="voz-pausa hidden" id="blocoVozPausa">
+          <h3 class="titulo-secao">Voz</h3>
+          <button id="btnMicPausa" class="secundario">🎤 Ligar microfone</button>
+          <div class="lista-amigos" id="vozPausa"></div>
+        </div>
         <button id="btnAjustesPausa" class="secundario">⚙ Ajustes</button>
         <button id="btnSair" class="secundario">Sair da partida</button>
       </div>

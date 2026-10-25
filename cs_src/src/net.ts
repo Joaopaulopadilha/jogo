@@ -2,7 +2,7 @@
 // Camada PeerJS: o host cria a sala (código curto) e cada convidado abre uma conexão com ele.
 
 import Peer from "peerjs";
-import type { DataConnection } from "peerjs";
+import type { DataConnection, MediaConnection } from "peerjs";
 import { CORES, MAX_JOGADORES } from "./shared";
 import type { GuestMsg, HostMsg, PlayerInfo } from "./types";
 
@@ -42,6 +42,7 @@ export interface HostHandlers {
   aoMensagem(g: Convidado, m: GuestMsg): void;
   aoSair(g: Convidado): void;
   aoErro(msg: string): void;
+  aoChamada?(call: MediaConnection): void; // chamada de voz recebida
 }
 
 export class HostNet {
@@ -54,6 +55,7 @@ export class HostNet {
     this.nomeHost = nomeHost;
     this.peer = new Peer(PREFIXO + (codigo || gerarCodigo()));
     this.peer.on("open", (id) => h.aoAbrir(id.slice(PREFIXO.length)));
+    this.peer.on("call", (call) => h.aoChamada?.(call));
     this.peer.on("error", (err) => h.aoErro(err.type));
     this.peer.on("connection", (conn) => this.novaConexao(conn));
   }
@@ -84,6 +86,16 @@ export class HostNet {
       this.h.aoSair(g);
       if (!this.iniciada) this.h.aoMudarLobby();
     });
+  }
+
+  get peerId(): string {
+    return this.peer.id;
+  }
+
+  // inicia uma chamada de voz com outro jogador da sala
+  ligar(peerId: string, stream: MediaStream): MediaConnection | null {
+    if (this.peer.destroyed || this.peer.disconnected) return null;
+    return this.peer.call(peerId, stream);
   }
 
   // lista na ordem de ids (host = 0)
@@ -136,6 +148,7 @@ export interface GuestHandlers {
   aoMensagem(m: HostMsg): void;
   aoFechar(): void;
   aoErro(msg: string): void;
+  aoChamada?(call: MediaConnection): void; // chamada de voz recebida
 }
 
 export class GuestNet {
@@ -144,6 +157,7 @@ export class GuestNet {
 
   constructor(codigo: string, nome: string, h: GuestHandlers, slot?: number) {
     this.peer = new Peer();
+    this.peer.on("call", (call) => h.aoChamada?.(call));
     this.peer.on("open", () => {
       const conn = this.peer.connect(PREFIXO + codigo, { reliable: true });
       this.conn = conn;
@@ -159,6 +173,16 @@ export class GuestNet {
 
   enviar(m: GuestMsg): void {
     if (this.conn && this.conn.open) this.conn.send(m);
+  }
+
+  get peerId(): string {
+    return this.peer.id;
+  }
+
+  // inicia uma chamada de voz com outro jogador da sala
+  ligar(peerId: string, stream: MediaStream): MediaConnection | null {
+    if (this.peer.destroyed || this.peer.disconnected) return null;
+    return this.peer.call(peerId, stream);
   }
 
   fechar(): void {

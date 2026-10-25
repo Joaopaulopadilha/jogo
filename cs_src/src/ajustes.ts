@@ -9,6 +9,7 @@ export interface Ajustes {
   brilho: number;        // 1 = normal; acima de 1 clareia a imagem
   qualidade: Qualidade;  // resolução da renderização 3D
   sensibilidade: number; // multiplicador da mira (mouse e toque)
+  volumeVoz: number;     // volume do chat de voz (0 a 1)
 }
 
 const CHAVE = "cs_ajustes";
@@ -26,7 +27,7 @@ const limitar = (v: number, min: number, max: number): number => Math.min(max, M
 export function ajustesPadrao(): Ajustes {
   const toque = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
   const antiga = !suporteWebGL().v2;
-  return { brilho: 1, qualidade: antiga ? "baixa" : toque ? "media" : "alta", sensibilidade: 1 };
+  return { brilho: 1, qualidade: antiga ? "baixa" : toque ? "media" : "alta", sensibilidade: 1, volumeVoz: 1 };
 }
 
 export function carregarAjustes(): Ajustes {
@@ -42,6 +43,7 @@ export function carregarAjustes(): Ajustes {
         typeof d.sensibilidade === "number" && isFinite(d.sensibilidade)
           ? limitar(d.sensibilidade, LIMITES.sensibilidade.min, LIMITES.sensibilidade.max)
           : base.sensibilidade,
+      volumeVoz: typeof d.volumeVoz === "number" && isFinite(d.volumeVoz) ? limitar(d.volumeVoz, 0, 1) : base.volumeVoz,
     };
   } catch {
     return base; // dados corrompidos ou sem armazenamento: usa o padrão

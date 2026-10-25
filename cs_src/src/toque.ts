@@ -45,7 +45,7 @@ function rastrear(el: HTMLElement, cb: Rastreio): void {
   el.addEventListener("lostpointercapture", fim);
 }
 
-export function montarToque(entrada: Entrada, aoPausar: () => void, aoAjustes: () => void, aoTelaCheia: () => void): void {
+export function montarToque(entrada: Entrada, aoPausar: () => void, aoAjustes: () => void, aoTelaCheia: () => void, aoMic: () => void): void {
   const q = (id: string) => document.getElementById(id)!;
   const raiz = q("toque");
   raiz.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -105,4 +105,5 @@ export function montarToque(entrada: Entrada, aoPausar: () => void, aoAjustes: (
   rastrear(q("btnPausa"), { inicio: () => aoPausar() });
   rastrear(q("btnAjustesJogo"), { inicio: () => aoAjustes() });
   rastrear(q("btnTelaCheiaJogo"), { inicio: () => aoTelaCheia() });
+  rastrear(q("btnMicJogo"), { inicio: () => aoMic() });
 }
