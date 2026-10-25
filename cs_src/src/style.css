@@ -368,3 +368,17 @@ body.toque #faixa { top: 22%; }
   text-align: center; padding: 32px; background: rgba(6,10,16,0.96); color: var(--ink); font-size: 18px; line-height: 1.6;
 }
 @media (orientation: portrait) { body.toque.jogando #girar { display: flex; } }
+
+/* ---- Painel de amigos ---- */
+.painel.largo { max-width: 780px; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; width: 100%; text-align: left; align-items: start; }
+.col { display: flex; flex-direction: column; align-items: stretch; gap: 10px; min-width: 0; }
+.col > button { align-self: center; }
+.col .linha { justify-content: flex-start; flex-wrap: wrap; }
+.col input { max-width: none; width: 100%; text-align: left; letter-spacing: 0.05em; font-size: 16px; }
+.col p { text-align: left; }
+.titulo-secao { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent3); margin-top: 6px; }
+.vazio { font-size: 12px; color: var(--muted); padding: 4px 2px; line-height: 1.5; }
+.rotulo { font-size: 12px; text-align: center; }
+.lista-amigos.destaque .amigo { border: 1px solid var(--accent3); background: rgba(255,209,102,0.1); }
+@media (max-width: 700px) { .cols { grid-template-columns: 1fr; gap: 14px; } }

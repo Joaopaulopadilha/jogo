@@ -7,8 +7,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0a0e14" />
   <title>CS Caps</title>
-  <script type="module" crossorigin src="./assets/index-DaaCVeR1.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-C4zHM9Tv.css">
+  <script type="module" crossorigin src="./assets/index-DCoRLl9F.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DDKIYSY3.css">
 </head>
 <body>
   <header>
@@ -89,25 +89,44 @@
         <button id="btnVoltarSolo" class="secundario">Voltar</button>
       </div>
 
-      <div class="painel hidden" id="painelAmigos">
+      <div class="painel largo hidden" id="painelAmigos">
         <p id="statusAmigos"></p>
-        <p>Seu apelido de amigo (seus amigos digitam ele para te adicionar):</p>
-        <input id="inputApelido" maxlength="12" placeholder="seu apelido" autocomplete="off" />
-        <div class="linha">
-          <button id="btnSalvarApelido">Salvar</button>
-          <button id="btnCopiar" class="secundario">Copiar</button>
-        </div>
-        <p>Convidar por link (quem abrir vira seu amigo):</p>
-        <div class="linha">
-          <button id="btnLinkWhats">WhatsApp</button>
-          <button id="btnLinkCopiar" class="secundario">Copiar link</button>
-        </div>
-        <p>Ou adicionar pelo apelido dele:</p>
-        <input id="inputCodigoAmigo" maxlength="12" placeholder="apelido do amigo" autocomplete="off" />
-        <button id="btnAdicionar">Enviar pedido</button>
         <p id="msgAmigos"></p>
-        <div class="lista-amigos" id="pedidosAmigos"></div>
-        <div class="lista-amigos" id="listaAmigos"></div>
+
+        <div class="cols">
+          <div class="col">
+            <h3 class="titulo-secao" id="tituloPedidos">Pedidos para você aprovar</h3>
+            <div class="lista-amigos" id="pedidosAmigos"></div>
+
+            <h3 class="titulo-secao" id="tituloAmigos">Meus amigos</h3>
+            <div class="lista-amigos" id="listaAmigos"></div>
+
+            <h3 class="titulo-secao" id="tituloEnviados">Pedidos enviados</h3>
+            <div class="lista-amigos" id="enviadosAmigos"></div>
+          </div>
+
+          <div class="col">
+            <h3 class="titulo-secao">Convidar por link</h3>
+            <p>Quem abrir o link vira seu amigo, sem você precisar aprovar.</p>
+            <div class="linha">
+              <button id="btnLinkWhats">WhatsApp</button>
+              <button id="btnLinkCopiar" class="secundario">Copiar link</button>
+            </div>
+
+            <h3 class="titulo-secao">Adicionar pelo apelido</h3>
+            <input id="inputCodigoAmigo" maxlength="12" placeholder="apelido do amigo" autocomplete="off" />
+            <button id="btnAdicionar">Enviar pedido</button>
+
+            <h3 class="titulo-secao">Seu apelido</h3>
+            <p>Seus amigos digitam ele para te adicionar.</p>
+            <input id="inputApelido" maxlength="12" placeholder="seu apelido" autocomplete="off" />
+            <div class="linha">
+              <button id="btnSalvarApelido">Salvar</button>
+              <button id="btnCopiar" class="secundario">Copiar</button>
+            </div>
+          </div>
+        </div>
+
         <button id="btnVoltarAmigos" class="secundario">Voltar</button>
       </div>
 

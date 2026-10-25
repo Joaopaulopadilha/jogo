@@ -309,7 +309,12 @@ export class Amigos {
     const id = apelidoValido(texto);
     if (!id) return `Digite o apelido do amigo (${APELIDO_MIN} a ${APELIDO_MAX} letras ou números).`;
     if (id === this.dados.meuId) return "Esse é o seu próprio apelido.";
-    if (this.dados.amigos.some((a) => a.id === id)) return "Essa pessoa já está na sua lista.";
+    const existente = this.dados.amigos.find((a) => a.id === id);
+    if (existente) {
+      return existente.secret === ""
+        ? `Você já enviou um pedido para ${id}. Aguarde ele aceitar.`
+        : `${existente.nome} já é seu amigo.`;
+    }
     const amigo: Amigo = { id, nome: id, secret: "", confirmado: false };
     if (token && RE_TOKEN.test(token)) amigo.token = token;
     this.dados.amigos.push(amigo);

@@ -159,6 +159,7 @@ function mostrarToast(texto: string): void {
 const msgAmigos = $("msgAmigos");
 const listaAmigos = $("listaAmigos");
 const pedidosAmigos = $("pedidosAmigos");
+const enviadosAmigos = $("enviadosAmigos");
 const amigosConvidar = $("amigosConvidar");
 const inputApelido = $<HTMLInputElement>("inputApelido");
 const inputCodigoAmigo = $<HTMLInputElement>("inputCodigoAmigo");
@@ -174,38 +175,62 @@ const STATUS_AMIGOS: Record<string, string> = {
 
 function linhaAmigo(nome: string, apelido: string, estado: "online" | "offline" | "pendente", botao: string, motivo = ""): string {
   const cor = estado === "online" ? "var(--accent)" : estado === "pendente" ? "var(--accent3)" : "var(--muted)";
-  const detalhe = estado === "pendente"
-    ? ` · aguardando aceitar${motivo ? `<br><small>${esc(motivo)}</small>` : ""}`
-    : nome === apelido ? "" : ` (${esc(apelido)})`;
-  return `<div class="amigo${estado === "online" ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span><span>${esc(nome)}${detalhe}</span></span>${botao}</div>`;
+  const rotuloApelido = nome === apelido ? "" : ` (${esc(apelido)})`;
+  const situacao = estado === "online" ? " · online" : estado === "offline" ? " · offline" : "";
+  const motivoHtml = estado === "pendente" && motivo ? `<br><small>${esc(motivo)}</small>` : "";
+  return `<div class="amigo${estado === "online" ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span><span>${esc(nome)}${rotuloApelido}${situacao}${motivoHtml}</span></span>${botao}</div>`;
 }
+
+const vazio = (texto: string): string => `<div class="vazio">${texto}</div>`;
 
 function renderAmigos(): void {
   const lista = amigos.lista();
   const pedidos = amigos.pedidos();
+  const confirmados = lista.filter((x) => !x.pendente);
+  const enviados = lista.filter((x) => x.pendente);
   const n = amigos.totalOnline();
+
   const partes = [n > 0 ? `${n} online` : "", pedidos.length > 0 ? `${pedidos.length} pedido${pedidos.length > 1 ? "s" : ""}` : ""].filter(Boolean);
   $("btnAmigos").textContent = partes.length ? `Amigos (${partes.join(" · ")})` : "Amigos";
   $("statusAmigos").textContent = STATUS_AMIGOS[amigos.estado] ?? "";
   if (document.activeElement !== inputApelido) inputApelido.value = amigos.apelido;
 
-  pedidosAmigos.innerHTML = pedidos
-    .map((p) => `<div class="amigo"><span class="nome">${esc(p.nome)} (${esc(p.id)}) quer ser seu amigo</span><span class="linha"><button data-aceitar="${p.id}">Aceitar</button><button class="secundario" data-recusar="${p.id}">Recusar</button></span></div>`)
-    .join("");
+  // pedidos que outras pessoas fizeram para você: precisam do seu aceite
+  $("tituloPedidos").textContent = `Pedidos para você aprovar (${pedidos.length})`;
+  pedidosAmigos.classList.toggle("destaque", pedidos.length > 0);
+  pedidosAmigos.innerHTML = pedidos.length
+    ? pedidos
+        .map((p) => `<div class="amigo"><span class="nome"><span class="ponto" style="background:var(--accent3)"></span><span>${esc(p.nome)} (${esc(p.id)}) quer ser seu amigo</span></span><span class="linha"><button data-aceitar="${p.id}">Aceitar</button><button class="secundario" data-recusar="${p.id}">Recusar</button></span></div>`)
+        .join("")
+    : vazio("Nenhum pedido no momento.");
 
-  listaAmigos.innerHTML = lista
-    .map(({ amigo, online, pendente, detalhe }) =>
-      linhaAmigo(amigo.nome, amigo.id, pendente ? "pendente" : online ? "online" : "offline", `<button class="secundario" data-remover="${amigo.id}">${pendente ? "Cancelar" : "Remover"}</button>`, detalhe))
-    .join("");
+  // amigos de verdade (já aceitos)
+  $("tituloAmigos").textContent = `Meus amigos (${confirmados.length}${n > 0 ? ` · ${n} online` : ""})`;
+  listaAmigos.innerHTML = confirmados.length
+    ? confirmados
+        .map(({ amigo, online }) => linhaAmigo(amigo.nome, amigo.id, online ? "online" : "offline", `<button class="secundario" data-remover="${amigo.id}">Remover</button>`))
+        .join("")
+    : vazio("Você ainda não tem amigos. Convide alguém pelo link ou pelo apelido.");
+
+  // pedidos que você mandou e o outro lado ainda não aceitou
+  $("tituloEnviados").textContent = `Pedidos enviados, aguardando (${enviados.length})`;
+  enviadosAmigos.innerHTML = enviados.length
+    ? enviados
+        .map(({ amigo, detalhe }) => linhaAmigo(amigo.nome, amigo.id, "pendente", `<button class="secundario" data-remover="${amigo.id}">Cancelar</button>`, detalhe))
+        .join("")
+    : vazio("Nenhum pedido aguardando resposta.");
 
   // convites na sala do host: só amigos online
-  amigosConvidar.innerHTML = lista
-    .filter((x) => x.online)
-    .map(({ amigo }) => {
-      const ja = convidados.has(amigo.id);
-      return linhaAmigo(amigo.nome, amigo.id, "online", `<button data-convidar="${amigo.id}"${ja ? " disabled" : ""}>${ja ? "Convidado ✓" : "Convidar"}</button>`);
-    })
-    .join("");
+  const online = confirmados.filter((x) => x.online);
+  amigosConvidar.innerHTML = online.length
+    ? `<p class="rotulo">Amigos online (toque para convidar para esta sala):</p>` +
+      online
+        .map(({ amigo }) => {
+          const ja = convidados.has(amigo.id);
+          return linhaAmigo(amigo.nome, amigo.id, "online", `<button data-convidar="${amigo.id}"${ja ? " disabled" : ""}>${ja ? "Convidado ✓" : "Convidar"}</button>`);
+        })
+        .join("")
+    : "";
 }
 
 $("btnAmigos").addEventListener("click", () => {
@@ -255,10 +280,12 @@ function dado(e: Event, atributo: string): string | undefined {
   return (e.target as HTMLElement).closest<HTMLElement>(`[data-${atributo}]`)?.dataset[atributo];
 }
 
-listaAmigos.addEventListener("click", (e) => {
-  const id = dado(e, "remover");
-  if (id) amigos.remover(id);
-});
+for (const lista of [listaAmigos, enviadosAmigos]) {
+  lista.addEventListener("click", (e) => {
+    const id = dado(e, "remover");
+    if (id) amigos.remover(id);
+  });
+}
 
 pedidosAmigos.addEventListener("click", (e) => {
   const aceitar = dado(e, "aceitar");
