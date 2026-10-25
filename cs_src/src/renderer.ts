@@ -134,7 +134,9 @@ export class Renderer {
 
   constructor(canvas: HTMLCanvasElement, private wrap: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // celulares têm telas muito densas: 1.5x já fica nítido e poupa bateria/GPU
+    const toque = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, toque ? 1.5 : 2));
 
     this.scene.background = new THREE.Color(0x0a0e14);
     this.scene.fog = new THREE.Fog(0x0a0e14, 20, 70);

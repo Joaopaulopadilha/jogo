@@ -4,10 +4,11 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0e14" />
   <title>CS Caps</title>
-  <script type="module" crossorigin src="./assets/index-By4mAH9q.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-c3lJpZdD.css">
+  <script type="module" crossorigin src="./assets/index-C4Av4e7W.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-BO4W7Lwa.css">
 </head>
 <body>
   <header>
@@ -19,6 +20,18 @@
 
   <div class="wrap" id="wrap">
     <canvas id="jogo"></canvas>
+
+    <!-- controles de toque (celular/tablet); ficam antes do HUD para o HUD (ex.: barra de armas) receber toques por cima -->
+    <div id="toque" class="hidden">
+      <div id="zonaOlhar"></div>
+      <div id="zonaMover"></div>
+      <div id="joyBase"><div id="joyKnob"></div></div>
+      <div id="btnFogo" class="tbtn" role="button" aria-label="Atirar">FOGO</div>
+      <div id="btnPulo" class="tbtn" role="button" aria-label="Pular">PULAR</div>
+      <div id="btnRecarregar" class="tbtn" role="button" aria-label="Recarregar">R</div>
+      <div id="btnPlacar" class="tbtn" role="button" aria-label="Placar">TAB</div>
+      <div id="btnPausa" class="tbtn" role="button" aria-label="Pausar">II</div>
+    </div>
 
     <div id="hud" class="hidden">
       <div id="mira"></div>
@@ -41,7 +54,7 @@
       </div>
 
       <div class="painel hidden" id="painelInicial">
-        <p>
+        <p id="ajudaControles">
           Mova com <b>WASD</b> · mire com o <b>mouse</b> · <b>clique</b> atira<br>
           <b>1</b> rifle · <b>2</b> pistola · <b>3</b> granada (1 por round)<br>
           <b>Espaço</b> pula · <b>R</b> recarrega · <b>Tab</b> placar<br>
@@ -78,16 +91,17 @@
 
       <div class="painel hidden" id="painelAmigos">
         <p id="statusAmigos"></p>
-        <p>Seu código de amigo (mande só para quem você confia):</p>
-        <div class="codigo codigo-amigo" id="meuCodigoAmigo">----</div>
+        <p>Seu apelido de amigo (seus amigos digitam ele para te adicionar):</p>
+        <input id="inputApelido" maxlength="12" placeholder="seu apelido" autocomplete="off" />
         <div class="linha">
+          <button id="btnSalvarApelido">Salvar</button>
           <button id="btnCopiar" class="secundario">Copiar</button>
-          <button id="btnNovoCodigo" class="secundario">Gerar novo</button>
         </div>
-        <p>Adicionar amigo (cole o código dele):</p>
-        <input id="inputCodigoAmigo" placeholder="código do amigo" autocomplete="off" />
-        <button id="btnAdicionar">Adicionar</button>
+        <p>Adicionar amigo (apelido dele):</p>
+        <input id="inputCodigoAmigo" maxlength="12" placeholder="apelido do amigo" autocomplete="off" />
+        <button id="btnAdicionar">Enviar pedido</button>
         <p id="msgAmigos"></p>
+        <div class="lista-amigos" id="pedidosAmigos"></div>
         <div class="lista-amigos" id="listaAmigos"></div>
         <button id="btnVoltarAmigos" class="secundario">Voltar</button>
       </div>
@@ -134,6 +148,8 @@
 
     </div>
   </div>
+
+  <div id="girar">Gire o aparelho para jogar na horizontal</div>
 
   <div id="convite" class="hidden">
     <span id="textoConvite"></span>

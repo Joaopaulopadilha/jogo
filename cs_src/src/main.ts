@@ -4,11 +4,12 @@
 import { somAcerto, somDano, somExplosao, somMorte, somTiro } from "./audio";
 import { HostGame } from "./hostgame";
 import { Entrada } from "./input";
-import { Amigos } from "./amigos";
+import { Amigos, apelidoValido } from "./amigos";
 import { Bot } from "./bot";
 import type { Dificuldade } from "./bot";
 import { CODIGO_MAX, CODIGO_MIN, GuestNet, HostNet, normalizarCodigo } from "./net";
 import { Renderer } from "./renderer";
+import { montarToque } from "./toque";
 import { ARMAS, CORES, MAX_JOGADORES, NOMES_ARMAS, ROUNDS_PARA_VENCER, SLOT_GRANADA, SPAWNS, moverCorpo } from "./shared";
 import type { Corpo } from "./shared";
 import type { BoomMsg, Cmd, HostMsg, KillMsg, PlayerInfo, ShotMsg, Snapshot } from "./types";
@@ -101,6 +102,26 @@ const entrada = new Entrada(canvas, (travado) => {
   else if (rodando && !fimMostrado && !fimInicio) mostrarPainel("painelPausa");
 });
 
+// ---- Celular/tablet ----
+
+if (entrada.toque) {
+  document.body.classList.add("toque");
+  montarToque(entrada, () => entrada.soltar());
+  $("btnRetomar").textContent = "Toque para jogar";
+  $("ajudaControles").innerHTML =
+    "Arraste à esquerda para <b>andar</b> · à direita para <b>mirar</b><br>" +
+    "<b>FOGO</b> atira (arraste o mesmo dedo para mirar) · toque nas armas para trocar<br>" +
+    "Último de pé vence o round. Primeiro a 5 rounds vence.";
+  // ao sair do app/aba, pausa em vez de deixar você tomando tiro
+  document.addEventListener("visibilitychange", () => { if (document.hidden && rodando) entrada.soltar(); });
+}
+
+// toque na barra de armas troca de arma
+$("armas").addEventListener("pointerdown", (e) => {
+  const slot = (e.target as HTMLElement).closest<HTMLElement>("[data-slot]")?.dataset.slot;
+  if (slot !== undefined && entrada.travado) entrada.arma = Number(slot);
+});
+
 // ---- Nome ----
 
 inputNome.value = meuNome;
@@ -122,7 +143,9 @@ const amigos = new Amigos(() => meuNome || "Jogador", {
 
 const msgAmigos = $("msgAmigos");
 const listaAmigos = $("listaAmigos");
+const pedidosAmigos = $("pedidosAmigos");
 const amigosConvidar = $("amigosConvidar");
+const inputApelido = $<HTMLInputElement>("inputApelido");
 const inputCodigoAmigo = $<HTMLInputElement>("inputCodigoAmigo");
 const convidados = new Set<string>(); // amigos já convidados para a sala atual
 
@@ -130,24 +153,32 @@ const STATUS_AMIGOS: Record<string, string> = {
   pronto: "● Você está online para seus amigos",
   conectando: "Conectando...",
   erro: "Sem conexão com o servidor. Tentando de novo...",
-  ocupado: "O jogo já está aberto em outra aba ou janela deste navegador. Use só uma para o recurso de amigos.",
+  ocupado: "Esse apelido já está em uso (por outra pessoa ou por outra aba deste navegador). Escolha outro e salve.",
   indisponivel: "Amigos só funciona em https ou em localhost.",
 };
 
-function linhaAmigo(nome: string, online: boolean, botao: string): string {
-  const cor = online ? "var(--accent)" : "var(--muted)";
-  return `<div class="amigo${online ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span>${esc(nome)}</span>${botao}</div>`;
+function linhaAmigo(nome: string, apelido: string, estado: "online" | "offline" | "pendente", botao: string): string {
+  const cor = estado === "online" ? "var(--accent)" : estado === "pendente" ? "var(--accent3)" : "var(--muted)";
+  const detalhe = estado === "pendente" ? " · aguardando aceitar" : nome === apelido ? "" : ` (${esc(apelido)})`;
+  return `<div class="amigo${estado === "online" ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span>${esc(nome)}${detalhe}</span>${botao}</div>`;
 }
 
 function renderAmigos(): void {
   const lista = amigos.lista();
+  const pedidos = amigos.pedidos();
   const n = amigos.totalOnline();
-  $("btnAmigos").textContent = n > 0 ? `Amigos (${n} online)` : "Amigos";
+  const partes = [n > 0 ? `${n} online` : "", pedidos.length > 0 ? `${pedidos.length} pedido${pedidos.length > 1 ? "s" : ""}` : ""].filter(Boolean);
+  $("btnAmigos").textContent = partes.length ? `Amigos (${partes.join(" · ")})` : "Amigos";
   $("statusAmigos").textContent = STATUS_AMIGOS[amigos.estado] ?? "";
-  $("meuCodigoAmigo").textContent = amigos.codigo || "----";
+  if (document.activeElement !== inputApelido) inputApelido.value = amigos.apelido;
+
+  pedidosAmigos.innerHTML = pedidos
+    .map((p) => `<div class="amigo"><span class="nome">${esc(p.nome)} (${esc(p.id)}) quer ser seu amigo</span><span class="linha"><button data-aceitar="${p.id}">Aceitar</button><button class="secundario" data-recusar="${p.id}">Recusar</button></span></div>`)
+    .join("");
 
   listaAmigos.innerHTML = lista
-    .map(({ amigo, online }) => linhaAmigo(amigo.nome, online, `<button class="secundario" data-remover="${amigo.id}">Remover</button>`))
+    .map(({ amigo, online, pendente }) =>
+      linhaAmigo(amigo.nome, amigo.id, pendente ? "pendente" : online ? "online" : "offline", `<button class="secundario" data-remover="${amigo.id}">${pendente ? "Cancelar" : "Remover"}</button>`))
     .join("");
 
   // convites na sala do host: só amigos online
@@ -155,7 +186,7 @@ function renderAmigos(): void {
     .filter((x) => x.online)
     .map(({ amigo }) => {
       const ja = convidados.has(amigo.id);
-      return linhaAmigo(amigo.nome, true, `<button data-convidar="${amigo.id}"${ja ? " disabled" : ""}>${ja ? "Convidado ✓" : "Convidar"}</button>`);
+      return linhaAmigo(amigo.nome, amigo.id, "online", `<button data-convidar="${amigo.id}"${ja ? " disabled" : ""}>${ja ? "Convidado ✓" : "Convidar"}</button>`);
     })
     .join("");
 }
@@ -167,35 +198,60 @@ $("btnAmigos").addEventListener("click", () => {
 });
 $("btnVoltarAmigos").addEventListener("click", () => mostrarPainel("painelInicial"));
 
-$("btnCopiar").addEventListener("click", () => {
-  if (!amigos.codigo) return;
-  navigator.clipboard.writeText(amigos.codigo).then(
-    () => { msgAmigos.textContent = "Código copiado!"; },
-    () => { msgAmigos.textContent = "Não consegui copiar. Selecione o código acima e copie."; },
-  );
-});
+function limparCampo(input: HTMLInputElement): void {
+  const limpo = normalizarCodigo(input.value);
+  if (limpo !== input.value) input.value = limpo;
+}
+inputApelido.addEventListener("input", () => limparCampo(inputApelido));
+inputCodigoAmigo.addEventListener("input", () => limparCampo(inputCodigoAmigo));
 
-$("btnNovoCodigo").addEventListener("click", () => {
-  amigos.novoCodigo();
-  msgAmigos.textContent = "Novo código gerado. O anterior não adiciona mais ninguém; quem já é amigo continua.";
+function salvarApelido(): void {
+  if (apelidoValido(inputApelido.value) === amigos.apelido) { msgAmigos.textContent = "Esse já é o seu apelido."; return; }
+  if (amigos.lista().length > 0 && !confirm("Trocar o apelido remove sua lista de amigos (eles conhecem o apelido antigo). Continuar?")) {
+    inputApelido.value = amigos.apelido;
+    return;
+  }
+  const erro = amigos.trocarApelido(inputApelido.value);
+  msgAmigos.textContent = erro ?? "Apelido salvo. Passe ele para seus amigos.";
+}
+$("btnSalvarApelido").addEventListener("click", salvarApelido);
+inputApelido.addEventListener("keydown", (e) => { if (e.key === "Enter") salvarApelido(); });
+
+$("btnCopiar").addEventListener("click", () => {
+  if (!amigos.apelido) return;
+  navigator.clipboard.writeText(amigos.apelido).then(
+    () => { msgAmigos.textContent = "Apelido copiado!"; },
+    () => { msgAmigos.textContent = "Não consegui copiar. Selecione o apelido e copie."; },
+  );
 });
 
 function adicionarAmigo(): void {
   const erro = amigos.adicionar(inputCodigoAmigo.value);
   if (erro) { msgAmigos.textContent = erro; return; }
   inputCodigoAmigo.value = "";
-  msgAmigos.textContent = "Adicionado! Ele aparece como online quando abrir o jogo.";
+  msgAmigos.textContent = "Pedido enviado. Ele precisa estar online e aceitar.";
 }
 $("btnAdicionar").addEventListener("click", adicionarAmigo);
 inputCodigoAmigo.addEventListener("keydown", (e) => { if (e.key === "Enter") adicionarAmigo(); });
 
+function dado(e: Event, atributo: string): string | undefined {
+  return (e.target as HTMLElement).closest<HTMLElement>(`[data-${atributo}]`)?.dataset[atributo];
+}
+
 listaAmigos.addEventListener("click", (e) => {
-  const id = (e.target as HTMLElement).closest<HTMLElement>("[data-remover]")?.dataset.remover;
+  const id = dado(e, "remover");
   if (id) amigos.remover(id);
 });
 
+pedidosAmigos.addEventListener("click", (e) => {
+  const aceitar = dado(e, "aceitar");
+  const recusar = dado(e, "recusar");
+  if (aceitar) amigos.aceitar(aceitar);
+  else if (recusar) amigos.recusar(recusar);
+});
+
 amigosConvidar.addEventListener("click", (e) => {
-  const id = (e.target as HTMLElement).closest<HTMLElement>("[data-convidar]")?.dataset.convidar;
+  const id = dado(e, "convidar");
   const sala = codigoHost.textContent ?? "";
   if (!id || !/^[a-z0-9]+$/.test(sala)) return;
   if (amigos.convidar(id, sala)) { convidados.add(id); renderAmigos(); }
@@ -252,6 +308,7 @@ function resetarParaInicio(): void {
   entrada.soltar();
   document.body.classList.remove("jogando");
   hud.classList.add("hidden");
+  $("toque").classList.add("hidden");
   renderer.definirJogadores([], 0);
   subtitulo.textContent = "online · 2 a 4 jogadores · 3D";
   btnConectar.disabled = false;
@@ -442,6 +499,7 @@ function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "gu
   renderer.definirJogadores(players, eu);
   document.body.classList.add("jogando");
   hud.classList.remove("hidden");
+  $("toque").classList.toggle("hidden", !entrada.toque);
   $("killfeed").innerHTML = "";
   subtitulo.textContent = como === "host" ? "você é o host" : como === "solo" ? "treino contra CPUs" : "conectado ao host";
 
@@ -450,6 +508,8 @@ function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "gu
     jogo.onShot = (m) => { eventoTiro(m); hostNet?.transmitir(m); };
     jogo.onKill = (m) => { eventoAbate(m); hostNet?.transmitir(m); };
     jogo.onBoom = (m) => { eventoExplosao(m); hostNet?.transmitir(m); };
+    // se o navegador não conceder a captura do mouse, o jogador vê "Clique para jogar" e não o menu antigo
+    mostrarPainel("painelPausa");
     entrada.travar();
   } else {
     jogo = null;
@@ -467,6 +527,7 @@ btnJogarDeNovo.addEventListener("click", () => {
   $("killfeed").innerHTML = "";
   hostNet?.reenviarInicio(infos);
   bots = bots.map((b) => new Bot(b.id, b.dificuldade));
+  mostrarPainel("painelPausa");
   entrada.travar();
 });
 
@@ -574,7 +635,7 @@ function atualizarHud(s: Snapshot): void {
     $("armas"),
     NOMES_ARMAS.map((nome, i) => {
       const vazio = i === SLOT_GRANADA && p.gr <= 0;
-      return `<span class="slot${i === sel ? " ativo" : ""}${vazio ? " vazio" : ""}"><b>${i + 1}</b> ${nome}</span>`;
+      return `<span class="slot${i === sel ? " ativo" : ""}${vazio ? " vazio" : ""}" data-slot="${i}"><b>${i + 1}</b> ${nome}</span>`;
     }).join(""),
   );
 
