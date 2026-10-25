@@ -1433,7 +1433,7 @@ function reconciliar(s: Snapshot): void {
 // ---- Eventos de combate ----
 
 function eventoTiro(m: ShotMsg): void {
-  renderer.adicionarRastro(m.o, m.e);
+  renderer.adicionarRastro(m.o, m.e, m.i === eu ? -1 : m.i, m.w);
   const dist = Math.hypot(m.o[0] - minhaPos[0], m.o[2] - minhaPos[2]);
   somTiro(Math.max(0.15, 1 - dist / 60), m.w === 1);
 

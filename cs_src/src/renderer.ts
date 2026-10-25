@@ -10,6 +10,8 @@ import type { GranadaSnap, PlayerInfo, PlayerSnap, Vec3 } from "./types";
 import { desligarVAO, suporteWebGL } from "./webgl";
 
 interface Remoto {
+  clarao: THREE.Mesh;
+  tClarao: number;
   velocidade: number;
   grupo: THREE.Group;
   armas: THREE.Group[];
@@ -34,11 +36,66 @@ interface Explosao {
 }
 
 const TEMPO_EXPLOSAO = 0.5;
-// posição z da ponta do cano de cada arma (para o clarão do tiro)
-const PONTAS = [-0.58, -0.24];
+// posição z da ponta do cano de cada arma (para o clarão e o traço do tiro), medida a partir da mão
+const PONTAS = [-0.73, -0.21];
+// onde a arma fica na mão do soldado (coordenadas do personagem) e a altura do cano em relação à mão
+const MAO_SOLDADO = new THREE.Vector3(0.14, 1.16, -0.24);
+const ALTURA_CANO = 0.06;
+// arma que o jogador vê (primeira pessoa): posição da mão e tamanho
+const POSES_ARMA_VISTA = [
+  { pos: new THREE.Vector3(0.19, -0.22, -0.40), escala: 0.62 },  // fuzil
+  { pos: new THREE.Vector3(0.15, -0.17, -0.40), escala: 0.95 },  // pistola
+  { pos: new THREE.Vector3(0.13, -0.15, -0.42), escala: 1.45 },  // granada
+];
+
+// ---- modelos 3D das armas (Blender: modelos/armas.py) ----
+// Cada grupo nasce com a versão simples de antes e troca pelo modelo 3D assim que o arquivo chega.
+const NOMES_ARMAS = ["fuzil", "pistola", "granada"];
+let armasGLB: GLTF | null = null;
+const registroArmas: { grupo: THREE.Group; indice: number }[] = [];
+
+function aplicarModeloArma(r: { grupo: THREE.Group; indice: number }): void {
+  if (!armasGLB) return;
+  const origem = armasGLB.scene.getObjectByName(NOMES_ARMAS[r.indice]);
+  if (!origem) return;
+  const v2 = suporteWebGL().v2;
+  const copia = origem.clone(true);
+  copia.traverse((o) => {
+    const malha = o as THREE.Mesh;
+    if (!malha.isMesh) return;
+    const antigo = malha.material as THREE.MeshStandardMaterial;
+    malha.material = v2 ? antigo : new THREE.MeshLambertMaterial({ map: antigo.map });
+  });
+  for (const filho of [...r.grupo.children]) {
+    r.grupo.remove(filho);
+  }
+  r.grupo.add(copia);
+}
+
+export function carregarArmas(): void {
+  new GLTFLoader().load(
+    `${import.meta.env.BASE_URL}modelos/armas.glb`,
+    (gltf) => {
+      armasGLB = gltf;
+      for (const r of registroArmas) aplicarModeloArma(r);
+    },
+    undefined,
+    () => { /* sem o arquivo, ficam as armas simples */ },
+  );
+}
 
 // modelos [rifle, pistola, granada], com a origem na mão e a arma apontando para -z
 function modelosArmas(): THREE.Group[] {
+  const grupos = modelosArmasSimples();
+  grupos.forEach((grupo, indice) => {
+    const r = { grupo, indice };
+    registroArmas.push(r);
+    aplicarModeloArma(r);
+  });
+  return grupos;
+}
+
+function modelosArmasSimples(): THREE.Group[] {
   const metal = material({ color: 0x20262e, roughness: 0.5, metalness: 0.4 });
   const escuro = material({ color: 0x10141a, metalness: 0.6 });
 
@@ -307,6 +364,7 @@ export class Renderer {
     this.scene.add(chao);
 
     carregarSoldado();
+    carregarArmas();
     this.carregarObjetos();
 
     for (const c of CAIXAS) {
@@ -328,7 +386,8 @@ export class Renderer {
     );
     this.clarao.visible = false;
     this.arma.add(...this.armasVista, this.clarao);
-    this.arma.position.set(0.22, -0.2, -0.45);
+    this.arma.position.copy(POSES_ARMA_VISTA[0].pos);
+    this.arma.scale.setScalar(POSES_ARMA_VISTA[0].escala);
     this.definirArma(0);
     this.camera.add(this.arma);
     this.scene.add(this.camera);
@@ -507,8 +566,11 @@ export class Renderer {
       if (info.id === eu) continue;
       const { grupo, armas } = criarPersonagem(info.nome, info.cor);
       grupo.visible = false;
+      const clarao = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffd166 }));
+      clarao.visible = false;
+      grupo.add(clarao);
       this.scene.add(grupo);
-      this.remotos.set(info.id, { velocidade: 0, grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
+      this.remotos.set(info.id, { clarao, tClarao: 0, velocidade: 0, grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
     }
   }
 
@@ -537,18 +599,38 @@ export class Renderer {
     this.arma.visible = vivo;
   }
 
-  adicionarRastro(o: Vec3, e: Vec3): void {
-    const geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(o[0], o[1] - 0.15, o[2]),
-      new THREE.Vector3(e[0], e[1], e[2]),
-    ]);
+  // ponta do cano no mundo: da arma que eu vejo (atirador -1) ou da arma na mão do soldado de quem atirou
+  private pontaDoCano(atirador: number, w: number): THREE.Vector3 | null {
+    if (atirador < 0) {
+      this.camera.updateMatrixWorld(true);
+      return this.clarao.getWorldPosition(new THREE.Vector3());
+    }
+    const r = this.remotos.get(atirador);
+    if (!r) return null;
+    const ponta = new THREE.Vector3(MAO_SOLDADO.x, MAO_SOLDADO.y + ALTURA_CANO, MAO_SOLDADO.z + (PONTAS[w] ?? PONTAS[0]));
+    r.clarao.position.copy(ponta);
+    r.clarao.visible = true;
+    r.tClarao = 0.05;
+    r.grupo.updateMatrixWorld(true);
+    return r.grupo.localToWorld(ponta);
+  }
+
+  // traço do tiro: sai da ponta do cano (e não dos olhos) até onde acertou
+  adicionarRastro(o: Vec3, e: Vec3, atirador: number, w: number): void {
+    const ponta = this.pontaDoCano(atirador, w) ?? new THREE.Vector3(o[0], o[1] - 0.15, o[2]);
+    const geo = new THREE.BufferGeometry().setFromPoints([ponta, new THREE.Vector3(e[0], e[1], e[2])]);
     const linha = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffd166, transparent: true }));
     this.scene.add(linha);
     this.rastros.push({ linha, vida: 0.08 });
   }
 
+  private poseVista = POSES_ARMA_VISTA[0];
+
   definirArma(w: number): void {
     this.armasVista.forEach((a, i) => { a.visible = i === w; });
+    this.poseVista = POSES_ARMA_VISTA[w] ?? POSES_ARMA_VISTA[0];
+    this.arma.position.copy(this.poseVista.pos);
+    this.arma.scale.setScalar(this.poseVista.escala);
     this.clarao.position.set(0, 0.015, PONTAS[w] ?? 0);
     this.clarao.visible = false;
   }
@@ -608,6 +690,10 @@ export class Renderer {
       const antes = r.grupo.position.clone();
       r.grupo.position.lerp(r.alvo, k);
       r.grupo.rotation.y = angulo(r.grupo.rotation.y, r.alvoYaw, k);
+      if (r.tClarao > 0) {
+        r.tClarao -= dt;
+        if (r.tClarao <= 0) r.clarao.visible = false;
+      }
       if (r.grupo.visible && dt > 0) {
         const vel = Math.hypot(r.grupo.position.x - antes.x, r.grupo.position.z - antes.z) / dt;
         r.velocidade += (vel - r.velocidade) * Math.min(1, dt * 10); // suaviza para a animação não tremer
@@ -650,7 +736,7 @@ export class Renderer {
       if (this.tempoClarao <= 0) this.clarao.visible = false;
     }
     this.coice = Math.max(0, this.coice - dt * 12);
-    this.arma.position.z = -0.45 + this.coice * 0.06;
+    this.arma.position.z = this.poseVista.pos.z + this.coice * 0.06;
     this.arma.rotation.x = this.coice * 0.05;
 
     this.renderer.render(this.scene, this.camera);
