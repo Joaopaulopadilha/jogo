@@ -13,6 +13,7 @@ import type { InicioPartida, ModoJogo } from "./grupo";
 import type { Dificuldade } from "./bot";
 import { CODIGO_MAX, CODIGO_MIN, GuestNet, HostNet, normalizarCodigo } from "./net";
 import { Renderer } from "./renderer";
+import { suporteWebGL } from "./webgl";
 import { montarToque } from "./toque";
 import { ARMAS, CORES, MAX_JOGADORES, NOMES_ARMAS, ROUNDS_PARA_VENCER, SLOT_GRANADA, SPAWNS, moverCorpo } from "./shared";
 import type { Corpo } from "./shared";
@@ -42,7 +43,48 @@ const btnConectar = $<HTMLButtonElement>("btnConectar");
 const btnJogarDeNovo = $<HTMLButtonElement>("btnJogarDeNovo");
 const subtitulo = $("subtitulo");
 
-const renderer = new Renderer(canvas, wrap);
+// ---- Verificação de WebGL ----
+// Sem WebGL (muito comum no Linux com aceleração gráfica desativada ou driver na lista de bloqueio) não há como
+// desenhar o 3D. Antes, o jogo travava em silêncio na tela do nome; agora explica o motivo e o que fazer.
+
+declare global {
+  interface Window {
+    __csIniciou?: boolean;
+    __csErroMostrado?: boolean;
+    __csErro?: (titulo: string, texto: string, dicas: string[], detalhe: string) => void;
+  }
+}
+
+function falhaWebgl(detalhe: string): never {
+  window.__csErro?.(
+    "Seu navegador está sem WebGL",
+    "O CS Caps desenha o 3D com WebGL, e este navegador não conseguiu iniciá-lo. Geralmente é a aceleração de vídeo que está desligada ou bloqueada.",
+    [
+      "Tente outro navegador: o Firefox costuma funcionar em placas de vídeo antigas, onde o Chrome desliga o WebGL.",
+      "Chrome / Chromium / Edge: em Configurações → Sistema, ligue “Usar aceleração de hardware quando disponível” e reinicie o navegador. Abra chrome://gpu para ver o motivo; se o WebGL estiver bloqueado, ative chrome://flags/#ignore-gpu-blocklist.",
+      "Firefox: abra about:support e veja a linha “WebGL”; em about:config, a opção webgl.disable deve estar em false.",
+      "Linux: instale ou atualize os drivers de vídeo (pacote mesa e o driver da sua placa). Em máquina virtual, ligue a aceleração 3D.",
+    ],
+    detalhe,
+  );
+  throw new Error(`WebGL indisponível: ${detalhe}`);
+}
+
+{
+  const { v1, v2 } = suporteWebGL();
+  if (!v1 && !v2) falhaWebgl("o navegador não criou nenhum contexto WebGL (nem WebGL 1 nem WebGL 2)");
+}
+
+let rendererCriado: Renderer;
+try {
+  rendererCriado = new Renderer(canvas, wrap);
+} catch (e) {
+  // só chama de "sem WebGL" o que de fato é; qualquer outro erro segue para a tela de erro genérica, com o motivo real
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/webgl/i.test(msg)) falhaWebgl(msg);
+  throw e;
+}
+const renderer = rendererCriado;
 
 // ---- Utilidades ----
 
@@ -72,6 +114,7 @@ function mostrarPainel(nome: string): void {
   overlay.classList.toggle("lobby-ativo", nome === "painelLobby");
   overlay.classList.toggle("ajustes-ativo", nome === "painelAjustes");
   for (const id of PAINEIS) $(id).classList.toggle("hidden", id !== nome);
+  if (nome === "painelLobby") atualizarAreaLobby(); // só dá para medir com o lobby já visível
 }
 
 // ---- Estado ----
@@ -718,6 +761,7 @@ function aplicarAjustes(): void {
 }
 
 function mostrarControlesAjustes(): void {
+  $("avisoWebgl1").classList.toggle("hidden", suporteWebGL().v2);
   $<HTMLInputElement>("ajBrilho").value = String(Math.round(ajustes.brilho * 100));
   $("ajBrilhoValor").textContent = `${Math.round(ajustes.brilho * 100)}%`;
   $<HTMLSelectElement>("ajQualidade").value = ajustes.qualidade;
@@ -1248,4 +1292,5 @@ function tratarLinkRecebido(): void {
 }
 tratarLinkRecebido();
 window.addEventListener("hashchange", tratarLinkRecebido);
+window.__csIniciou = true; // a partir daqui a tela de erro de inicialização não aparece mais
 requestAnimationFrame(quadro);

@@ -7,6 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0a0e14" />
   <!-- instalado na tela inicial, o jogo abre sem barra de endereço (inclusive no iPhone) -->
+  <link rel="icon" type="image/png" href="/icone-192.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icone-192.png" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -138,6 +139,7 @@
             <output id="ajBrilhoValor">100%</output>
           </label>
           <p class="ajuda">Se a imagem estiver escura no seu aparelho, aumente o brilho. Você vê o efeito na hora.</p>
+          <p class="ajuda hidden" id="avisoWebgl1">Sua placa de vídeo é antiga e o jogo está no modo de compatibilidade (WebGL 1). A qualidade começa em Baixa para rodar melhor.</p>
           <button id="btnTelaCheiaAj" class="secundario">⛶ Tela cheia</button>
           <p class="ajuda">Esconde a barra de endereço do navegador.</p>
           <label class="aj-linha">
@@ -283,6 +285,37 @@
 
   <footer>feito com three.js + PeerJS (WebRTC) + TypeScript</footer>
 
+  <!-- falha na inicialização (ex.: navegador sem WebGL): em vez de a tela ficar parada sem explicação, mostra o motivo -->
+  <div id="erroInicio" class="hidden" role="alert">
+    <div class="erro-caixa">
+      <h2 id="erroTitulo"></h2>
+      <p id="erroTexto"></p>
+      <ul id="erroDicas"></ul>
+      <small id="erroDetalhe"></small>
+      <button id="btnTentarDeNovo" onclick="location.reload()">Tentar de novo</button>
+    </div>
+  </div>
+  <script>
+    window.__csIniciou = false;
+    window.__csErroMostrado = false;
+    window.__csErro = function (titulo, texto, dicas, detalhe) {
+      window.__csErroMostrado = true;
+      document.getElementById("erroTitulo").textContent = titulo;
+      document.getElementById("erroTexto").textContent = texto;
+      var ul = document.getElementById("erroDicas");
+      ul.innerHTML = "";
+      (dicas || []).forEach(function (d) { var li = document.createElement("li"); li.textContent = d; ul.appendChild(li); });
+      document.getElementById("erroDetalhe").textContent = detalhe ? "Detalhe técnico: " + detalhe : "";
+      document.getElementById("erroInicio").classList.remove("hidden");
+    };
+    // qualquer erro antes de o jogo terminar de iniciar (depois disso, erros comuns não derrubam a tela)
+    window.addEventListener("error", function (e) {
+      if (window.__csIniciou || window.__csErroMostrado) return;
+      window.__csErro("O jogo não conseguiu iniciar",
+        "Aconteceu um erro ao carregar. Tente recarregar a página. Se continuar, mande esta mensagem para quem mantém o jogo.",
+        [], String((e && (e.message || (e.error && e.error.message))) || "erro desconhecido"));
+    });
+  </script>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

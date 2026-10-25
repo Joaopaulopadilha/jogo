@@ -1,6 +1,8 @@
 // ajustes.ts
 // Preferências do jogador neste aparelho (brilho, qualidade gráfica, sensibilidade). Ficam salvas no navegador.
 
+import { suporteWebGL } from "./webgl";
+
 export type Qualidade = "baixa" | "media" | "alta";
 
 export interface Ajustes {
@@ -19,10 +21,12 @@ export const LIMITES = {
 
 const limitar = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
 
-// celular e tablet começam em qualidade média: telas densas pesam na bateria e na GPU
+// celular e tablet começam em qualidade média (telas densas pesam na bateria e na GPU); placa só com WebGL 1
+// (antiga) começa em baixa
 export function ajustesPadrao(): Ajustes {
   const toque = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
-  return { brilho: 1, qualidade: toque ? "media" : "alta", sensibilidade: 1 };
+  const antiga = !suporteWebGL().v2;
+  return { brilho: 1, qualidade: antiga ? "baixa" : toque ? "media" : "alta", sensibilidade: 1 };
 }
 
 export function carregarAjustes(): Ajustes {

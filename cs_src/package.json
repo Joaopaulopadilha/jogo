@@ -12,10 +12,10 @@
   },
   "dependencies": {
     "peerjs": "^1.5.5",
-    "three": "^0.186.1"
+    "three": "0.160.1"
   },
   "devDependencies": {
-    "@types/three": "^0.186.0",
+    "@types/three": "0.160.0",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"

@@ -4,6 +4,7 @@
 import * as THREE from "three";
 import { ALTURA, CAIXAS, OLHO } from "./shared";
 import type { GranadaSnap, PlayerInfo, PlayerSnap, Vec3 } from "./types";
+import { desligarVAO, suporteWebGL } from "./webgl";
 
 interface Remoto {
   grupo: THREE.Group;
@@ -34,8 +35,8 @@ const PONTAS = [-0.58, -0.24];
 
 // modelos [rifle, pistola, granada], com a origem na mão e a arma apontando para -z
 function modelosArmas(): THREE.Group[] {
-  const metal = new THREE.MeshStandardMaterial({ color: 0x20262e, roughness: 0.5, metalness: 0.4 });
-  const escuro = new THREE.MeshStandardMaterial({ color: 0x10141a, metalness: 0.6 });
+  const metal = material({ color: 0x20262e, roughness: 0.5, metalness: 0.4 });
+  const escuro = material({ color: 0x10141a, metalness: 0.6 });
 
   const deitar = <T extends THREE.Object3D>(o: T): T => { o.rotation.x = Math.PI / 2; return o; };
 
@@ -61,7 +62,7 @@ function modelosArmas(): THREE.Group[] {
   const granada = new THREE.Group();
   const gCorpo = new THREE.Mesh(
     new THREE.SphereGeometry(0.06, 16, 16),
-    new THREE.MeshStandardMaterial({ color: 0x3a5a3a, roughness: 0.6 }),
+    material({ color: 0x3a5a3a, roughness: 0.6 }),
   );
   const gTopo = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.05, 12), escuro);
   gTopo.position.y = 0.075;
@@ -89,6 +90,23 @@ function texturaChao(): THREE.CanvasTexture {
   t.repeat.set(21, 21);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+// Material com iluminação. Com WebGL 2 usa o material realista; em placa antiga (só WebGL 1) ele sai preto,
+// então usa o material de iluminação simples (Lambert), que essas placas calculam.
+interface OpcoesMaterial {
+  color?: THREE.ColorRepresentation;
+  map?: THREE.Texture;
+  roughness?: number;
+  metalness?: number;
+}
+
+function material(op: OpcoesMaterial): THREE.Material {
+  if (suporteWebGL().v2) return new THREE.MeshStandardMaterial(op);
+  const p: THREE.MeshLambertMaterialParameters = {};
+  if (op.color !== undefined) p.color = op.color;
+  if (op.map) p.map = op.map;
+  return new THREE.MeshLambertMaterial(p);
 }
 
 function etiqueta(nome: string, cor: string): THREE.Sprite {
@@ -121,12 +139,12 @@ function angulo(a: number, b: number, t: number): number {
 // modelo de jogador (cápsula colorida, cabeça, arma na mão e nome); usado no jogo e no lobby
 function criarPersonagem(nome: string, corHex: string): { grupo: THREE.Group; armas: THREE.Group[] } {
   const grupo = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(corHex), roughness: 0.6 });
+  const mat = material({ color: new THREE.Color(corHex), roughness: 0.6 });
   const corpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 10), mat);
   corpo.position.y = 0.8;
   const cabeca = new THREE.Mesh(
     new THREE.SphereGeometry(0.2, 12, 12),
-    new THREE.MeshStandardMaterial({ color: 0xf2d2b0, roughness: 0.8 }),
+    material({ color: 0xf2d2b0, roughness: 0.8 }),
   );
   cabeca.position.y = ALTURA - 0.2;
   const armas = modelosArmas();
@@ -171,7 +189,12 @@ export class Renderer {
   private coice = 0;
 
   constructor(canvas: HTMLCanvasElement, private wrap: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // placas antigas só têm WebGL 1: usa o modo de compatibilidade em vez de falhar ao abrir
+    if (!suporteWebGL().v2) desligarVAO();
+    // (sem suavização de bordas nesse modo: ela pesa muito nessas placas e em algumas gera imagem errada)
+    this.renderer = suporteWebGL().v2
+      ? new THREE.WebGLRenderer({ canvas, antialias: true })
+      : new THREE.WebGL1Renderer({ canvas, antialias: false });
     this.aplicarRazaoPixel();
 
     this.scene.background = new THREE.Color(0x0a0e14);
@@ -184,7 +207,7 @@ export class Renderer {
 
     const chao = new THREE.Mesh(
       new THREE.PlaneGeometry(42, 42),
-      new THREE.MeshStandardMaterial({ map: texturaChao(), roughness: 1 }),
+      material({ map: texturaChao(), roughness: 1 }),
     );
     chao.rotation.x = -Math.PI / 2;
     this.scene.add(chao);
@@ -192,7 +215,7 @@ export class Renderer {
     for (const c of CAIXAS) {
       const m = new THREE.Mesh(
         new THREE.BoxGeometry(c.w, c.h, c.d),
-        new THREE.MeshStandardMaterial({ color: c.cor, roughness: 0.85 }),
+        material({ color: c.cor, roughness: 0.85 }),
       );
       m.position.set(c.x, c.h / 2, c.z);
       this.scene.add(m);
@@ -259,7 +282,7 @@ export class Renderer {
 
     const palco = new THREE.Mesh(
       new THREE.CylinderGeometry(3.6, 3.8, 0.12, 64),
-      new THREE.MeshStandardMaterial({ color: 0x0f1724, roughness: 0.8 }),
+      material({ color: 0x0f1724, roughness: 0.8 }),
     );
     palco.position.y = -0.06;
     const borda = new THREE.Mesh(new THREE.TorusGeometry(3.7, 0.025, 8, 96), new THREE.MeshBasicMaterial({ color: 0x4de2c2 }));
@@ -406,7 +429,7 @@ export class Renderer {
       if (!v) {
         const mesh = new THREE.Mesh(
           new THREE.SphereGeometry(0.12, 12, 12),
-          new THREE.MeshStandardMaterial({ color: 0x3a5a3a, roughness: 0.6 }),
+          material({ color: 0x3a5a3a, roughness: 0.6 }),
         );
         mesh.position.set(g.x, g.y, g.z);
         this.scene.add(mesh);
