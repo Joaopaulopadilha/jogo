@@ -26,6 +26,8 @@ M_POLIMERO = material_simples("polimero", (0.012, 0.012, 0.014), 0.7, 0.0, 30, 0
 M_DESGASTE = material_simples("desgaste", (0.10, 0.10, 0.11), 0.35, 0.9, 40, 0.5)
 M_MADEIRA = material_simples("madeira", (0.06, 0.028, 0.012), 0.7, 0.0, 12, 0.5)
 M_VIDRO = material_simples("lente", (0.01, 0.03, 0.05), 0.15, 0.2, 40, 0.3)
+M_MANGA = material_simples("manga", (0.05, 0.062, 0.034), 0.9, 0.0, 22, 0.5)
+M_LUVA = material_simples("luva", (0.02, 0.02, 0.022), 0.85, 0.0, 34, 0.4)
 M_VERDE = material_simples("granada_verde", (0.085, 0.115, 0.045), 0.55, 0.3, 18, 0.45)
 
 
@@ -160,6 +162,56 @@ def granada():
     return p
 
 
+
+def mao(partes, nome, palma, dim_palma, rot, dedos, polegar, antebraco_de, antebraco_ate, lado=1):
+    """luva simples: palma + dedos enrolados + polegar, e o antebraço (manga) saindo para trás, em direção à câmera"""
+    caixa(partes, nome + "_palma", palma, dim_palma, M_LUVA, 0.008, rot=rot)
+    for i, (c, d) in enumerate(dedos):
+        caixa(partes, f"{nome}_dedo{i}", c, d, M_LUVA, 0.004, rot=rot)
+    caixa(partes, nome + "_polegar", polegar[0], polegar[1], M_LUVA, 0.004, rot=polegar[2])
+    cilindro(partes, nome + "_antebraco", antebraco_de, antebraco_ate, 0.023, 0.029, M_MANGA, 10)
+    # punho da luva
+    a, b = Vector(antebraco_de), Vector(antebraco_ate)
+    cilindro(partes, nome + "_punho", a, a + (b - a).normalized() * 0.035, 0.026, 0.026, M_LUVA, 10)
+
+
+def maos_fuzil():
+    p = []
+    # direita na empunhadura
+    mao(p, "d", (0.004, -0.012, -0.040), (0.050, 0.062, 0.082), (-16, 0, 0),
+        [((0.004, 0.026 + 0.0, -0.022 - 0.014 * k), (0.046, 0.016, 0.018)) for k in range(4)],
+        ((-0.020, -0.008, -0.020), (0.014, 0.040, 0.020), (0, 0, 10)),
+        (0.004, -0.045, -0.050), (0.050, -0.30, -0.19))
+    # esquerda no guarda-mão
+    mao(p, "e", (-0.002, 0.372, 0.020), (0.052, 0.070, 0.050), (0, 0, 0),
+        [((0.030, 0.372 - 0.016 * k + 0.012, 0.030), (0.016, 0.014, 0.040)) for k in range(4)],
+        ((-0.028, 0.405, 0.050), (0.014, 0.040, 0.022), (0, 0, -15)),
+        (-0.004, 0.325, 0.005), (-0.18, 0.02, -0.14))
+    return p
+
+
+def maos_pistola():
+    p = []
+    mao(p, "d", (0.002, -0.014, -0.040), (0.048, 0.060, 0.078), (-14, 0, 0),
+        [((0.003, 0.024, -0.020 - 0.014 * k), (0.042, 0.014, 0.018)) for k in range(3)],
+        ((-0.018, 0.004, 0.0), (0.014, 0.040, 0.020), (0, 0, 8)),
+        (0.004, -0.045, -0.048), (0.060, -0.27, -0.20))
+    mao(p, "e", (-0.034, -0.004, -0.045), (0.034, 0.058, 0.070), (-14, 0, 0),
+        [((-0.050, 0.020, -0.028 - 0.014 * k), (0.016, 0.014, 0.018)) for k in range(3)],
+        ((-0.030, 0.030, -0.005), (0.012, 0.036, 0.018), (0, 0, 10)),
+        (-0.036, -0.035, -0.060), (-0.12, -0.26, -0.21))
+    return p
+
+
+def maos_granada():
+    p = []
+    mao(p, "d", (0.0, 0.100, -0.014), (0.068, 0.068, 0.058), (0, 0, 0),
+        [((0.0, 0.130 + 0.0, -0.018 + 0.014 * k - 0.014), (0.060, 0.014, 0.016)) for k in range(4)],
+        ((0.034, 0.098, 0.032), (0.016, 0.044, 0.020), (0, 0, 20)),
+        (0.004, 0.060, -0.045), (0.050, -0.21, -0.20))
+    return p
+
+
 def juntar(partes, nome):
     ativar(partes[0])
     for o in partes:
@@ -221,9 +273,10 @@ def assar(obj, nome, tam):
 
 tam = 512 if RAPIDO else 1024
 armas = []
-for nome, fabrica in [("fuzil", fuzil), ("pistola", pistola), ("granada", granada)]:
+for nome, fabrica in [("fuzil", fuzil), ("pistola", pistola), ("granada", granada),
+                      ("maos_fuzil", maos_fuzil), ("maos_pistola", maos_pistola), ("maos_granada", maos_granada)]:
     obj = juntar(fabrica(), nome)
-    assar(obj, nome, tam)
+    assar(obj, nome, tam if not nome.startswith("maos") else tam // 2)
     armas.append(obj)
 
 bpy.ops.object.select_all(action="DESELECT")
@@ -243,7 +296,11 @@ bpy.ops.export_scene.gltf(
 armas[0].location = (-0.55, 0, 0.9)
 armas[1].location = (0.0, 0, 0.9)
 armas[2].location = (0.45, 0, 0.9)
+armas[3].location = (-0.55, 0, 0.9)  # as mãos ficam em cima da arma, como no jogo
+armas[4].location = (0.0, 0, 0.9)
+armas[5].location = (0.45, 0, 0.9)
 preparar_foto(3)
 foto("armas", AQUI, (0.6, -1.6, 1.25), (0.05, 0.12, 0.9), lente=55)
-foto("armas_2", AQUI, (-1.9, 0.5, 1.15), (-0.55, 0.1, 0.92), lente=60)
+foto("armas_2", AQUI, (-0.55, -0.75, 1.12), (-0.55, 0.2, 0.9), lente=45)
+foto("armas_3", AQUI, (0.0, -0.6, 1.05), (0.0, 0.0, 0.85), lente=45)
 print("pronto")

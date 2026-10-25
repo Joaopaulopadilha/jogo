@@ -10,6 +10,11 @@ import type { GranadaSnap, PlayerInfo, PlayerSnap, Vec3 } from "./types";
 import { desligarVAO, suporteWebGL } from "./webgl";
 
 interface Remoto {
+  pitch: number;      // para onde o soldado aponta o cano (suavizado)
+  pitchAlvo: number;
+  recuo: number;      // 1 logo depois de atirar, cai para 0
+  queda: number;      // 0 em pé, 1 caído (morto)
+  vivo: boolean;
   clarao: THREE.Mesh;
   tClarao: number;
   velocidade: number;
@@ -52,12 +57,11 @@ const POSES_ARMA_VISTA = [
 // Cada grupo nasce com a versão simples de antes e troca pelo modelo 3D assim que o arquivo chega.
 const NOMES_ARMAS = ["fuzil", "pistola", "granada"];
 let armasGLB: GLTF | null = null;
-const registroArmas: { grupo: THREE.Group; indice: number }[] = [];
+const registroArmas: { grupo: THREE.Group; indice: number; vista: boolean }[] = [];
 
-function aplicarModeloArma(r: { grupo: THREE.Group; indice: number }): void {
-  if (!armasGLB) return;
-  const origem = armasGLB.scene.getObjectByName(NOMES_ARMAS[r.indice]);
-  if (!origem) return;
+function copiaDoModelo(nome: string): THREE.Object3D | null {
+  const origem = armasGLB?.scene.getObjectByName(nome);
+  if (!origem) return null;
   const v2 = suporteWebGL().v2;
   const copia = origem.clone(true);
   copia.traverse((o) => {
@@ -66,10 +70,20 @@ function aplicarModeloArma(r: { grupo: THREE.Group; indice: number }): void {
     const antigo = malha.material as THREE.MeshStandardMaterial;
     malha.material = v2 ? antigo : new THREE.MeshLambertMaterial({ map: antigo.map });
   });
-  for (const filho of [...r.grupo.children]) {
-    r.grupo.remove(filho);
+  return copia;
+}
+
+// "vista": a arma que o jogador segura em primeira pessoa, com as mãos e os antebraços; nos soldados as mãos são do próprio modelo
+function aplicarModeloArma(r: { grupo: THREE.Group; indice: number; vista: boolean }): void {
+  if (!armasGLB) return;
+  const arma = copiaDoModelo(NOMES_ARMAS[r.indice]);
+  if (!arma) return;
+  for (const filho of [...r.grupo.children]) r.grupo.remove(filho);
+  r.grupo.add(arma);
+  if (r.vista) {
+    const maos = copiaDoModelo("maos_" + NOMES_ARMAS[r.indice]);
+    if (maos) r.grupo.add(maos);
   }
-  r.grupo.add(copia);
 }
 
 export function carregarArmas(): void {
@@ -85,10 +99,10 @@ export function carregarArmas(): void {
 }
 
 // modelos [rifle, pistola, granada], com a origem na mão e a arma apontando para -z
-function modelosArmas(): THREE.Group[] {
+function modelosArmas(vista = false): THREE.Group[] {
   const grupos = modelosArmasSimples();
   grupos.forEach((grupo, indice) => {
-    const r = { grupo, indice };
+    const r = { grupo, indice, vista };
     registroArmas.push(r);
     aplicarModeloArma(r);
   });
@@ -216,6 +230,7 @@ export function carregarSoldado(): void {
 }
 
 interface Animacao {
+  tronco: THREE.Object3D | null;
   mixer: THREE.AnimationMixer;
   parado: THREE.AnimationAction | null;
   correr: THREE.AnimationAction | null;
@@ -269,11 +284,18 @@ function vestirSoldado(grupo: THREE.Group, placeholders: THREE.Object3D[], armas
   const correr = cc ? mixer.clipAction(cc) : null;
   parado?.play();
   if (correr) { correr.play(); correr.setEffectiveWeight(0); }
-  grupo.userData.anim = { mixer, parado, correr } as Animacao;
+  grupo.userData.anim = { mixer, parado, correr, tronco: corpo.getObjectByName("tronco") ?? null } as Animacao;
+  grupo.userData.armas = armas;
 }
 
 // avança a animação do soldado; "velocidade" em m/s decide entre parado e correr
-function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number): void {
+const PIVO_TRONCO = new THREE.Vector3(0, 1.05, 0); // cintura do soldado: em torno dela o tronco e as armas giram para mirar
+const EIXO_X = new THREE.Vector3(1, 0, 0);
+const q1 = new THREE.Quaternion();
+const q2 = new THREE.Quaternion();
+const v1 = new THREE.Vector3();
+
+function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number, pitch = 0, recuo = 0): void {
   const a = grupo.userData.anim as Animacao | undefined;
   if (!a) return;
   const f = Math.max(0, Math.min(1, (velocidade - 0.4) / 1.6));
@@ -283,6 +305,30 @@ function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number): void
     a.correr.setEffectiveTimeScale(Math.max(0.6, Math.min(1.5, velocidade / 5)));
   }
   a.mixer.update(dt);
+
+  // mira: o tronco (com os braços) levanta ou abaixa o cano; o tiro dá um coice curto
+  const ang = Math.max(-1.0, Math.min(1.0, pitch)) * 0.85 + recuo * 0.09;
+  const tronco = a.tronco;
+  if (tronco?.parent) {
+    grupo.updateMatrixWorld(true);
+    tronco.parent.getWorldQuaternion(q1);
+    grupo.getWorldQuaternion(q2);
+    v1.copy(EIXO_X).applyQuaternion(q2).applyQuaternion(q1.invert());
+    tronco.quaternion.premultiply(q2.setFromAxisAngle(v1, ang));
+  }
+  // as armas acompanham a mão: giram em torno da cintura junto com o tronco e recuam um pouco ao atirar
+  const armas = grupo.userData.armas as THREE.Group[] | undefined;
+  if (armas) {
+    const rel = new THREE.Vector3(MAO_SOLDADO.x, MAO_SOLDADO.y, MAO_SOLDADO.z + recuo * 0.05).sub(PIVO_TRONCO);
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const y = rel.y * c - rel.z * s;
+    const z = rel.y * s + rel.z * c;
+    for (const arma of armas) {
+      arma.position.set(rel.x + PIVO_TRONCO.x, y + PIVO_TRONCO.y, z + PIVO_TRONCO.z);
+      arma.rotation.set(ang, 0, 0);
+    }
+  }
 }
 
 // modelo de jogador (soldado, ou cápsula até o modelo chegar), arma na mão e nome; usado no jogo e no lobby
@@ -300,6 +346,7 @@ function criarPersonagem(nome: string, corHex: string): { grupo: THREE.Group; ar
   for (const a of armas) a.position.set(0.28, 1.15, -0.2);
   const tag = etiqueta(nome, corHex);
   tag.position.y = ALTURA + 0.55;
+  grupo.userData.tag = tag;
   grupo.add(corpo, cabeca, ...armas, tag);
   if (soldadoModelo) vestirSoldado(grupo, [corpo, cabeca], armas, corHex);
   else aguardandoSoldado.push(() => vestirSoldado(grupo, [corpo, cabeca], armas, corHex));
@@ -379,7 +426,7 @@ export class Renderer {
 
     // arma na câmera
     this.arma = new THREE.Group();
-    this.armasVista = modelosArmas();
+    this.armasVista = modelosArmas(true);
     this.clarao = new THREE.Mesh(
       new THREE.SphereGeometry(0.06, 8, 8),
       new THREE.MeshBasicMaterial({ color: 0xffd166 }),
@@ -570,7 +617,8 @@ export class Renderer {
       clarao.visible = false;
       grupo.add(clarao);
       this.scene.add(grupo);
-      this.remotos.set(info.id, { clarao, tClarao: 0, velocidade: 0, grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
+      grupo.rotation.order = "YXZ"; // a queda (inclinação) acontece no eixo do próprio soldado, depois de girar para onde ele olha
+      this.remotos.set(info.id, { pitch: 0, pitchAlvo: 0, recuo: 0, queda: 0, vivo: true, clarao, tClarao: 0, velocidade: 0, grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
     }
   }
 
@@ -579,11 +627,17 @@ export class Renderer {
     if (!r) return;
     r.alvo.set(p.x, p.y, p.z);
     r.alvoYaw = p.yaw;
-    r.grupo.visible = p.alive && p.on;
+    r.pitchAlvo = p.pitch;
+    // quem morreu fica caído até a próxima rodada; só some quem saiu da partida
+    r.grupo.visible = p.on;
     r.armas.forEach((a, i) => { a.visible = i === p.arma; });
+    if (p.alive && !r.vivo) r.queda = 0; // nova rodada: levanta de uma vez
+    r.vivo = p.alive;
     if (!r.inicializado) {
       r.grupo.position.copy(r.alvo);
       r.grupo.rotation.y = p.yaw;
+      r.pitch = p.pitch;
+      r.queda = p.alive ? 0 : 1;
       r.inicializado = true;
     }
   }
@@ -607,12 +661,17 @@ export class Renderer {
     }
     const r = this.remotos.get(atirador);
     if (!r) return null;
-    const ponta = new THREE.Vector3(MAO_SOLDADO.x, MAO_SOLDADO.y + ALTURA_CANO, MAO_SOLDADO.z + (PONTAS[w] ?? PONTAS[0]));
-    r.clarao.position.copy(ponta);
+    r.recuo = 1;
+    r.grupo.updateMatrixWorld(true);
+    // a arma do soldado já está inclinada para onde ele mira: a ponta do cano vem do próprio modelo da arma
+    const arma = r.armas[w] ?? r.armas[0];
+    const ponta = new THREE.Vector3(0, ALTURA_CANO, PONTAS[w] ?? PONTAS[0]);
+    arma.updateWorldMatrix(true, false);
+    const mundo = arma.localToWorld(ponta);
+    r.clarao.position.copy(r.grupo.worldToLocal(mundo.clone()));
     r.clarao.visible = true;
     r.tClarao = 0.05;
-    r.grupo.updateMatrixWorld(true);
-    return r.grupo.localToWorld(ponta);
+    return mundo;
   }
 
   // traço do tiro: sai da ponta do cano (e não dos olhos) até onde acertou
@@ -694,10 +753,19 @@ export class Renderer {
         r.tClarao -= dt;
         if (r.tClarao <= 0) r.clarao.visible = false;
       }
+      r.pitch += (r.pitchAlvo - r.pitch) * k;
+      r.recuo = Math.max(0, r.recuo - dt * 7);
+      // queda ao morrer: cai de costas em ~0,5 s e fica deitado até a próxima rodada
+      r.queda = r.vivo ? 0 : Math.min(1, r.queda + dt / 0.5);
+      const q = r.queda * r.queda * (3 - 2 * r.queda);
+      r.grupo.rotation.x = q * 1.5;
+      r.grupo.position.y = r.alvo.y + q * 0.27;
+      const tag = r.grupo.userData.tag as THREE.Object3D | undefined;
+      if (tag) tag.visible = r.vivo;
       if (r.grupo.visible && dt > 0) {
-        const vel = Math.hypot(r.grupo.position.x - antes.x, r.grupo.position.z - antes.z) / dt;
+        const vel = r.vivo ? Math.hypot(r.grupo.position.x - antes.x, r.grupo.position.z - antes.z) / dt : 0;
         r.velocidade += (vel - r.velocidade) * Math.min(1, dt * 10); // suaviza para a animação não tremer
-        animarSoldado(r.grupo, dt, r.velocidade);
+        animarSoldado(r.grupo, dt, r.velocidade, r.vivo ? r.pitch : 0, r.vivo ? r.recuo : 0);
       }
     }
 
