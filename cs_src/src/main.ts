@@ -654,6 +654,8 @@ function limparEspera(): void {
 
 function falhaGrupo(msg: string): void {
   limparEspera();
+  // no meio da partida (ex.: o host saiu): volta ao lobby de verdade, senão a partida ficaria parada por trás do lobby
+  if (rodando) { resetarParaInicio(); mostrarToast("A conexão com a partida caiu (o host saiu?). Você voltou ao lobby."); return; }
   hostNet?.fechar();
   guestNet?.fechar();
   hostNet = null;
@@ -830,6 +832,7 @@ aplicarAjustes();
 
 // ---- Voz ----
 
+if (import.meta.env.DEV) (window as unknown as { __csJogo?: unknown }).__csJogo = () => jogo;
 if (import.meta.env.DEV) (window as unknown as { __csDbg?: unknown }).__csDbg = () => ({ rodando, modo, estado: amigos.estado, eu: amigos.apelido, membros: grupo.membros.map((m) => [m.id, amigos.estaOnline(m.id)]) });
 
 function rotuloVoz(p: Participante): string {
