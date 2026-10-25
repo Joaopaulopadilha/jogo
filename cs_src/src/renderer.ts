@@ -2,7 +2,8 @@
 // Cena 3D (Three.js): arena, jogadores remotos, arma na tela e rastros de tiro.
 
 import * as THREE from "three";
-import { ALTURA, CAIXAS, OLHO } from "./shared";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { ALTURA, CAIXAS, CARROS, OLHO } from "./shared";
 import type { GranadaSnap, PlayerInfo, PlayerSnap, Vec3 } from "./types";
 import { desligarVAO, suporteWebGL } from "./webgl";
 
@@ -212,7 +213,10 @@ export class Renderer {
     chao.rotation.x = -Math.PI / 2;
     this.scene.add(chao);
 
+    this.carregarCarros();
+
     for (const c of CAIXAS) {
+      if (c.oculta) continue;
       const m = new THREE.Mesh(
         new THREE.BoxGeometry(c.w, c.h, c.d),
         material({ color: c.cor, roughness: 0.85 }),
@@ -239,6 +243,32 @@ export class Renderer {
 
     new ResizeObserver(() => this.redimensionar()).observe(wrap);
     this.redimensionar();
+  }
+
+  // carros destruídos do cenário: um modelo carregado uma vez e copiado para cada lugar
+  private carregarCarros(): void {
+    new GLTFLoader().load(
+      `${import.meta.env.BASE_URL}modelos/carro_destruido.glb`,
+      (gltf) => {
+        const v2 = suporteWebGL().v2;
+        gltf.scene.traverse((o) => {
+          const malha = o as THREE.Mesh;
+          if (!malha.isMesh) return;
+          const antigo = malha.material as THREE.MeshStandardMaterial;
+          // placas de vídeo antigas (WebGL 1): material simples, só com a textura
+          malha.material = v2 ? antigo : new THREE.MeshLambertMaterial({ map: antigo.map });
+          if (v2) { antigo.roughness = 0.9; antigo.metalness = 0; }
+        });
+        for (const c of CARROS) {
+          const copia = gltf.scene.clone(true);
+          copia.position.set(c.x, 0, c.z);
+          copia.rotation.y = c.yaw;
+          this.scene.add(copia);
+        }
+      },
+      undefined,
+      () => { /* sem o modelo, a caixa de colisão continua; o jogo segue normalmente */ },
+    );
   }
 
   // resolução da renderização: telas densas pesam na bateria/GPU, então a qualidade escolhida limita os pixels desenhados

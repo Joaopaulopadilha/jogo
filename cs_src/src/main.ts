@@ -848,6 +848,7 @@ aplicarAjustes();
 // ---- Voz ----
 
 if (import.meta.env.DEV) (window as unknown as { __csJogo?: unknown }).__csJogo = () => jogo;
+if (import.meta.env.DEV) (window as unknown as { __csEntrada?: unknown }).__csEntrada = entrada;
 if (import.meta.env.DEV) (window as unknown as { __csDbg?: unknown }).__csDbg = () => ({ rodando, modo, pid: eu, pidHost, migrando: !!migracao, snapT: ultimaSnap?.timer, snapOn: ultimaSnap?.ps.map((q) => q.on), estado: amigos.estado, eu: amigos.apelido, membros: grupo.membros.map((m) => [m.id, amigos.estaOnline(m.id)]) });
 
 function rotuloVoz(p: Participante): string {

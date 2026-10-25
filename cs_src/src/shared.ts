@@ -57,6 +57,7 @@ export interface Caixa {
   d: number; // tamanho em z
   h: number; // altura (começa no chão)
   cor: number;
+  oculta?: boolean; // só colide: o visual é um modelo 3D (ver CARROS)
 }
 
 const PAREDE = 0x2a3a52;
@@ -88,6 +89,15 @@ export const CAIXAS: Caixa[] = [
   { x: 13, z: 16, w: 1, d: 6, h: 2.5, cor: BLOCO },
   { x: -13, z: 16, w: 1, d: 6, h: 2.5, cor: BLOCO },
   { x: 13, z: -16, w: 1, d: 6, h: 2.5, cor: BLOCO },
+  // carros destruídos (a colisão é uma caixa; o desenho vem do modelo 3D)
+  { x: -14, z: 4.5, w: 1.9, d: 4.3, h: 1.4, cor: CAIXA, oculta: true },
+  { x: 14, z: -4.5, w: 1.9, d: 4.3, h: 1.4, cor: CAIXA, oculta: true },
+];
+
+// onde ficam os modelos dos carros (yaw em radianos; o carro aponta para +X no modelo)
+export const CARROS: { x: number; z: number; yaw: number }[] = [
+  { x: -14, z: 4.5, yaw: Math.PI / 2 },
+  { x: 14, z: -4.5, yaw: -Math.PI / 2 },
 ];
 
 export interface Spawn {
