@@ -3,11 +3,14 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as clonarComEsqueleto } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { ALTURA, CAIXAS, OBJETOS, OLHO } from "./shared";
 import type { GranadaSnap, PlayerInfo, PlayerSnap, Vec3 } from "./types";
 import { desligarVAO, suporteWebGL } from "./webgl";
 
 interface Remoto {
+  velocidade: number;
   grupo: THREE.Group;
   armas: THREE.Group[];
   alvo: THREE.Vector3;
@@ -137,7 +140,95 @@ function angulo(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
-// modelo de jogador (cápsula colorida, cabeça, arma na mão e nome); usado no jogo e no lobby
+// ---- soldado (modelo 3D com esqueleto, feito no Blender: modelos/soldado.py) ----
+// Carrega uma vez; enquanto não chega (ou se falhar) o jogador aparece como cápsula e troca assim que o modelo está pronto.
+
+let soldadoModelo: GLTF | null = null;
+const aguardandoSoldado: (() => void)[] = [];
+
+export function carregarSoldado(): void {
+  new GLTFLoader().load(
+    `${import.meta.env.BASE_URL}modelos/soldado.glb`,
+    (gltf) => {
+      soldadoModelo = gltf;
+      for (const vestir of aguardandoSoldado.splice(0)) vestir();
+    },
+    undefined,
+    () => { /* sem o modelo, fica a cápsula */ },
+  );
+}
+
+interface Animacao {
+  mixer: THREE.AnimationMixer;
+  parado: THREE.AnimationAction | null;
+  correr: THREE.AnimationAction | null;
+}
+
+// troca a cápsula pelo soldado: colete e faixa do capacete na cor do jogador, armas na mão
+function vestirSoldado(grupo: THREE.Group, placeholders: THREE.Object3D[], armas: THREE.Group[], corHex: string): void {
+  if (!soldadoModelo) return;
+  const v2 = suporteWebGL().v2;
+  const corpo = clonarComEsqueleto(soldadoModelo.scene) as THREE.Group;
+  // placas antigas (WebGL 1) não leem textura no vértice, que é como o Three.js aplica o esqueleto: ali o soldado fica parado
+  const estatico: THREE.Mesh[] = [];
+  corpo.updateMatrixWorld(true);
+  corpo.traverse((o) => {
+    const malha = o as THREE.Mesh;
+    if (!malha.isMesh) return;
+    const antigo = malha.material as THREE.MeshStandardMaterial;
+    const equipe = antigo.name.startsWith("equipe");
+    const cor = equipe ? new THREE.Color(corHex) : undefined;
+    if (v2) {
+      const m = antigo.clone();
+      if (cor) m.color.copy(cor);
+      m.roughness = 0.85;
+      m.metalness = 0;
+      malha.material = m;
+      malha.frustumCulled = false; // a malha animada ultrapassa a caixa original
+    } else {
+      const fixa = new THREE.Mesh(malha.geometry, new THREE.MeshLambertMaterial(cor ? { color: cor } : { map: antigo.map }));
+      fixa.matrixAutoUpdate = false;
+      fixa.matrix.copy(malha.matrixWorld);
+      estatico.push(fixa);
+    }
+  });
+  if (!v2) {
+    for (const p of placeholders) grupo.remove(p);
+    const fixo = new THREE.Group();
+    fixo.add(...estatico);
+    grupo.add(fixo);
+    for (const a of armas) a.position.set(0.14, 1.16, -0.24);
+    return;
+  }
+  for (const p of placeholders) grupo.remove(p);
+  grupo.add(corpo);
+  for (const a of armas) a.position.set(0.14, 1.16, -0.24);
+
+  const mixer = new THREE.AnimationMixer(corpo);
+  const achar = (n: string) => soldadoModelo!.animations.find((c) => c.name === n);
+  const cp = achar("parado");
+  const cc = achar("correr");
+  const parado = cp ? mixer.clipAction(cp) : null;
+  const correr = cc ? mixer.clipAction(cc) : null;
+  parado?.play();
+  if (correr) { correr.play(); correr.setEffectiveWeight(0); }
+  grupo.userData.anim = { mixer, parado, correr } as Animacao;
+}
+
+// avança a animação do soldado; "velocidade" em m/s decide entre parado e correr
+function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number): void {
+  const a = grupo.userData.anim as Animacao | undefined;
+  if (!a) return;
+  const f = Math.max(0, Math.min(1, (velocidade - 0.4) / 1.6));
+  a.parado?.setEffectiveWeight(1 - f);
+  if (a.correr) {
+    a.correr.setEffectiveWeight(f);
+    a.correr.setEffectiveTimeScale(Math.max(0.6, Math.min(1.5, velocidade / 5)));
+  }
+  a.mixer.update(dt);
+}
+
+// modelo de jogador (soldado, ou cápsula até o modelo chegar), arma na mão e nome; usado no jogo e no lobby
 function criarPersonagem(nome: string, corHex: string): { grupo: THREE.Group; armas: THREE.Group[] } {
   const grupo = new THREE.Group();
   const mat = material({ color: new THREE.Color(corHex), roughness: 0.6 });
@@ -153,6 +244,8 @@ function criarPersonagem(nome: string, corHex: string): { grupo: THREE.Group; ar
   const tag = etiqueta(nome, corHex);
   tag.position.y = ALTURA + 0.55;
   grupo.add(corpo, cabeca, ...armas, tag);
+  if (soldadoModelo) vestirSoldado(grupo, [corpo, cabeca], armas, corHex);
+  else aguardandoSoldado.push(() => vestirSoldado(grupo, [corpo, cabeca], armas, corHex));
   return { grupo, armas };
 }
 
@@ -213,6 +306,7 @@ export class Renderer {
     chao.rotation.x = -Math.PI / 2;
     this.scene.add(chao);
 
+    carregarSoldado();
     this.carregarObjetos();
 
     for (const c of CAIXAS) {
@@ -399,7 +493,8 @@ export class Renderer {
     this.lobbyPersonagens.forEach((p, i) => {
       // de frente para a câmera, com um balanço leve de "descanso"
       p.rotation.y = Math.PI + Math.sin(this.lobbyTempo * 0.7 + i * 1.3) * 0.4;
-      p.position.y = Math.sin(this.lobbyTempo * 1.6 + i) * 0.015;
+      p.position.y = p.userData.anim ? 0 : Math.sin(this.lobbyTempo * 1.6 + i) * 0.015;
+      animarSoldado(p, dt, 0);
     });
     this.renderer.render(this.cenaLobby, this.cameraLobby);
   }
@@ -413,7 +508,7 @@ export class Renderer {
       const { grupo, armas } = criarPersonagem(info.nome, info.cor);
       grupo.visible = false;
       this.scene.add(grupo);
-      this.remotos.set(info.id, { grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
+      this.remotos.set(info.id, { velocidade: 0, grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
     }
   }
 
@@ -510,8 +605,14 @@ export class Renderer {
 
     const k = 1 - Math.exp(-dt * 18);
     for (const r of this.remotos.values()) {
+      const antes = r.grupo.position.clone();
       r.grupo.position.lerp(r.alvo, k);
       r.grupo.rotation.y = angulo(r.grupo.rotation.y, r.alvoYaw, k);
+      if (r.grupo.visible && dt > 0) {
+        const vel = Math.hypot(r.grupo.position.x - antes.x, r.grupo.position.z - antes.z) / dt;
+        r.velocidade += (vel - r.velocidade) * Math.min(1, dt * 10); // suaviza para a animação não tremer
+        animarSoldado(r.grupo, dt, r.velocidade);
+      }
     }
 
     for (const v of this.granadas.values()) v.mesh.position.lerp(v.alvo, k);
