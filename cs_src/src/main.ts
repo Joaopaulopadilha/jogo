@@ -143,8 +143,18 @@ $("btnTrocarNome").addEventListener("click", () => mostrarPainel("painelNome"));
 const amigos = new Amigos(() => meuNome || "Jogador", {
   aoMudar: () => renderAmigos(),
   aoConvite: (de, sala) => mostrarConvite(de.nome, sala),
-  aoAviso: (msg) => { msgAmigos.textContent = msg; },
+  aoAviso: (msg) => { msgAmigos.textContent = msg; mostrarToast(msg); },
 });
+
+// aviso rápido visível em qualquer tela (ex.: "Fulano entrou na sua lista de amigos")
+let toastTimer: number | undefined;
+function mostrarToast(texto: string): void {
+  const el = $("toastAviso");
+  el.textContent = texto;
+  el.classList.remove("hidden");
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => el.classList.add("hidden"), 6000);
+}
 
 const msgAmigos = $("msgAmigos");
 const listaAmigos = $("listaAmigos");
@@ -162,10 +172,12 @@ const STATUS_AMIGOS: Record<string, string> = {
   indisponivel: "Amigos só funciona em https ou em localhost.",
 };
 
-function linhaAmigo(nome: string, apelido: string, estado: "online" | "offline" | "pendente", botao: string): string {
+function linhaAmigo(nome: string, apelido: string, estado: "online" | "offline" | "pendente", botao: string, motivo = ""): string {
   const cor = estado === "online" ? "var(--accent)" : estado === "pendente" ? "var(--accent3)" : "var(--muted)";
-  const detalhe = estado === "pendente" ? " · aguardando aceitar" : nome === apelido ? "" : ` (${esc(apelido)})`;
-  return `<div class="amigo${estado === "online" ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span>${esc(nome)}${detalhe}</span>${botao}</div>`;
+  const detalhe = estado === "pendente"
+    ? ` · aguardando aceitar${motivo ? `<br><small>${esc(motivo)}</small>` : ""}`
+    : nome === apelido ? "" : ` (${esc(apelido)})`;
+  return `<div class="amigo${estado === "online" ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span><span>${esc(nome)}${detalhe}</span></span>${botao}</div>`;
 }
 
 function renderAmigos(): void {
@@ -182,8 +194,8 @@ function renderAmigos(): void {
     .join("");
 
   listaAmigos.innerHTML = lista
-    .map(({ amigo, online, pendente }) =>
-      linhaAmigo(amigo.nome, amigo.id, pendente ? "pendente" : online ? "online" : "offline", `<button class="secundario" data-remover="${amigo.id}">${pendente ? "Cancelar" : "Remover"}</button>`))
+    .map(({ amigo, online, pendente, detalhe }) =>
+      linhaAmigo(amigo.nome, amigo.id, pendente ? "pendente" : online ? "online" : "offline", `<button class="secundario" data-remover="${amigo.id}">${pendente ? "Cancelar" : "Remover"}</button>`, detalhe))
     .join("");
 
   // convites na sala do host: só amigos online
@@ -317,13 +329,14 @@ function enviarPorWhatsApp(aviso: HTMLElement, sala?: string): void {
   if (!link) { aviso.textContent = "Amigos exige https ou localhost."; return; }
   const texto = `${meuNome || "Um amigo"} te chamou para jogar CS Caps${sala ? " (a sala já está pronta!)" : ""}: ${link}`;
   window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+  aviso.textContent = "Link enviado. Volte para cá e mantenha o jogo aberto até seu amigo entrar.";
 }
 
 function copiarLink(aviso: HTMLElement, sala?: string): void {
   const link = linkConvite(sala);
   if (!link) { aviso.textContent = "Amigos exige https ou localhost."; return; }
   navigator.clipboard.writeText(link).then(
-    () => { aviso.textContent = "Link copiado! Cole no WhatsApp ou onde quiser."; },
+    () => { aviso.textContent = "Link copiado! Cole no WhatsApp e mantenha o jogo aberto até seu amigo entrar."; },
     () => { aviso.textContent = "Não consegui copiar o link."; },
   );
 }

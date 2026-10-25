@@ -13,7 +13,9 @@ import { normalizarCodigo } from "./net";
 
 const PREFIXO = "cscaps-u-";
 const CHAVE = "cs_amigos";
-const REPETIR_MS = 15000;   // de quanto em quanto tempo procura amigos offline
+const REPETIR_MS = 10000;   // de quanto em quanto tempo procura amigos offline
+const RECRIAR_MS = 4000;    // espera antes de recriar a conexão com o servidor
+const MAX_RECUPERACOES = 8; // tentativas seguidas de recuperar o apelido depois de uma queda
 const TIMEOUT_MS = 8000;    // tempo máximo para completar o handshake
 const MAX_PEDIDOS = 5;      // pedidos de amizade pendentes ao mesmo tempo
 const VALIDADE_LINK_MS = 3 * 24 * 60 * 60 * 1000; // um link de convite vale 3 dias
@@ -117,6 +119,8 @@ export class Amigos {
   private online = new Map<string, DataConnection>(); // apelido -> conexão autenticada
   private pedidosRecebidos = new Map<string, { nome: string; conn: DataConnection }>();
   private tentando = new Set<string>();
+  private diag = new Map<string, "procurando" | "offline" | "falhou" | "recebido">(); // por que um pedido ainda espera
+  private recuperacoes = 0;
   private timer: number | undefined;
   private reconexao: number | undefined;
 
@@ -134,17 +138,30 @@ export class Amigos {
     }
     this.dados = carregar(store);
     this.salvar();
+
+    // celular: ao voltar de outro app a conexão com o servidor costuma ter caído
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) this.acordar(); });
+      window.addEventListener("online", () => this.acordar());
+    }
   }
 
   get apelido(): string {
     return this.dados.meuId;
   }
 
-  lista(): { amigo: Amigo; online: boolean; pendente: boolean }[] {
+  lista(): { amigo: Amigo; online: boolean; pendente: boolean; detalhe: string }[] {
+    const textos = {
+      procurando: "procurando...",
+      offline: "ele está offline (precisa abrir o jogo)",
+      falhou: "não consegui conectar, tentando de novo",
+      recebido: "ele recebeu o pedido",
+    };
     return this.dados.amigos.map((amigo) => ({
       amigo,
       online: this.online.get(amigo.id)?.open === true,
       pendente: amigo.secret === "",
+      detalhe: amigo.secret === "" ? textos[this.diag.get(amigo.id) ?? "procurando"] : "",
     }));
   }
 
@@ -169,31 +186,72 @@ export class Amigos {
 
     const peer = this.criarPeer(PREFIXO + this.dados.meuId);
     this.peer = peer;
+    let jaAbriu = false;
 
+    // "open" também dispara de novo a cada reconexão: não pode acumular temporizadores
     peer.on("open", () => {
+      jaAbriu = true;
+      this.recuperacoes = 0;
       this.estado = "pronto";
       this.ev.aoMudar();
       this.procurar();
+      window.clearInterval(this.timer);
       this.timer = window.setInterval(() => this.procurar(), REPETIR_MS);
     });
     peer.on("connection", (conn) => this.receber(conn));
     peer.on("disconnected", () => { if (!peer.destroyed) peer.reconnect(); });
     peer.on("error", (err) => {
-      if (err.type === "peer-unavailable") return; // amigo offline: esperado
+      if (err.type === "peer-unavailable") {
+        // amigo offline: esperado; guarda o motivo para mostrar ao lado do pedido
+        const m = /cscaps-u-([a-z0-9]+)/.exec(err.message ?? "");
+        if (m) { this.diag.set(m[1], "offline"); this.ev.aoMudar(); }
+        return;
+      }
       if (err.type === "unavailable-id") {
-        // o apelido já está em uso (outra pessoa, ou outra aba deste navegador)
+        // depois de uma queda o servidor pode demorar a esquecer o registro antigo: tenta de novo em vez de desistir
+        if (jaAbriu || this.recuperacoes > 0) { this.recriar(); return; }
+        // na primeira vez, o apelido está em uso (outra pessoa, ou outra aba deste navegador)
         this.parar();
         this.estado = "ocupado";
         this.ev.aoMudar();
         return;
       }
-      if (this.estado !== "pronto") {
+      if (!jaAbriu) {
         this.parar();
         this.estado = "erro";
         this.ev.aoMudar();
         this.reconexao = window.setTimeout(() => { this.estado = "conectando"; this.iniciar(); }, 10000);
       }
     });
+  }
+
+  // refaz a conexão com o servidor depois de uma queda
+  private recriar(): void {
+    this.parar();
+    if (this.recuperacoes >= MAX_RECUPERACOES) {
+      this.estado = "ocupado";
+      this.ev.aoMudar();
+      return;
+    }
+    this.recuperacoes++;
+    this.estado = "conectando";
+    this.ev.aoMudar();
+    this.reconexao = window.setTimeout(() => this.iniciar(), RECRIAR_MS);
+  }
+
+  // chamado ao voltar para a aba ou quando a rede volta
+  private acordar(): void {
+    if (this.estado === "indisponivel") return;
+    if (!this.peer) {
+      if (this.estado === "erro" || this.estado === "ocupado") {
+        this.recuperacoes = 0;
+        window.clearTimeout(this.reconexao);
+        this.iniciar();
+      }
+      return;
+    }
+    if (this.peer.disconnected && !this.peer.destroyed) this.peer.reconnect();
+    window.setTimeout(() => this.procurar(), 1500);
   }
 
   parar(): void {
@@ -324,7 +382,9 @@ export class Amigos {
   // ---- Procurar amigos ----
 
   private procurar(): void {
-    if (!this.peer || this.estado !== "pronto") return;
+    if (!this.peer) return;
+    if (this.peer.disconnected && !this.peer.destroyed) { this.peer.reconnect(); return; }
+    if (this.estado !== "pronto") return;
     for (const a of this.dados.amigos) {
       if (this.online.get(a.id)?.open || this.tentando.has(a.id)) continue;
       if (a.secret === "") { this.pedirA(a); continue; }
@@ -336,8 +396,9 @@ export class Amigos {
   // ---- Pedido de amizade: quem envia ----
 
   private pedirA(amigo: Amigo): void {
-    if (!this.peer || this.estado !== "pronto" || this.tentando.has(amigo.id)) return;
+    if (!this.peer || this.peer.disconnected || this.estado !== "pronto" || this.tentando.has(amigo.id)) return;
     this.tentando.add(amigo.id);
+    this.diag.set(amigo.id, "procurando");
 
     const conn = this.peer.connect(PREFIXO + amigo.id, { reliable: true });
     let aguardando = false;
@@ -345,8 +406,11 @@ export class Amigos {
     // conexão que nunca abriu (amigo offline) não emite "close": limpa a tentativa aqui mesmo
     const limite = window.setTimeout(() => {
       if (aguardando) return;
+      // se o servidor já disse que ele está offline, mantém esse motivo
+      if (this.diag.get(amigo.id) === "procurando") this.diag.set(amigo.id, "falhou");
       encerrar();
       try { conn.close(); } catch { /* ignore */ }
+      this.ev.aoMudar();
     }, TIMEOUT_MS);
 
     conn.on("open", () => conn.send({ t: "pedido", nome: limparNome(this.nome()), token: amigo.token }));
@@ -361,6 +425,8 @@ export class Amigos {
       if (m.t === "aguardando") {
         // o outro lado está online e vai decidir: não precisa insistir
         aguardando = true;
+        this.diag.set(amigo.id, "recebido");
+        this.ev.aoMudar();
         window.clearTimeout(limite);
       } else if (m.t === "aceito" && typeof m.s === "string" && RE_SEGREDO.test(m.s)) {
         if (atual.secret) return;
@@ -438,7 +504,7 @@ export class Amigos {
   // ---- Handshake: quem liga ----
 
   private conectarA(amigo: Amigo): void {
-    if (!this.peer || this.estado !== "pronto" || this.tentando.has(amigo.id) || !amigo.secret) return;
+    if (!this.peer || this.peer.disconnected || this.estado !== "pronto" || this.tentando.has(amigo.id) || !amigo.secret) return;
     this.tentando.add(amigo.id);
 
     const conn = this.peer.connect(PREFIXO + amigo.id, { reliable: true });
