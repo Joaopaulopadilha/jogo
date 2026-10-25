@@ -127,34 +127,49 @@ function alturaChao(x: number, y: number, z: number): number {
   return chao;
 }
 
+// folga numérica: encostar exatamente na face de uma parede (distância == meia largura + raio)
+// não pode contar como "dentro" por causa de arredondamento, senão a resolução abaixo
+// teletransporta o corpo para a outra ponta da parede
+const FOLGA = 1e-4;
+
 function bloqueia(x: number, y: number, z: number, c: Caixa): boolean {
   return (
     c.h > y + DEGRAU &&
-    Math.abs(x - c.x) < c.w / 2 + RAIO &&
-    Math.abs(z - c.z) < c.d / 2 + RAIO
+    Math.abs(x - c.x) < c.w / 2 + RAIO - FOLGA &&
+    Math.abs(z - c.z) < c.d / 2 + RAIO - FOLGA
   );
+}
+
+// encosta na face da caixa só se o corpo vinha de fora dela; se já estava dentro, volta ao ponto anterior
+function encostar(antes: number, delta: number, faceMenor: number, faceMaior: number): number {
+  const face = delta > 0 ? faceMenor : faceMaior;
+  const veioDeFora = delta > 0 ? antes <= face + FOLGA : antes >= face - FOLGA;
+  return veioDeFora ? face : antes;
 }
 
 function moverEixo(b: Corpo, dx: number, dz: number): void {
   if (dx !== 0) {
+    const antes = b.x;
     b.x += dx;
     for (const c of CAIXAS) {
       if (bloqueia(b.x, b.y, b.z, c)) {
-        b.x = dx > 0 ? c.x - c.w / 2 - RAIO : c.x + c.w / 2 + RAIO;
+        b.x = encostar(antes, dx, c.x - c.w / 2 - RAIO, c.x + c.w / 2 + RAIO);
       }
     }
   }
   if (dz !== 0) {
+    const antes = b.z;
     b.z += dz;
     for (const c of CAIXAS) {
       if (bloqueia(b.x, b.y, b.z, c)) {
-        b.z = dz > 0 ? c.z - c.d / 2 - RAIO : c.z + c.d / 2 + RAIO;
+        b.z = encostar(antes, dz, c.z - c.d / 2 - RAIO, c.z + c.d / 2 + RAIO);
       }
     }
   }
 }
 
 const PASSO_MAX = 1 / 60;
+const LIMITE_ARENA = 20 - RAIO;
 
 export function moverCorpo(b: Corpo, cmd: Pick<Cmd, "dt" | "fwd" | "strafe" | "jump" | "yaw">): void {
   let restante = Math.min(cmd.dt, MAX_DT);
@@ -170,6 +185,9 @@ export function moverCorpo(b: Corpo, cmd: Pick<Cmd, "dt" | "fwd" | "strafe" | "j
     restante -= dt;
 
     moverEixo(b, wx * VELOCIDADE * dt, wz * VELOCIDADE * dt);
+    // rede de segurança: nada sai da arena (as paredes internas ficam em +-20), e quem já saiu volta
+    b.x = Math.max(-LIMITE_ARENA, Math.min(LIMITE_ARENA, b.x));
+    b.z = Math.max(-LIMITE_ARENA, Math.min(LIMITE_ARENA, b.z));
 
     const chao = alturaChao(b.x, b.y, b.z);
     if (cmd.jump && b.y <= chao + 1e-4 && b.vy <= 0) b.vy = PULO;
