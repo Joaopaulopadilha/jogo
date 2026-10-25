@@ -184,11 +184,12 @@ function linhaAmigo(nome: string, apelido: string, estado: "online" | "offline" 
   const cor = estado === "online" ? "var(--accent)" : estado === "pendente" ? "var(--accent3)" : "var(--muted)";
   const rotuloApelido = nome === apelido ? "" : ` (${esc(apelido)})`;
   const situacao = estado === "online" ? " · online" : estado === "offline" ? " · offline" : "";
-  const motivoHtml = estado === "pendente" && motivo ? `<br><small>${esc(motivo)}</small>` : "";
+  const motivoHtml = motivo ? `<br><small>${esc(motivo)}</small>` : "";
   return `<div class="amigo${estado === "online" ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span><span>${esc(nome)}${rotuloApelido}${situacao}${motivoHtml}</span></span>${botao}</div>`;
 }
 
 const vazio = (texto: string): string => `<div class="vazio">${texto}</div>`;
+const MOTIVO_DESATUALIZADA = "ele não aceita mais o seu segredo: um dos dois removeu o outro. Refaça a amizade.";
 
 function renderAmigos(): void {
   const lista = amigos.lista();
@@ -215,7 +216,11 @@ function renderAmigos(): void {
   $("tituloAmigos").textContent = `Meus amigos (${confirmados.length}${n > 0 ? ` · ${n} online` : ""})`;
   listaAmigos.innerHTML = confirmados.length
     ? confirmados
-        .map(({ amigo, online }) => linhaAmigo(amigo.nome, amigo.id, online ? "online" : "offline", `<button class="secundario" data-remover="${amigo.id}">Remover</button>`))
+        .map(({ amigo, online, desatualizado }) => desatualizado
+          ? linhaAmigo(amigo.nome, amigo.id, "offline",
+              `<span class="linha"><button data-refazer="${amigo.id}">Refazer amizade</button><button class="secundario" data-remover="${amigo.id}">Remover</button></span>`,
+              MOTIVO_DESATUALIZADA)
+          : linhaAmigo(amigo.nome, amigo.id, online ? "online" : "offline", `<button class="secundario" data-remover="${amigo.id}">Remover</button>`))
         .join("")
     : vazio("Você ainda não tem amigos. Convide alguém pelo link ou pelo apelido.");
 
@@ -288,10 +293,17 @@ function dado(e: Event, atributo: string): string | undefined {
   return (e.target as HTMLElement).closest<HTMLElement>(`[data-${atributo}]`)?.dataset[atributo];
 }
 
+function refazerAmizade(id: string): void {
+  amigos.refazer(id);
+  mostrarToast("Pedido enviado de novo. Seu amigo precisa aceitar.");
+}
+
 for (const lista of [listaAmigos, enviadosAmigos]) {
   lista.addEventListener("click", (e) => {
     const id = dado(e, "remover");
     if (id) amigos.remover(id);
+    const refazer = dado(e, "refazer");
+    if (refazer) refazerAmizade(refazer);
   });
 }
 
@@ -508,7 +520,10 @@ function renderLobby(): void {
   // amigos: o líder convida quem está online
   const confirmados = amigos.lista().filter((x) => !x.pendente).sort((a, b) => Number(b.online) - Number(a.online));
   $("lobbyAmigos").innerHTML = confirmados.length
-    ? confirmados.map(({ amigo, online }) => {
+    ? confirmados.map(({ amigo, online, desatualizado }) => {
+        if (desatualizado) {
+          return linhaAmigo(amigo.nome, amigo.id, "offline", `<button class="mini" data-refazer="${amigo.id}">Refazer</button>`, "amizade desatualizada");
+        }
         const noGrupo = membros.some((m) => m.id === amigo.id);
         let acao = `<small>${online ? "online" : "offline"}</small>`;
         if (noGrupo) acao = `<small>no grupo</small>`;
@@ -547,6 +562,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>("#modos .modo")) {
 $("selCpus").addEventListener("change", (e) => grupo.definirConfig({ cpus: Number((e.target as HTMLSelectElement).value) }));
 $("selDificuldade").addEventListener("change", (e) => grupo.definirConfig({ dificuldade: (e.target as HTMLSelectElement).value as Dificuldade }));
 $("lobbyAmigos").addEventListener("click", (e) => {
+  const refazer = dado(e, "refazer");
+  if (refazer) { refazerAmizade(refazer); return; }
   const id = dado(e, "convidargrupo");
   if (!id) return;
   const erro = grupo.convidar(id);
@@ -633,6 +650,30 @@ function entrarNaSalaDoGrupo(inicio: InicioPartida): void {
     aoErro: (msg) => falhaGrupo(msg === "peer-unavailable" ? "Não encontrei a sala do grupo." : `Erro de conexão (${msg}).`),
   }, grupo.minhaVaga);
 }
+
+// ---- Versão nova do site ----
+// O navegador guarda a página por alguns minutos: um aparelho pode ficar rodando uma versão antiga, que não "fala a mesma
+// língua" da do amigo. Compara o script em uso com o da página publicada e avisa quando mudou.
+
+function scriptEmUso(): string | null {
+  const url = [...document.scripts].map((x) => x.src).find((u) => /\/assets\/index-[^/]+\.js/.test(u));
+  return url ? url.slice(url.lastIndexOf("/") + 1) : null;
+}
+
+async function verificarVersao(): Promise<void> {
+  const emUso = scriptEmUso();
+  if (!emUso) return; // servidor de desenvolvimento: não há versão publicada para comparar
+  try {
+    const r = await fetch(`${location.pathname}?_=${Date.now()}`, { cache: "no-store" });
+    const m = /assets\/(index-[A-Za-z0-9_-]+\.js)/.exec(await r.text());
+    if (m && m[1] !== emUso) $("avisoVersao").classList.remove("hidden");
+  } catch { /* sem rede agora: tenta mais tarde */ }
+}
+
+$("btnAtualizar").addEventListener("click", () => location.reload());
+window.setTimeout(() => void verificarVersao(), 3000);
+window.setInterval(() => void verificarVersao(), 5 * 60_000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) void verificarVersao(); });
 
 // ---- Voltar ao início ----
 

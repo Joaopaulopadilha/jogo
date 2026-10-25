@@ -16,6 +16,9 @@ const CHAVE = "cs_amigos";
 const REPETIR_MS = 10000;   // de quanto em quanto tempo procura amigos offline
 const RECRIAR_MS = 4000;    // espera antes de recriar a conexão com o servidor
 const MAX_RECUPERACOES = 8; // tentativas seguidas de recuperar o apelido depois de uma queda
+const BATIDA_MS = 5000;     // de quanto em quanto tempo os amigos conectados trocam um sinal de vida
+const LIMITE_SINAL_MS = 20000; // sem nenhum sinal por tanto tempo, o amigo é tratado como offline
+const FALHAS_PARA_REFAZER = 3; // handshakes seguidos que falham com um amigo que está online
 const TIMEOUT_MS = 8000;    // tempo máximo para completar o handshake
 const MAX_PEDIDOS = 5;      // pedidos de amizade pendentes ao mesmo tempo
 const VALIDADE_LINK_MS = 3 * 24 * 60 * 60 * 1000; // um link de convite vale 3 dias
@@ -53,6 +56,16 @@ export interface Pedido {
 }
 
 export type Estado = "indisponivel" | "conectando" | "pronto" | "ocupado" | "erro";
+
+// tempos ajustáveis (só os testes mexem)
+export interface OpcoesAmigos {
+  repetirMs?: number;
+  batidaMs?: number;
+  limiteSinalMs?: number;
+  recriarMs?: number;
+  maxRecuperacoes?: number;
+  timeoutMs?: number;
+}
 
 export interface AmigosEventos {
   aoMudar(): void;
@@ -123,7 +136,11 @@ export class Amigos {
   private tentando = new Set<string>();
   private diag = new Map<string, "procurando" | "offline" | "falhou" | "recebido">(); // por que um pedido ainda espera
   private recuperacoes = 0;
+  private ultimoSinal = new Map<string, number>(); // última mensagem recebida de cada amigo conectado
+  private falhas = new Map<string, number>();      // handshakes seguidos que falharam (amizade possivelmente desatualizada)
+  private ultimaTentativa = new Map<string, number>(); // quando fomos atrás de cada amigo pela última vez
   private timer: number | undefined;
+  private pulso: number | undefined;
   private reconexao: number | undefined;
 
   constructor(
@@ -131,6 +148,7 @@ export class Amigos {
     private ev: AmigosEventos,
     private criarPeer: (id: string) => Peer = (id) => new Peer(id),
     private store?: Memoria,
+    private op: OpcoesAmigos = {},
   ) {
     if (typeof crypto === "undefined" || !crypto.subtle) {
       // WebCrypto só existe em https ou localhost
@@ -152,7 +170,7 @@ export class Amigos {
     return this.dados.meuId;
   }
 
-  lista(): { amigo: Amigo; online: boolean; pendente: boolean; detalhe: string }[] {
+  lista(): { amigo: Amigo; online: boolean; pendente: boolean; detalhe: string; desatualizado: boolean }[] {
     const textos = {
       procurando: "procurando...",
       offline: "ele está offline (precisa abrir o jogo)",
@@ -164,6 +182,8 @@ export class Amigos {
       online: this.online.get(amigo.id)?.open === true,
       pendente: amigo.secret === "",
       detalhe: amigo.secret === "" ? textos[this.diag.get(amigo.id) ?? "procurando"] : "",
+      // o amigo está online mas não aceita o nosso segredo: um dos dois removeu o outro e refez a amizade
+      desatualizado: amigo.secret !== "" && (this.falhas.get(amigo.id) ?? 0) >= FALHAS_PARA_REFAZER,
     }));
   }
 
@@ -214,7 +234,9 @@ export class Amigos {
       this.ev.aoMudar();
       this.procurar();
       window.clearInterval(this.timer);
-      this.timer = window.setInterval(() => this.procurar(), REPETIR_MS);
+      this.timer = window.setInterval(() => this.procurar(), this.op.repetirMs ?? REPETIR_MS);
+      window.clearInterval(this.pulso);
+      this.pulso = window.setInterval(() => this.batida(), this.op.batidaMs ?? BATIDA_MS);
     });
     peer.on("connection", (conn) => this.receber(conn));
     peer.on("disconnected", () => { if (!peer.destroyed) peer.reconnect(); });
@@ -226,12 +248,9 @@ export class Amigos {
         return;
       }
       if (err.type === "unavailable-id") {
-        // depois de uma queda o servidor pode demorar a esquecer o registro antigo: tenta de novo em vez de desistir
-        if (jaAbriu || this.recuperacoes > 0) { this.recriar(); return; }
-        // na primeira vez, o apelido está em uso (outra pessoa, ou outra aba deste navegador)
-        this.parar();
-        this.estado = "ocupado";
-        this.ev.aoMudar();
+        // quase sempre é o nosso próprio registro antigo (app fechado de repente, celular que dormiu): o servidor
+        // demora a esquecê-lo. Tenta de novo; só desiste se persistir (outra pessoa ou outra aba usando o apelido)
+        this.recriar();
         return;
       }
       if (!jaAbriu) {
@@ -246,7 +265,7 @@ export class Amigos {
   // refaz a conexão com o servidor depois de uma queda
   private recriar(): void {
     this.parar();
-    if (this.recuperacoes >= MAX_RECUPERACOES) {
+    if (this.recuperacoes >= (this.op.maxRecuperacoes ?? MAX_RECUPERACOES)) {
       this.estado = "ocupado";
       this.ev.aoMudar();
       return;
@@ -254,7 +273,7 @@ export class Amigos {
     this.recuperacoes++;
     this.estado = "conectando";
     this.ev.aoMudar();
-    this.reconexao = window.setTimeout(() => this.iniciar(), RECRIAR_MS);
+    this.reconexao = window.setTimeout(() => this.iniciar(), this.op.recriarMs ?? RECRIAR_MS);
   }
 
   // chamado ao voltar para a aba ou quando a rede volta
@@ -269,12 +288,34 @@ export class Amigos {
       return;
     }
     if (this.peer.disconnected && !this.peer.destroyed) this.peer.reconnect();
+    this.batida(); // confere agora quem ainda responde (a conexão pode ter morrido enquanto o app dormia)
     window.setTimeout(() => this.procurar(), 1500);
+  }
+
+  // sinal de vida: conexões de dados podem morrer sem avisar (celular dormiu, perdeu o sinal). Quem não manda
+  // nada por um tempo é tirado de "online", senão ele aparece online e ninguém recebe os convites
+  private batida(): void {
+    const agora = Date.now();
+    const limite = this.op.limiteSinalMs ?? LIMITE_SINAL_MS;
+    let mudou = false;
+    for (const [id, conn] of this.online) {
+      if (!conn.open || agora - (this.ultimoSinal.get(id) ?? 0) > limite) {
+        this.online.delete(id);
+        this.ultimoSinal.delete(id);
+        try { conn.close(); } catch { /* ignore */ }
+        mudou = true;
+        continue;
+      }
+      try { conn.send({ t: "ping" }); } catch { /* ignore */ }
+    }
+    if (mudou) this.ev.aoMudar();
   }
 
   parar(): void {
     window.clearInterval(this.timer);
+    window.clearInterval(this.pulso);
     window.clearTimeout(this.reconexao);
+    this.ultimoSinal.clear();
     for (const c of this.online.values()) { try { c.close(); } catch { /* ignore */ } }
     for (const p of this.pedidosRecebidos.values()) { try { p.conn.close(); } catch { /* ignore */ } }
     this.online.clear();
@@ -347,8 +388,30 @@ export class Amigos {
     this.salvar();
     const c = this.online.get(id);
     this.online.delete(id);
-    try { c?.close(); } catch { /* ignore */ }
+    // avisa o amigo, se estiver online, para ele não ficar com uma amizade que já não existe
+    if (c?.open) {
+      try { c.send({ t: "removido" }); } catch { /* ignore */ }
+      window.setTimeout(() => { try { c.close(); } catch { /* ignore */ } }, 400);
+    } else {
+      try { c?.close(); } catch { /* ignore */ }
+    }
     this.ev.aoMudar();
+  }
+
+  // amizade desatualizada (um dos dois removeu o outro): volta ao estado de pedido e pede de novo.
+  // O outro lado precisa aceitar, como em qualquer pedido, então ninguém consegue se passar por amigo por aqui
+  refazer(id: string): void {
+    const a = this.dados.amigos.find((x) => x.id === id);
+    if (!a) return;
+    this.fecharOnline(id);
+    a.secret = "";
+    a.confirmado = false;
+    delete a.token;
+    this.falhas.delete(id);
+    this.diag.delete(id);
+    this.salvar();
+    this.ev.aoMudar();
+    this.pedirA(a);
   }
 
   aceitar(id: string): void {
@@ -411,8 +474,10 @@ export class Amigos {
     for (const a of this.dados.amigos) {
       if (this.online.get(a.id)?.open || this.tentando.has(a.id)) continue;
       if (a.secret === "") { this.pedirA(a); continue; }
-      // evita as duas pontas ligarem ao mesmo tempo: o menor ID inicia, salvo se ainda não foi confirmado
-      if (!a.confirmado || this.dados.meuId < a.id) this.conectarA(a);
+      // evita as duas pontas ligarem ao mesmo tempo: o menor ID inicia, salvo se ainda não foi confirmado.
+      // O outro lado também tenta, bem mais devagar: sem isso ele nunca descobriria que o amigo o removeu
+      const devagar = Date.now() - (this.ultimaTentativa.get(a.id) ?? 0) > 3 * (this.op.repetirMs ?? REPETIR_MS);
+      if (!a.confirmado || this.dados.meuId < a.id || devagar) this.conectarA(a);
     }
   }
 
@@ -529,19 +594,32 @@ export class Amigos {
   private conectarA(amigo: Amigo): void {
     if (!this.peer || this.peer.disconnected || this.estado !== "pronto" || this.tentando.has(amigo.id) || !amigo.secret) return;
     this.tentando.add(amigo.id);
+    this.ultimaTentativa.set(amigo.id, Date.now());
 
     const conn = this.peer.connect(PREFIXO + amigo.id, { reliable: true });
     const meuNonce = aleatorio(24);
     let autenticado = false;
+    let abriu = false;
+    let contada = false;
 
-    const encerrar = () => { window.clearTimeout(limite); this.tentando.delete(amigo.id); };
+    // a conexão abriu (o amigo está online) mas o handshake não fechou: conta uma falha, no máximo uma por tentativa
+    const falhar = () => {
+      if (contada || autenticado || !abriu) return;
+      contada = true;
+      const n = (this.falhas.get(amigo.id) ?? 0) + 1;
+      this.falhas.set(amigo.id, n);
+      if (n === FALHAS_PARA_REFAZER) this.ev.aoMudar();
+    };
+    const encerrar = () => { window.clearTimeout(limite); this.tentando.delete(amigo.id); falhar(); };
     const limite = window.setTimeout(() => {
       if (autenticado) return;
+      contada = true; // demorar não é recusar: só "fechou na cara" ou "segredo não confere" contam como falha
       encerrar();
       try { conn.close(); } catch { /* ignore */ }
-    }, TIMEOUT_MS);
+    }, this.op.timeoutMs ?? TIMEOUT_MS);
 
     conn.on("open", () => {
+      abriu = true;
       conn.send({ t: "oi", id: this.dados.meuId, nome: limparNome(this.nome()), n: meuNonce });
     });
     conn.on("close", encerrar);
@@ -554,7 +632,7 @@ export class Amigos {
 
       // o outro lado precisa provar que conhece o segredo
       const esperado = await hmac(amigo.secret, `R|${meuNonce}|${amigo.id}`);
-      if (esperado !== m.mac) { conn.close(); return; }
+      if (esperado !== m.mac) { falhar(); conn.close(); return; }
       autenticado = true;
       encerrar();
       conn.send({ t: "prova2", mac: await hmac(amigo.secret, `I|${m.n}|${this.dados.meuId}`) });
@@ -627,11 +705,20 @@ export class Amigos {
     amigo.confirmado = true;
     this.salvar();
 
+    // já existe uma conexão com esse amigo: só a mantém se estiver mesmo viva (recebeu sinal há pouco).
+    // Uma conexão morta que ainda consta como aberta não pode impedir o amigo de voltar
     const atual = this.online.get(id);
-    if (atual && atual.open && atual !== conn) { conn.close(); return; }
+    if (atual && atual !== conn) {
+      const viva = atual.open && Date.now() - (this.ultimoSinal.get(id) ?? 0) < (this.op.limiteSinalMs ?? LIMITE_SINAL_MS) / 2;
+      if (viva) { conn.close(); return; }
+      this.online.delete(id);
+      try { atual.close(); } catch { /* ignore */ }
+    }
     this.online.set(id, conn);
+    this.ultimoSinal.set(id, Date.now());
+    this.falhas.delete(id);
     conn.on("close", () => {
-      if (this.online.get(id) === conn) { this.online.delete(id); this.ev.aoMudar(); }
+      if (this.online.get(id) === conn) { this.online.delete(id); this.ultimoSinal.delete(id); this.ev.aoMudar(); }
     });
     this.ev.aoMudar();
   }
@@ -639,6 +726,16 @@ export class Amigos {
   private tratar(id: string, m: { t?: string; sala?: unknown; [k: string]: unknown }): void {
     const amigo = this.dados.amigos.find((a) => a.id === id);
     if (!amigo) return;
+    this.ultimoSinal.set(id, Date.now());
+    if (m.t === "ping") return;
+    if (m.t === "removido") {
+      // o amigo nos tirou da lista dele: a amizade deixa de valer dos dois lados e fica à espera de uma decisão nossa
+      this.falhas.set(id, FALHAS_PARA_REFAZER);
+      this.fecharOnline(id);
+      this.ev.aoAviso(`${amigo.nome} removeu você da lista de amigos.`);
+      this.ev.aoMudar();
+      return;
+    }
     if (m.t === "convite" && typeof m.sala === "string") {
       const sala = normalizarCodigo(m.sala);
       if (sala) this.ev.aoConvite(amigo, sala);
