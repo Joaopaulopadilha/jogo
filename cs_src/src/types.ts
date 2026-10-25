@@ -96,5 +96,5 @@ export type HostMsg =
   | BoomMsg;
 
 export type GuestMsg =
-  | { t: "hello"; nome: string }
+  | { t: "hello"; nome: string; slot?: number } // slot: posição no grupo de amigos (define cor e vaga na partida)
   | { t: "cmds"; cmds: Cmd[] };

@@ -58,6 +58,8 @@ export interface AmigosEventos {
   aoMudar(): void;
   aoConvite(de: Amigo, sala: string): void;
   aoAviso(msg: string): void;
+  // mensagens de grupo ("g-...") vindas de um amigo autenticado
+  aoGrupo?(de: Amigo, m: Record<string, unknown>): void;
 }
 
 const ALFABETO = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -171,6 +173,22 @@ export class Amigos {
 
   totalOnline(): number {
     return this.lista().filter((x) => x.online).length;
+  }
+
+  estaOnline(id: string): boolean {
+    return this.online.get(id)?.open === true;
+  }
+
+  nomeDe(id: string): string {
+    return this.dados.amigos.find((a) => a.id === id)?.nome ?? id;
+  }
+
+  // envia uma mensagem a um amigo online (já autenticado); false se ele não está conectado
+  enviar(id: string, m: Record<string, unknown>): boolean {
+    const c = this.online.get(id);
+    if (!c || !c.open) return false;
+    c.send(m);
+    return true;
   }
 
   private salvar(): void {
@@ -618,12 +636,14 @@ export class Amigos {
     this.ev.aoMudar();
   }
 
-  private tratar(id: string, m: { t?: string; sala?: unknown }): void {
+  private tratar(id: string, m: { t?: string; sala?: unknown; [k: string]: unknown }): void {
     const amigo = this.dados.amigos.find((a) => a.id === id);
     if (!amigo) return;
     if (m.t === "convite" && typeof m.sala === "string") {
       const sala = normalizarCodigo(m.sala);
       if (sala) this.ev.aoConvite(amigo, sala);
+    } else if (typeof m.t === "string" && m.t.startsWith("g-")) {
+      this.ev.aoGrupo?.(amigo, m);
     }
   }
 }

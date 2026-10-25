@@ -118,9 +118,44 @@ function angulo(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
+// modelo de jogador (cápsula colorida, cabeça, arma na mão e nome); usado no jogo e no lobby
+function criarPersonagem(nome: string, corHex: string): { grupo: THREE.Group; armas: THREE.Group[] } {
+  const grupo = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(corHex), roughness: 0.6 });
+  const corpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 10), mat);
+  corpo.position.y = 0.8;
+  const cabeca = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0xf2d2b0, roughness: 0.8 }),
+  );
+  cabeca.position.y = ALTURA - 0.2;
+  const armas = modelosArmas();
+  for (const a of armas) a.position.set(0.28, 1.15, -0.2);
+  const tag = etiqueta(nome, corHex);
+  tag.position.y = ALTURA + 0.55;
+  grupo.add(corpo, cabeca, ...armas, tag);
+  return { grupo, armas };
+}
+
+// posições (x, z) de cada vaga do grupo no palco do lobby: você no centro, amigos ao redor
+const POSICOES_LOBBY: [number, number][] = [[0, 0.3], [-1.5, -0.3], [1.5, -0.3], [0, -1.9]];
+
+export interface MembroLobby {
+  nome: string;
+  cor: string;
+  pronto: boolean;
+}
+
 export class Renderer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
+  private cenaLobby = new THREE.Scene();
+  private cameraLobby = new THREE.PerspectiveCamera(38, 16 / 9, 0.1, 100);
+  private lobbyAtivo = false;
+  private lobbyVagas: THREE.Group[] = [];       // uma por membro, posicionadas no palco
+  private lobbyPersonagens: THREE.Group[] = []; // o personagem em si (gira/balança dentro da vaga)
+  private lobbyTempo = 0;
+  private lobbyFracCentro = 0.4; // fração da largura da tela livre entre os painéis laterais
   private camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 200);
   private remotos = new Map<number, Remoto>();
   private rastros: Rastro[] = [];
@@ -176,6 +211,8 @@ export class Renderer {
     this.camera.add(this.arma);
     this.scene.add(this.camera);
 
+    this.montarLobby();
+
     new ResizeObserver(() => this.redimensionar()).observe(wrap);
     this.redimensionar();
   }
@@ -186,6 +223,107 @@ export class Renderer {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.cameraLobby.aspect = w / h;
+    this.cameraLobby.updateProjectionMatrix();
+    this.ajustarCameraLobby();
+  }
+
+  // ---- Lobby: o personagem (e os amigos do grupo) em 3D atrás da interface ----
+
+  private montarLobby(): void {
+    const c = this.cenaLobby;
+    c.background = new THREE.Color(0x070b11);
+    c.fog = new THREE.Fog(0x070b11, 9, 24);
+    c.add(new THREE.HemisphereLight(0xbcd0ff, 0x10151f, 1.1));
+    const principal = new THREE.DirectionalLight(0xffffff, 2.2);
+    principal.position.set(-3, 5, 5);
+    const contorno1 = new THREE.DirectionalLight(0x4de2c2, 2.4);
+    contorno1.position.set(4, 3, -5);
+    const contorno2 = new THREE.DirectionalLight(0xff5d73, 1.4);
+    contorno2.position.set(-5, 2, -3);
+    c.add(principal, contorno1, contorno2);
+
+    const palco = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.6, 3.8, 0.12, 64),
+      new THREE.MeshStandardMaterial({ color: 0x0f1724, roughness: 0.8 }),
+    );
+    palco.position.y = -0.06;
+    const borda = new THREE.Mesh(new THREE.TorusGeometry(3.7, 0.025, 8, 96), new THREE.MeshBasicMaterial({ color: 0x4de2c2 }));
+    borda.rotation.x = Math.PI / 2;
+    c.add(palco, borda);
+
+    this.definirLobby([{ nome: "Você", cor: "#4de2c2", pronto: false }]);
+  }
+
+  ativarLobby(ativo: boolean): void {
+    this.lobbyAtivo = ativo;
+  }
+
+  // reconstrói os personagens do palco (chamar quando o grupo, nomes ou "pronto" mudarem)
+  definirLobby(membros: MembroLobby[]): void {
+    for (const v of this.lobbyVagas) this.cenaLobby.remove(v);
+    this.lobbyVagas = [];
+    this.lobbyPersonagens = [];
+
+    membros.slice(0, POSICOES_LOBBY.length).forEach((m) => {
+      const vaga = new THREE.Group();
+      const { grupo, armas } = criarPersonagem(m.pronto ? `${m.nome} ✓` : m.nome, m.cor);
+      armas.forEach((a, k) => { a.visible = k === 0; });
+      const anel = new THREE.Mesh(
+        new THREE.RingGeometry(0.55, 0.7, 40),
+        new THREE.MeshBasicMaterial({ color: m.pronto ? 0x4de2c2 : 0x2a3a52, side: THREE.DoubleSide }),
+      );
+      anel.rotation.x = -Math.PI / 2;
+      anel.position.y = 0.01;
+      vaga.add(anel, grupo);
+      this.cenaLobby.add(vaga);
+      this.lobbyVagas.push(vaga);
+      this.lobbyPersonagens.push(grupo);
+    });
+    this.ajustarCameraLobby();
+  }
+
+  // a interface informa quanto da largura está livre para os personagens (os painéis cobrem as laterais)
+  definirAreaLobby(fracaoCentro: number): void {
+    this.lobbyFracCentro = Math.max(0.15, Math.min(1, fracaoCentro));
+    this.ajustarCameraLobby();
+  }
+
+  // enquadra todos os personagens, inclusive em telas estreitas (celular em pé)
+  private ajustarCameraLobby(): void {
+    const aspecto = this.cameraLobby.aspect;
+    const meia = Math.tan(THREE.MathUtils.degToRad(this.cameraLobby.fov / 2));
+    let abertura = 0.8;
+    if (aspecto >= 1) {
+      // deitado: aproxima os amigos para que caibam entre os painéis laterais
+      const largVisivel = 2 * 6.4 * meia * aspecto;
+      const metadeLivre = (this.lobbyFracCentro * largVisivel) / 2;
+      abertura = Math.max(0.35, Math.min(1, (metadeLivre - 0.55) / 1.5));
+    }
+    let maiorX = 0;
+    this.lobbyVagas.forEach((vaga, i) => {
+      const [x, z] = POSICOES_LOBBY[i];
+      vaga.position.set(x * abertura, 0, z);
+      maiorX = Math.max(maiorX, Math.abs(x * abertura));
+    });
+    const largura = maiorX * 2 + 2.4;
+    const meiaAltura = meia;
+    const distancia = Math.max(6.4, largura / (2 * meiaAltura * aspecto));
+    // em pé, a interface ocupa a parte de baixo: sobe os personagens para o terço superior da tela
+    const alturaVisivel = 2 * distancia * meiaAltura;
+    const desloc = aspecto < 1 ? 0.16 * alturaVisivel : 0;
+    this.cameraLobby.position.set(0, 1.45 - desloc, distancia);
+    this.cameraLobby.lookAt(0, 0.95 - desloc, 0);
+  }
+
+  private desenharLobby(dt: number): void {
+    this.lobbyTempo += dt;
+    this.lobbyPersonagens.forEach((p, i) => {
+      // de frente para a câmera, com um balanço leve de "descanso"
+      p.rotation.y = Math.PI + Math.sin(this.lobbyTempo * 0.7 + i * 1.3) * 0.4;
+      p.position.y = Math.sin(this.lobbyTempo * 1.6 + i) * 0.015;
+    });
+    this.renderer.render(this.cenaLobby, this.cameraLobby);
   }
 
   definirJogadores(infos: PlayerInfo[], eu: number): void {
@@ -194,21 +332,7 @@ export class Renderer {
 
     for (const info of infos) {
       if (info.id === eu) continue;
-      const cor = new THREE.Color(info.cor);
-      const grupo = new THREE.Group();
-      const mat = new THREE.MeshStandardMaterial({ color: cor, roughness: 0.6 });
-      const corpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 10), mat);
-      corpo.position.y = 0.8;
-      const cabeca = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 12, 12),
-        new THREE.MeshStandardMaterial({ color: 0xf2d2b0, roughness: 0.8 }),
-      );
-      cabeca.position.y = ALTURA - 0.2;
-      const armas = modelosArmas();
-      for (const a of armas) a.position.set(0.28, 1.15, -0.2);
-      const tag = etiqueta(info.nome, info.cor);
-      tag.position.y = ALTURA + 0.55;
-      grupo.add(corpo, cabeca, ...armas, tag);
+      const { grupo, armas } = criarPersonagem(info.nome, info.cor);
       grupo.visible = false;
       this.scene.add(grupo);
       this.remotos.set(info.id, { grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
@@ -304,6 +428,8 @@ export class Renderer {
   }
 
   desenhar(dt: number): void {
+    if (this.lobbyAtivo) { this.desenharLobby(dt); return; }
+
     const k = 1 - Math.exp(-dt * 18);
     for (const r of this.remotos.values()) {
       r.grupo.position.lerp(r.alvo, k);

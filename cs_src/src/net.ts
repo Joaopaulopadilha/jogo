@@ -31,7 +31,9 @@ function gerarCodigo(): string {
 export interface Convidado {
   conn: DataConnection;
   nome: string;
-  pid: number; // id do jogador na partida (definido ao iniciar)
+  pid: number;   // id do jogador na partida (definido ao iniciar)
+  ola: boolean;  // já enviou o "hello" (nome e vaga confirmados)
+  slot: number;  // vaga pedida pelo convidado (grupo de amigos); sem pedido, vai para o fim
 }
 
 export interface HostHandlers {
@@ -63,7 +65,7 @@ export class HostNet {
       conn.on("open", () => { try { conn.close(); } catch { /* ignore */ } });
       return;
     }
-    const g: Convidado = { conn, nome: `Jogador ${this.convidados.length + 2}`, pid: this.convidados.length + 1 };
+    const g: Convidado = { conn, nome: `Jogador ${this.convidados.length + 2}`, pid: this.convidados.length + 1, ola: false, slot: 99 };
     this.convidados.push(g);
 
     conn.on("open", () => this.h.aoMudarLobby());
@@ -71,6 +73,8 @@ export class HostNet {
       const m = data as GuestMsg;
       if (m.t === "hello") {
         g.nome = (m.nome || "").trim().slice(0, 14) || g.nome;
+        if (typeof m.slot === "number" && m.slot >= 1 && m.slot < MAX_JOGADORES) g.slot = Math.floor(m.slot);
+        g.ola = true;
         this.h.aoMudarLobby();
       }
       this.h.aoMensagem(g, m);
@@ -89,11 +93,15 @@ export class HostNet {
     return lista;
   }
 
-  // fixa os ids de cada convidado e avisa todos
-  iniciar(): PlayerInfo[] {
+  // fixa os ids de cada convidado (pela vaga no grupo, se houver), completa com CPUs e avisa todos
+  iniciar(cpus = 0): PlayerInfo[] {
     this.iniciada = true;
+    this.convidados.sort((a, b) => a.slot - b.slot);
     this.convidados.forEach((g, i) => { g.pid = i + 1; });
     const players = this.jogadores();
+    for (let i = 1; i <= cpus && players.length < MAX_JOGADORES; i++) {
+      players.push({ id: players.length, nome: `CPU ${i}`, cor: CORES[players.length] });
+    }
     this.enviarLobby("start", players);
     return players;
   }
@@ -134,13 +142,13 @@ export class GuestNet {
   peer: Peer;
   conn: DataConnection | null = null;
 
-  constructor(codigo: string, nome: string, h: GuestHandlers) {
+  constructor(codigo: string, nome: string, h: GuestHandlers, slot?: number) {
     this.peer = new Peer();
     this.peer.on("open", () => {
       const conn = this.peer.connect(PREFIXO + codigo, { reliable: true });
       this.conn = conn;
       conn.on("open", () => {
-        conn.send({ t: "hello", nome } satisfies GuestMsg);
+        conn.send({ t: "hello", nome, slot } satisfies GuestMsg);
         h.aoConectar();
       });
       conn.on("data", (data) => h.aoMensagem(data as HostMsg));

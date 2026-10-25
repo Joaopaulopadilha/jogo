@@ -6,6 +6,8 @@ import { HostGame } from "./hostgame";
 import { Entrada } from "./input";
 import { Amigos, apelidoValido } from "./amigos";
 import { Bot } from "./bot";
+import { Grupo } from "./grupo";
+import type { InicioPartida, ModoJogo } from "./grupo";
 import type { Dificuldade } from "./bot";
 import { CODIGO_MAX, CODIGO_MIN, GuestNet, HostNet, normalizarCodigo } from "./net";
 import { Renderer } from "./renderer";
@@ -21,7 +23,7 @@ const wrap = $("wrap");
 const overlay = $("overlay");
 const hud = $("hud");
 
-const PAINEIS = ["painelNome", "painelInicial", "painelAmigos", "painelSolo", "painelCriar", "painelHost", "painelJoin", "painelPausa", "painelFim"];
+const PAINEIS = ["painelNome", "painelLobby", "painelAmigos", "painelConectando", "painelCriar", "painelHost", "painelJoin", "painelPausa", "painelFim"];
 
 const inputNome = $<HTMLInputElement>("inputNome");
 const inputCodigo = $<HTMLInputElement>("inputCodigo");
@@ -65,6 +67,7 @@ function listaHtml(infos: PlayerInfo[], eu = -1, hostId = 0): string {
 
 function mostrarPainel(nome: string): void {
   overlay.classList.remove("hidden");
+  overlay.classList.toggle("lobby-ativo", nome === "painelLobby");
   for (const id of PAINEIS) $(id).classList.toggle("hidden", id !== nome);
 }
 
@@ -132,8 +135,9 @@ $("btnContinuar").addEventListener("click", () => {
   localStorage.setItem("cs_nome", meuNome);
   const acao = acaoAposNome;
   acaoAposNome = null;
+  renderLobby();
   if (acao) acao();
-  else mostrarPainel("painelInicial");
+  else mostrarPainel("painelLobby");
 });
 inputNome.addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnContinuar").click(); });
 $("btnTrocarNome").addEventListener("click", () => mostrarPainel("painelNome"));
@@ -141,7 +145,8 @@ $("btnTrocarNome").addEventListener("click", () => mostrarPainel("painelNome"));
 // ---- Amigos ----
 
 const amigos = new Amigos(() => meuNome || "Jogador", {
-  aoMudar: () => renderAmigos(),
+  aoMudar: () => { grupo.sincronizar(); renderAmigos(); renderLobby(); },
+  aoGrupo: (de, m) => grupo.aoMensagem(de.id, de.nome, m),
   aoConvite: (de, sala) => mostrarConvite(de.nome, sala),
   aoAviso: (msg) => { msgAmigos.textContent = msg; mostrarToast(msg); },
 });
@@ -238,7 +243,7 @@ $("btnAmigos").addEventListener("click", () => {
   renderAmigos();
   mostrarPainel("painelAmigos");
 });
-$("btnVoltarAmigos").addEventListener("click", () => mostrarPainel("painelInicial"));
+$("btnVoltarAmigos").addEventListener("click", () => mostrarPainel("painelLobby"));
 
 function limparCampo(input: HTMLInputElement): void {
   const limpo = normalizarCodigo(input.value);
@@ -254,6 +259,7 @@ function salvarApelido(): void {
     return;
   }
   const erro = amigos.trocarApelido(inputApelido.value);
+  if (!erro) grupo.reiniciar();
   msgAmigos.textContent = erro ?? "Apelido salvo. Passe ele para seus amigos.";
 }
 $("btnSalvarApelido").addEventListener("click", salvarApelido);
@@ -304,16 +310,19 @@ amigosConvidar.addEventListener("click", (e) => {
 // aviso com botão de aceitar (convite de sala de um amigo, ou link de convite recebido)
 const caixaConvite = $("convite");
 let conviteAcao: (() => void) | null = null;
+let conviteIgnorar: (() => void) | null = null;
 let conviteTimer: number | undefined;
 
 function esconderConvite(): void {
   caixaConvite.classList.add("hidden");
   window.clearTimeout(conviteTimer);
   conviteAcao = null;
+  conviteIgnorar = null;
 }
 
-function mostrarAviso(texto: string, rotulo: string, acao: () => void, duracaoMs = 60000): void {
+function mostrarAviso(texto: string, rotulo: string, acao: () => void, duracaoMs = 60000, aoIgnorar?: () => void): void {
   conviteAcao = acao;
+  conviteIgnorar = aoIgnorar ?? null;
   $("textoConvite").textContent = texto;
   $("btnAceitarConvite").textContent = rotulo;
   caixaConvite.classList.remove("hidden");
@@ -333,7 +342,11 @@ function mostrarConvite(nome: string, sala: string): void {
   mostrarAviso(`${nome} te chamou para uma sala`, "Entrar", () => entrarNaSala(sala));
 }
 
-$("btnIgnorarConvite").addEventListener("click", esconderConvite);
+$("btnIgnorarConvite").addEventListener("click", () => {
+  const ignorar = conviteIgnorar;
+  esconderConvite();
+  ignorar?.();
+});
 $("btnAceitarConvite").addEventListener("click", () => {
   const acao = conviteAcao;
   esconderConvite();
@@ -402,6 +415,223 @@ function aceitarLink(link: LinkRecebido): void {
   executar();
 }
 
+// ---- Lobby e grupo ----
+
+let conectandoGrupo = false;
+let timerGrupo: number | undefined;
+
+const grupo = new Grupo(
+  {
+    meuId: () => amigos.apelido,
+    meuNome: () => meuNome || "Jogador",
+    enviar: (id, m) => amigos.enviar(id, m),
+    online: (id) => amigos.estaOnline(id),
+    ocupado: () => rodando || conectandoGrupo,
+  },
+  {
+    aoMudar: () => renderLobby(),
+    aoConvite: (_id, nome) =>
+      mostrarAviso(`${nome} te chamou para o grupo`, "Entrar", () => grupo.aceitarConvite(), 60000, () => grupo.recusarConvite()),
+    aoIniciar: (inicio) => iniciarDoGrupo(inicio),
+    aoAviso: (msg) => mostrarToast(msg),
+  },
+);
+
+let assinaturaLobby = "";
+
+// diz ao 3D quanto da tela está livre entre os painéis, para os personagens não ficarem atrás deles
+function atualizarAreaLobby(): void {
+  const centro = document.querySelector<HTMLElement>(".lobby-centro");
+  if (centro && centro.clientWidth > 0) renderer.definirAreaLobby(centro.clientWidth / window.innerWidth);
+}
+window.addEventListener("resize", atualizarAreaLobby);
+
+function renderLobby(): void {
+  const meuId = amigos.apelido;
+  const membros = grupo.membros;
+  const lider = grupo.souLider;
+  const cfg = grupo.config;
+  const nomeEu = meuNome || "Jogador";
+  $("lobbyNome").textContent = nomeEu;
+
+  // palco 3D: você no centro e os amigos ao redor, com as cores que terão na partida
+  const palco = membros.map((m, i) => ({
+    nome: m.id === meuId ? nomeEu : m.nome, cor: CORES[i], pronto: m.pronto, eu: m.id === meuId,
+  }));
+  const ordem = [...palco.filter((x) => x.eu), ...palco.filter((x) => !x.eu)].map(({ nome, cor, pronto }) => ({ nome, cor, pronto }));
+  const assinatura = JSON.stringify(ordem);
+  if (assinatura !== assinaturaLobby) { assinaturaLobby = assinatura; renderer.definirLobby(ordem); }
+  atualizarAreaLobby();
+
+  // vagas do grupo
+  $("tituloGrupo").textContent = `Grupo (${membros.length}/${MAX_JOGADORES})`;
+  const vagas = membros.map((m, i) => {
+    const euMesmo = m.id === meuId;
+    return `<div class="slot-membro${euMesmo ? " eu" : ""}${m.pronto ? " pronto" : ""}"><span class="ponto" style="background:${CORES[i]}"></span>` +
+      `<span class="nome">${m.id === grupo.lider ? "♛ " : ""}${esc(euMesmo ? nomeEu : m.nome)}${euMesmo ? " (você)" : ""}</span>` +
+      `<small>${m.pronto ? "PRONTO ✓" : "aguardando"}</small></div>`;
+  });
+  for (let i = membros.length; i < MAX_JOGADORES; i++) {
+    const cpu = cfg.modo === "cpu" && i < membros.length + cfg.cpus;
+    vagas.push(cpu
+      ? `<div class="slot-cpu"><span class="ponto" style="background:${CORES[i]}"></span>CPU · ${cfg.dificuldade === "facil" ? "fácil" : cfg.dificuldade === "dificil" ? "difícil" : "normal"}</div>`
+      : `<div class="slot-vazio">+ vaga livre</div>`);
+  }
+  $("slotsGrupo").innerHTML = vagas.join("");
+  const btnSair = $("btnSairGrupo");
+  btnSair.classList.toggle("hidden", !grupo.emGrupo);
+  btnSair.textContent = lider ? "Desfazer grupo" : "Sair do grupo";
+
+  // modo de jogo (só o líder escolhe)
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#modos .modo")) {
+    b.classList.toggle("ativo", b.dataset.modo === cfg.modo);
+    b.disabled = !lider;
+  }
+  $("configCpu").classList.toggle("hidden", cfg.modo !== "cpu");
+  const livres = MAX_JOGADORES - membros.length;
+  const selCpus = $<HTMLSelectElement>("selCpus");
+  if (selCpus.dataset.max !== String(livres)) {
+    selCpus.dataset.max = String(livres);
+    selCpus.innerHTML = livres > 0
+      ? Array.from({ length: livres }, (_, k) => `<option value="${k + 1}">${k + 1}</option>`).join("")
+      : `<option value="0">0</option>`;
+  }
+  selCpus.value = String(cfg.cpus);
+  selCpus.disabled = !lider || livres === 0;
+  const selDif = $<HTMLSelectElement>("selDificuldade");
+  selDif.value = cfg.dificuldade;
+  selDif.disabled = !lider;
+  $("avisoLider").textContent = lider ? "" : "Só o líder do grupo escolhe o modo.";
+
+  // amigos: o líder convida quem está online
+  const confirmados = amigos.lista().filter((x) => !x.pendente).sort((a, b) => Number(b.online) - Number(a.online));
+  $("lobbyAmigos").innerHTML = confirmados.length
+    ? confirmados.map(({ amigo, online }) => {
+        const noGrupo = membros.some((m) => m.id === amigo.id);
+        let acao = `<small>${online ? "online" : "offline"}</small>`;
+        if (noGrupo) acao = `<small>no grupo</small>`;
+        else if (grupo.jaConvidado(amigo.id)) acao = `<button class="mini" disabled>Convite enviado</button>`;
+        else if (online && lider && membros.length < MAX_JOGADORES) acao = `<button class="mini" data-convidargrupo="${amigo.id}">Convidar</button>`;
+        return linhaAmigo(amigo.nome, amigo.id, online ? "online" : "offline", acao);
+      }).join("")
+    : vazio("Você ainda não tem amigos. Abra <b>Amigos</b> e convide por link.");
+
+  // botão principal
+  const btn = $<HTMLButtonElement>("btnPronto");
+  const status = $("lobbyProntoStatus");
+  const bloqueio = grupo.motivoBloqueio();
+  btn.classList.toggle("pronto", grupo.emGrupo && grupo.eu.pronto);
+  if (conectandoGrupo) {
+    btn.textContent = "CONECTANDO...";
+    btn.disabled = true;
+    status.textContent = "";
+  } else if (!grupo.emGrupo) {
+    btn.textContent = bloqueio ? "CHAME UM AMIGO" : "JOGAR";
+    btn.disabled = !!bloqueio;
+    status.textContent = bloqueio ?? "";
+  } else {
+    btn.textContent = grupo.eu.pronto ? "CANCELAR PRONTO" : "PRONTO";
+    btn.disabled = !grupo.eu.pronto && !!bloqueio;
+    const faltam = membros.filter((m) => !m.pronto).map((m) => (m.id === meuId ? "você" : m.nome));
+    status.textContent = bloqueio && !grupo.eu.pronto ? bloqueio : faltam.length ? `Aguardando: ${faltam.join(", ")}` : "Todos prontos!";
+  }
+}
+
+$("btnPronto").addEventListener("click", () => grupo.alternarPronto());
+$("btnSairGrupo").addEventListener("click", () => grupo.sair());
+for (const b of document.querySelectorAll<HTMLButtonElement>("#modos .modo")) {
+  b.addEventListener("click", () => grupo.definirConfig({ modo: b.dataset.modo as ModoJogo }));
+}
+$("selCpus").addEventListener("change", (e) => grupo.definirConfig({ cpus: Number((e.target as HTMLSelectElement).value) }));
+$("selDificuldade").addEventListener("change", (e) => grupo.definirConfig({ dificuldade: (e.target as HTMLSelectElement).value as Dificuldade }));
+$("lobbyAmigos").addEventListener("click", (e) => {
+  const id = dado(e, "convidargrupo");
+  if (!id) return;
+  const erro = grupo.convidar(id);
+  if (erro) mostrarToast(erro);
+});
+
+// ---- Início da partida do grupo ----
+
+function limparEspera(): void {
+  window.clearTimeout(timerGrupo);
+  conectandoGrupo = false;
+}
+
+function falhaGrupo(msg: string): void {
+  limparEspera();
+  hostNet?.fechar();
+  guestNet?.fechar();
+  hostNet = null;
+  guestNet = null;
+  mostrarToast(msg);
+  mostrarPainel("painelLobby");
+  renderLobby();
+}
+
+$("btnCancelarConexao").addEventListener("click", () => falhaGrupo("Cancelado."));
+
+function iniciarDoGrupo(inicio: InicioPartida): void {
+  const { config } = inicio;
+
+  // sozinho: treino contra CPUs, sem rede
+  if (inicio.papel === "lider" && inicio.humanos === 1) {
+    const players: PlayerInfo[] = [{ id: 0, nome: meuNome || "Você", cor: CORES[0] }];
+    bots = [];
+    for (let k = 1; k <= config.cpus; k++) {
+      players.push({ id: k, nome: `CPU ${k}`, cor: CORES[k] });
+      bots.push(new Bot(k, config.dificuldade));
+    }
+    iniciarPartida(players, 0, "solo");
+    return;
+  }
+
+  conectandoGrupo = true;
+  $("textoConectando").textContent = inicio.papel === "lider" ? "Abrindo a sala do grupo..." : "Entrando na sala do grupo...";
+  mostrarPainel("painelConectando");
+  renderLobby();
+  timerGrupo = window.setTimeout(() => falhaGrupo("O grupo não conseguiu se conectar a tempo."), 25000);
+
+  if (inicio.papel === "lider") abrirSalaDoGrupo(inicio);
+  else entrarNaSalaDoGrupo(inicio);
+}
+
+// o líder abre a sala, avisa os membros e começa quando todos conectarem
+function abrirSalaDoGrupo(inicio: InicioPartida): void {
+  hostNet = new HostNet(meuNome, inicio.sala, {
+    aoAbrir: () => {
+      $("textoConectando").textContent = "Esperando o grupo entrar...";
+      grupo.liberarSala(inicio.sala);
+    },
+    aoMudarLobby: () => {
+      if (!hostNet || hostNet.iniciada) return;
+      const prontos = hostNet.convidados.filter((g) => g.ola && g.conn.open).length;
+      if (prontos + 1 < inicio.humanos) return;
+      const players = hostNet.iniciar(inicio.config.cpus);
+      bots = players.slice(inicio.humanos).map((p) => new Bot(p.id, inicio.config.dificuldade));
+      iniciarPartida(players, 0, "host");
+    },
+    aoMensagem: (g, m) => {
+      if (m.t === "cmds" && jogo) for (const c of m.cmds) jogo.aplicarComando(g.pid, c);
+    },
+    aoSair: (g) => jogo?.desconectar(g.pid),
+    aoErro: (msg) => falhaGrupo(`Não consegui abrir a sala do grupo (${msg}).`),
+  });
+}
+
+// os membros entram na sala do líder assim que ele a anuncia
+function entrarNaSalaDoGrupo(inicio: InicioPartida): void {
+  guestNet = new GuestNet(inicio.sala, meuNome, {
+    aoConectar: () => { $("textoConectando").textContent = "Conectado! Aguardando o início..."; },
+    aoMensagem: aoMensagemHost,
+    aoFechar: () => {
+      if (rodando) perderConexao();
+      else if (conectandoGrupo) falhaGrupo("A conexão com o grupo foi encerrada.");
+    },
+    aoErro: (msg) => falhaGrupo(msg === "peer-unavailable" ? "Não encontrei a sala do grupo." : `Erro de conexão (${msg}).`),
+  }, grupo.minhaVaga);
+}
+
 // ---- Voltar ao início ----
 
 function resetarParaInicio(): void {
@@ -410,6 +640,8 @@ function resetarParaInicio(): void {
   hostNet = null;
   guestNet = null;
   convidados.clear();
+  window.clearTimeout(timerGrupo);
+  conectandoGrupo = false;
   jogo = null;
   bots = [];
   modo = null;
@@ -428,28 +660,12 @@ function resetarParaInicio(): void {
   renderer.definirJogadores([], 0);
   subtitulo.textContent = "online · 2 a 4 jogadores · 3D";
   btnConectar.disabled = false;
-  mostrarPainel("painelInicial");
+  mostrarPainel("painelLobby");
+  renderLobby();
 }
 
 $("btnVoltarHost").addEventListener("click", resetarParaInicio);
 $("btnVoltarCriar").addEventListener("click", resetarParaInicio);
-$("btnVoltarSolo").addEventListener("click", resetarParaInicio);
-
-// ---- Solo: contra CPUs ----
-
-$("btnSolo").addEventListener("click", () => mostrarPainel("painelSolo"));
-
-$("btnComecarSolo").addEventListener("click", () => {
-  const n = Number($<HTMLSelectElement>("selBots").value);
-  const dificuldade = $<HTMLSelectElement>("selDificuldade").value as Dificuldade;
-  const players: PlayerInfo[] = [{ id: 0, nome: meuNome || "Você", cor: CORES[0] }];
-  bots = [];
-  for (let i = 1; i <= n; i++) {
-    players.push({ id: i, nome: `CPU ${i}`, cor: CORES[i] });
-    bots.push(new Bot(i, dificuldade));
-  }
-  iniciarPartida(players, 0, "solo");
-});
 $("btnVoltarJoin").addEventListener("click", resetarParaInicio);
 $("btnSair").addEventListener("click", resetarParaInicio);
 $("btnSairFim").addEventListener("click", resetarParaInicio);
@@ -550,12 +766,7 @@ function conectar(): void {
         btnConectar.disabled = false;
         return;
       }
-      fimMostrado = true;
-      entrada.soltar();
-      $("msg").innerHTML = `<b style="color:var(--accent2)">Conexão perdida</b><br>O host encerrou ou saiu.`;
-      listaFim.innerHTML = "";
-      btnJogarDeNovo.hidden = true;
-      abrirPainelFim();
+      perderConexao();
     },
     aoErro: (msg) => {
       btnConectar.disabled = false;
@@ -564,6 +775,16 @@ function conectar(): void {
         : "Erro: " + msg;
     },
   });
+}
+
+// o host caiu no meio da partida
+function perderConexao(): void {
+  fimMostrado = true;
+  entrada.soltar();
+  $("msg").innerHTML = `<b style="color:var(--accent2)">Conexão perdida</b><br>O host encerrou ou saiu.`;
+  listaFim.innerHTML = "";
+  btnJogarDeNovo.hidden = true;
+  abrirPainelFim();
 }
 
 $("btnConectar").addEventListener("click", conectar);
@@ -596,6 +817,8 @@ function aoMensagemHost(m: HostMsg): void {
 // ---- Início da partida ----
 
 function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "guest" | "solo"): void {
+  window.clearTimeout(timerGrupo);
+  conectandoGrupo = false;
   modo = como;
   eu = meuId;
   infos = players;
@@ -874,13 +1097,16 @@ function quadro(agora: number): void {
     }
   }
 
+  renderer.ativarLobby(!rodando);
   renderer.desenhar(dt);
   requestAnimationFrame(quadro);
 }
 
 amigos.iniciar();
 renderAmigos();
-mostrarPainel(meuNome ? "painelInicial" : "painelNome");
+renderLobby();
+window.setInterval(() => grupo.sincronizar(), 5000);
+mostrarPainel(meuNome ? "painelLobby" : "painelNome");
 
 // o link vale ao abrir a página e também ao colá-lo numa aba onde o jogo já está aberto (só muda o #)
 function tratarLinkRecebido(): void {

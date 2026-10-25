@@ -183,7 +183,7 @@ select:focus { outline: 2px solid var(--accent3); outline-offset: 2px; }
 #convite.hidden { display: none; }
 
 #toastAviso {
-  position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 25;
+  position: fixed; left: 50%; bottom: calc(110px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 25;
   max-width: min(90vw, 460px); text-align: center; font-size: 13px; line-height: 1.5;
   background: rgba(10,14,20,0.96); color: var(--ink); border: 1px solid rgba(77,226,194,0.5); border-radius: 12px;
   padding: 10px 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
@@ -270,7 +270,7 @@ select:focus { outline: 2px solid var(--accent3); outline-offset: 2px; }
 header { flex-wrap: wrap; justify-content: center; }
 button { touch-action: manipulation; }
 
-@media (max-width: 760px), (max-height: 560px) {
+@media screen {
   /* telas pequenas: o menu ocupa a tela toda */
   body { padding: 0; gap: 0; }
   header, footer, nav { display: none; }
@@ -382,3 +382,100 @@ body.toque #faixa { top: 22%; }
 .rotulo { font-size: 12px; text-align: center; }
 .lista-amigos.destaque .amigo { border: 1px solid var(--accent3); background: rgba(255,209,102,0.1); }
 @media (max-width: 700px) { .cols { grid-template-columns: 1fr; gap: 14px; } }
+
+/* ---- Lobby ---- */
+.overlay.lobby-ativo { background: transparent; backdrop-filter: none; padding: 0; overflow: hidden; }
+.overlay.lobby-ativo::before { display: none; }
+
+.painel.lobby {
+  position: absolute; inset: 0; width: auto; max-width: none; margin: 0; gap: 0;
+  align-items: stretch; text-align: left; overflow-y: auto;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) calc(14px + env(safe-area-inset-right, 0px))
+           calc(10px + env(safe-area-inset-bottom, 0px)) calc(14px + env(safe-area-inset-left, 0px));
+}
+
+.lobby-topo { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.lobby-voltar { color: var(--muted); font-size: 12px; text-decoration: none; letter-spacing: 0.08em; }
+.lobby-voltar:hover { color: var(--ink); }
+.lobby-logo {
+  font-weight: 800; font-size: 20px; letter-spacing: 0.2em; text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent3), var(--accent2) 60%, var(--accent));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lobby-eu { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
+.lobby-acoes { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+button.mini { font-size: 11px; padding: 8px 12px; letter-spacing: 0.08em; }
+
+.lobby-corpo {
+  flex: 1; min-height: 0; margin-top: 10px; display: grid; gap: 14px;
+  grid-template-columns: minmax(220px, 300px) 1fr minmax(250px, 330px);
+}
+.lobby-esq, .lobby-dir {
+  display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; padding: 12px;
+  background: rgba(6,10,16,0.7); border-radius: 12px; backdrop-filter: blur(4px);
+}
+.lobby-centro { pointer-events: none; } /* o personagem em 3D aparece por trás */
+.ajuda { font-size: 11px; color: var(--muted); line-height: 1.6; text-align: left; }
+.ajuda b { color: var(--ink); }
+
+.lobby-rodape { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 10px; }
+#lobbyProntoStatus { min-height: 18px; font-size: 12px; color: var(--muted); }
+button.grande { font-size: 18px; padding: 16px 56px; letter-spacing: 0.2em; min-width: 280px; }
+button.grande.pronto { background: var(--accent); box-shadow: 0 6px 24px rgba(77,226,194,0.4); }
+
+.slots { display: flex; flex-direction: column; gap: 8px; }
+.slot-membro, .slot-cpu, .slot-vazio {
+  display: flex; align-items: center; gap: 10px; border-radius: 10px; padding: 9px 11px; font-size: 13px;
+  border: 1px solid transparent; background: rgba(255,255,255,0.05);
+}
+.slot-membro .nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.slot-membro small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.slot-membro.eu { border-color: rgba(255,209,102,0.5); }
+.slot-membro.pronto { border-color: var(--accent); background: rgba(77,226,194,0.12); }
+.slot-membro.pronto small { color: var(--accent); font-weight: 700; }
+.slot-cpu { color: var(--muted); font-size: 12px; }
+.slot-vazio { border: 1px dashed rgba(232,240,255,0.2); background: transparent; color: var(--muted); font-size: 12px; }
+
+.modos { display: flex; flex-direction: column; gap: 8px; }
+button.modo {
+  text-transform: none; letter-spacing: 0.03em; text-align: left; font-weight: 700; padding: 10px 12px; font-size: 13px;
+  background: rgba(255,255,255,0.05); color: var(--ink); box-shadow: none;
+}
+button.modo small { display: block; margin-top: 2px; font-weight: 400; font-size: 11px; color: var(--muted); }
+button.modo.ativo { background: rgba(255,209,102,0.16); box-shadow: inset 0 0 0 1px var(--accent3); }
+button.modo:disabled { opacity: 1; cursor: default; transform: none; }
+button.modo:not(.ativo):disabled { opacity: 0.55; }
+.config { display: flex; gap: 10px; }
+.config.hidden { display: none; }
+.config .campo { flex: 1; max-width: none; }
+
+@media (max-width: 880px) {
+  .lobby-corpo { grid-template-columns: minmax(170px, 32%) 1fr minmax(200px, 36%); gap: 8px; }
+}
+
+/* celular em pé: o personagem fica em cima e os painéis rolam embaixo */
+@media (max-width: 600px) and (orientation: portrait) {
+  .painel.lobby { overflow-y: auto; }
+  .lobby-corpo { grid-template-columns: 1fr; grid-template-rows: 32vh auto auto; flex: none; }
+  .lobby-centro { order: -1; }
+  .lobby-esq, .lobby-dir { overflow: visible; }
+  .lobby-acoes { margin-left: 0; width: 100%; }
+  .lobby-rodape {
+    position: sticky; bottom: 0; margin-top: 8px; padding: 14px 0 4px;
+    background: linear-gradient(transparent, rgba(6,10,16,0.95) 35%);
+  }
+  button.grande { width: 100%; min-width: 0; }
+}
+
+/* celular deitado: pouca altura */
+@media (max-height: 460px) and (orientation: landscape) {
+  .lobby-logo, .lobby-voltar { display: none; }
+  .lobby-corpo { margin-top: 6px; gap: 8px; }
+  .lobby-esq, .lobby-dir { padding: 8px; gap: 6px; }
+  .lobby-esq .ajuda { display: none; }
+  button.grande { padding: 10px 34px; font-size: 14px; min-width: 0; }
+  .lobby-rodape { flex-direction: row; justify-content: center; gap: 14px; padding-top: 6px; }
+  .slot-membro, .slot-cpu, .slot-vazio { padding: 6px 9px; }
+  button.modo { padding: 7px 10px; }
+  button.modo small { display: none; }
+}
