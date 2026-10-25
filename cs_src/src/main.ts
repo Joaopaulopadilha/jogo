@@ -18,7 +18,7 @@ import { CODIGO_MAX, CODIGO_MIN, GuestNet, HostNet, normalizarCodigo } from "./n
 import { Renderer } from "./renderer";
 import { suporteWebGL } from "./webgl";
 import { montarToque } from "./toque";
-import { ARMAS, CORES, MAX_JOGADORES, NOMES_ARMAS, ROUNDS_PARA_VENCER, SLOT_GRANADA, SPAWNS, moverCorpo } from "./shared";
+import { ARMAS, CORES, MAX_JOGADORES, NOMES_ARMAS, ROUNDS_PARA_VENCER, SLOT_GRANADA, moverCorpo } from "./shared";
 import type { Corpo } from "./shared";
 import type { BoomMsg, Cmd, HostMsg, KillMsg, PlayerInfo, ShotMsg, Snapshot } from "./types";
 
@@ -1375,7 +1375,7 @@ function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "gu
   pendentes = [];
   saida = [];
   seq = 0;
-  entrada.yaw = SPAWNS[eu].yaw;
+  entrada.yaw = 0; // a direção certa chega com a primeira foto da rodada
   entrada.pitch = 0;
   entrada.arma = 0;
 
@@ -1584,7 +1584,7 @@ function quadro(agora: number): void {
 
     if (snapAtual && snapAtual.round !== ultimaRodada) {
       ultimaRodada = snapAtual.round;
-      entrada.yaw = SPAWNS[eu].yaw;
+      entrada.yaw = snapAtual.ps[eu]?.yaw ?? 0; // o ponto de nascimento muda a cada rodada
       entrada.pitch = 0;
       entrada.arma = 0;
       renderer.resetarRemotos();

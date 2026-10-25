@@ -240,7 +240,7 @@ def juntar(lista, nome):
 
 # ---------------------------------------------------------------- textura, exportação, foto ----
 
-def assar_e_exportar(obj, nome, pasta, angulo_uv=82):
+def assar_e_exportar(obj, nome, pasta, angulo_uv=82, tam_bake=None, tam_export=1024):
     """desdobra, assa todos os materiais numa imagem, troca por um material só e exporta o .glb"""
     c = cena()
     ativar(obj)
@@ -255,7 +255,7 @@ def assar_e_exportar(obj, nome, pasta, angulo_uv=82):
     bpy.ops.uv.smart_project(angle_limit=math.radians(angulo_uv), island_margin=0.003, scale_to_bounds=False)
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    tam = 1024 if RAPIDO else 2048
+    tam = tam_bake or (1024 if RAPIDO else 2048)
     img = bpy.data.images.new("textura_" + nome, tam, tam)
     for m in obj.data.materials:
         tex = m.node_tree.nodes.new("ShaderNodeTexImage")
@@ -292,7 +292,7 @@ def assar_e_exportar(obj, nome, pasta, angulo_uv=82):
     for p in obj.data.polygons:
         p.material_index = 0
     img_jogo = img.copy()
-    img_jogo.scale(1024, 1024)
+    img_jogo.scale(tam_export, tam_export)
     tex.image = img_jogo
     img_jogo.pack()
 
@@ -370,3 +370,75 @@ def foto(nome, pasta, cam_loc, alvo, lente=32):
     c.camera = co
     c.render.filepath = os.path.join(pasta, nome + ".png")
     bpy.ops.render.render(write_still=True)
+
+
+# ---------------------------------------------------------------- colisões (o jogo lê src/colisoes.json) ----
+
+def registrar_colisoes(nome, caixas):
+    """caixas: [(cx, cy, largura_x, profundidade_y, altura)] em coordenadas do Blender (origem no centro do objeto).
+    O jogo usa x = cx e z = -cy (o glTF troca o eixo Y do Blender por -Z)."""
+    import json
+    caminho = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "colisoes.json"))
+    dados = {}
+    if os.path.exists(caminho):
+        with open(caminho, encoding="utf-8") as f:
+            dados = json.load(f)
+    dados[nome] = [{"x": round(cx, 3), "z": round(-cy, 3), "w": round(w, 3), "d": round(d, 3), "h": round(h, 3)} for cx, cy, w, d, h in caixas]
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=1, ensure_ascii=False)
+
+
+def material_parede():
+    """reboco claro sobre tijolo aparente, com fuligem, sujeira e rachaduras: para paredes de casas e prédios destruídos"""
+    m = novo_material("parede")
+    nt = m.node_tree
+    for n in list(nt.nodes):
+        if n.type != "OUTPUT_MATERIAL":
+            nt.nodes.remove(n)
+    saida = [n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"][0]
+    coord = no(m, "ShaderNodeTexCoord")
+    sep = no(m, "ShaderNodeSeparateXYZ")
+    ligar(m, coord, "Object", sep, "Vector")
+    tij = no(m, "ShaderNodeTexBrick")
+    tij.inputs["Color1"].default_value = (0.13, 0.038, 0.026, 1)
+    tij.inputs["Color2"].default_value = (0.075, 0.022, 0.016, 1)
+    tij.inputs["Mortar"].default_value = (0.20, 0.18, 0.15, 1)
+    tij.inputs["Scale"].default_value = 3.5
+    tij.inputs["Mortar Size"].default_value = 0.025
+    tij.inputs["Brick Width"].default_value = 0.5
+    tij.inputs["Row Height"].default_value = 0.22
+    ligar(m, coord, "Object", tij, "Vector")
+    reb = no(m, "ShaderNodeTexNoise", noise_dimensions="3D")
+    reb.inputs["Scale"].default_value = 2.2
+    reb.inputs["Detail"].default_value = 8
+    ligar(m, coord, "Object", reb, "Vector")
+    cor_reb = rampa(m, (reb, "Fac"), [(0.3, (0.20, 0.185, 0.15, 1)), (0.7, (0.30, 0.28, 0.23, 1))])
+    cobre = rampa(m, (reb, "Fac"), [(0.46, (1, 1, 1, 1)), (0.56, (0, 0, 0, 1))])  # onde o reboco ainda está
+    base = mistura(m, cobre, "Color", tij, "Color", cor_reb, "Color")
+    # fuligem e sujeira
+    suj = no(m, "ShaderNodeTexNoise", noise_dimensions="3D")
+    suj.inputs["Scale"].default_value = 1.3
+    suj.inputs["Detail"].default_value = 6
+    ligar(m, coord, "Object", suj, "Vector")
+    soma = no(m, "ShaderNodeMath", operation="ADD")
+    ligar(m, suj, "Fac", soma, 0)
+    zmul = no(m, "ShaderNodeMath", operation="MULTIPLY")
+    ligar(m, sep, "Z", zmul, 0)
+    zmul.inputs[1].default_value = 0.12
+    ligar(m, zmul, "Value", soma, 1)
+    mascara = rampa(m, (soma, "Value"), [(0.62, (0, 0, 0, 1)), (0.95, (0.9, 0.9, 0.9, 1))])
+    preto = no(m, "ShaderNodeRGB")
+    preto.outputs[0].default_value = (0.012, 0.011, 0.010, 1)
+    com_fuligem = mistura(m, mascara, "Color", base, "Result", preto, "Color")
+    ao = no(m, "ShaderNodeAmbientOcclusion")
+    ao.inputs["Distance"].default_value = 0.5
+    esc = no(m, "ShaderNodeMix", data_type="RGBA")
+    esc.blend_type = "MULTIPLY"
+    esc.inputs["Factor"].default_value = 1.0
+    ligar(m, com_fuligem, "Result", esc, "A")
+    ligar(m, ao, "Color", esc, "B")
+    bsdf = no(m, "ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = 0.95
+    ligar(m, esc, "Result", bsdf, "Base Color")
+    ligar(m, bsdf, "BSDF", saida, "Surface")
+    return m

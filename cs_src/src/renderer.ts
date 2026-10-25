@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as clonarComEsqueleto } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { ALTURA, CAIXAS, OBJETOS, OLHO } from "./shared";
+import { ALTURA, ARENA, CAIXAS, OBJETOS, OLHO } from "./shared";
 import type { GranadaSnap, PlayerInfo, PlayerSnap, Vec3 } from "./types";
 import { desligarVAO, suporteWebGL } from "./webgl";
 
@@ -396,19 +396,26 @@ export class Renderer {
     this.aplicarRazaoPixel();
 
     this.scene.background = new THREE.Color(0x0a0e14);
-    this.scene.fog = new THREE.Fog(0x0a0e14, 20, 70);
+    this.scene.fog = new THREE.Fog(0x0a0e14, 30, 105);
 
     this.scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x1a2230, 1.6));
     const sol = new THREE.DirectionalLight(0xffffff, 1.4);
     sol.position.set(10, 20, 6);
     this.scene.add(sol);
 
-    const chao = new THREE.Mesh(
-      new THREE.PlaneGeometry(42, 42),
-      material({ map: texturaChao(), roughness: 1 }),
-    );
+    // chão: até a imagem grande chegar (modelos/chao.py), fica o piso quadriculado simples
+    const tamChao = ARENA * 2 + 4; // a imagem cobre a arena toda uma vez só, sem repetir
+    const matChao = material({ map: texturaChao(), roughness: 1 });
+    const chao = new THREE.Mesh(new THREE.PlaneGeometry(tamChao, tamChao), matChao);
     chao.rotation.x = -Math.PI / 2;
     this.scene.add(chao);
+    new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}texturas/chao.jpg`, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 4;
+      const m = matChao as THREE.MeshStandardMaterial | THREE.MeshLambertMaterial;
+      m.map = tex;
+      m.needsUpdate = true;
+    });
 
     carregarSoldado();
     carregarArmas();

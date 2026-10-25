@@ -2,6 +2,7 @@
 // Constantes, mapa e física. Usado pelo host (autoritativo) e pela predição do convidado,
 // por isso precisa ser determinístico: mesmo estado + mesmo comando = mesmo resultado.
 
+import colisoesModelos from "./colisoes.json";
 import type { Cmd, Vec3 } from "./types";
 
 export const MAX_JOGADORES = 4;
@@ -57,49 +58,89 @@ export interface Caixa {
   d: number; // tamanho em z
   h: number; // altura (começa no chão)
   cor: number;
-  oculta?: boolean; // só colide: o visual é um modelo 3D (ver CARROS)
+  oculta?: boolean; // só colide: o visual é um modelo 3D (ver OBJETOS)
+}
+
+// arena 60x60: de -30 a 30
+export const ARENA = 30;
+
+// Cenário: modelos 3D (feitos no Blender, pasta modelos/) colocados no mapa. A colisão de cada modelo vem de src/colisoes.json,
+// gerado pelos mesmos scripts que desenham o modelo, então o que se vê é o que bloqueia. O yaw é sempre múltiplo de 90°.
+export interface Objeto3D { arquivo: string; x: number; z: number; yaw: number }
+const P = Math.PI;
+export const OBJETOS: Objeto3D[] = [
+  // centro
+  { arquivo: "blindado_semidestruido", x: 0, z: 0, yaw: 0 },
+  { arquivo: "sacos", x: 0, z: -7.5, yaw: 0 },
+  { arquivo: "sacos", x: 0, z: 7.5, yaw: 0 },
+  { arquivo: "barreira", x: -8, z: 0, yaw: 0 },
+  { arquivo: "barreira", x: 8, z: 0, yaw: 0 },
+  { arquivo: "barris", x: 4.5, z: -4, yaw: 0 },
+  { arquivo: "barris", x: -4.5, z: 4, yaw: P },
+  { arquivo: "pneus", x: 4.5, z: 4.5, yaw: 0 },
+  { arquivo: "pneus", x: -4.5, z: -4.5, yaw: 0 },
+  // construções nos cantos
+  { arquivo: "casa", x: -20, z: -17, yaw: 0 },
+  { arquivo: "casa", x: 20, z: 17, yaw: P },
+  { arquivo: "predio", x: 19, z: -18, yaw: P / 2 },
+  { arquivo: "casa", x: -19, z: 19, yaw: -P / 2 },
+  // contêineres e veículos entre o centro e os cantos
+  { arquivo: "container_a", x: -6, z: -21, yaw: 0 },
+  { arquivo: "container_b", x: 7, z: 22, yaw: 0 },
+  { arquivo: "container_b", x: -26, z: 3, yaw: P / 2 },
+  { arquivo: "container_a", x: 26, z: -3, yaw: P / 2 },
+  { arquivo: "carro_destruido", x: -12.5, z: 9, yaw: P / 2 },
+  { arquivo: "carro_destruido", x: 12.5, z: -9, yaw: -P / 2 },
+  { arquivo: "carro_destruido", x: -2, z: 26, yaw: 0 },
+  // coberturas menores espalhadas
+  { arquivo: "caixotes", x: -12, z: -10, yaw: 0 },
+  { arquivo: "caixotes", x: 12, z: 10, yaw: P },
+  { arquivo: "caixotes", x: 27, z: 10, yaw: P / 2 },
+  { arquivo: "caixotes", x: -27, z: -10, yaw: -P / 2 },
+  { arquivo: "barreira", x: -14, z: -2, yaw: P / 2 },
+  { arquivo: "barreira", x: 14, z: 2, yaw: P / 2 },
+  { arquivo: "barreira", x: 2, z: -15, yaw: 0 },
+  { arquivo: "barreira", x: -2, z: 15, yaw: 0 },
+  { arquivo: "sacos", x: -10, z: 22, yaw: 0 },
+  { arquivo: "sacos", x: 10, z: -23, yaw: 0 },
+  { arquivo: "barris", x: -27, z: -26, yaw: 0 },
+  { arquivo: "barris", x: 27, z: 26, yaw: P },
+  { arquivo: "barris", x: 8, z: 14, yaw: 0 },
+  { arquivo: "barris", x: -8, z: -14, yaw: P },
+  { arquivo: "pneus", x: -16, z: 8, yaw: 0 },
+  { arquivo: "pneus", x: 16, z: -8, yaw: 0 },
+  { arquivo: "pneus", x: 26, z: -26, yaw: 0 },
+  { arquivo: "pneus", x: -26, z: 26, yaw: 0 },
+];
+
+interface CaixaModelo { x: number; z: number; w: number; d: number; h: number }
+const COR_OBJETO = 0x3b4f6e;
+
+function caixasDe(o: Objeto3D): Caixa[] {
+  const lista = (colisoesModelos as Record<string, CaixaModelo[]>)[o.arquivo] ?? [];
+  const c = Math.round(Math.cos(o.yaw));
+  const sn = Math.round(Math.sin(o.yaw));
+  const gira = sn !== 0;
+  // rotação em torno de Y (a mesma do Three.js): x' = x cos + z sin, z' = -x sin + z cos
+  return lista.map((b) => ({
+    x: o.x + b.x * c + b.z * sn,
+    z: o.z - b.x * sn + b.z * c,
+    w: gira ? b.d : b.w,
+    d: gira ? b.w : b.d,
+    h: b.h,
+    cor: COR_OBJETO,
+    oculta: true,
+  }));
 }
 
 const PAREDE = 0x2a3a52;
-const CAIXA = 0x8a6a3a;
-const BLOCO = 0x3b4f6e;
-const MURO = 0x4a5a74;
-
-// arena 40x40: de -20 a 20
 export const CAIXAS: Caixa[] = [
-  // paredes externas
-  { x: 0, z: -20.5, w: 42, d: 1, h: 5, cor: PAREDE },
-  { x: 0, z: 20.5, w: 42, d: 1, h: 5, cor: PAREDE },
-  { x: -20.5, z: 0, w: 1, d: 42, h: 5, cor: PAREDE },
-  { x: 20.5, z: 0, w: 1, d: 42, h: 5, cor: PAREDE },
-  // centro: blindado semidestruído (a colisão é uma caixa; o desenho vem do modelo 3D, ver OBJETOS)
-  { x: 0, z: 0, w: 6.2, d: 2.7, h: 2.15, cor: BLOCO, oculta: true },
-  // muros baixos (dá pra pular)
-  { x: 0, z: -8, w: 6, d: 1, h: 1, cor: MURO },
-  { x: 0, z: 8, w: 6, d: 1, h: 1, cor: MURO },
-  { x: -8, z: 0, w: 1, d: 6, h: 1, cor: MURO },
-  { x: 8, z: 0, w: 1, d: 6, h: 1, cor: MURO },
-  // caixas altas
-  { x: -12, z: -6, w: 2, d: 2, h: 2.2, cor: CAIXA },
-  { x: 12, z: 6, w: 2, d: 2, h: 2.2, cor: CAIXA },
-  { x: -6, z: 12, w: 2, d: 2, h: 2.2, cor: CAIXA },
-  { x: 6, z: -12, w: 2, d: 2, h: 2.2, cor: CAIXA },
-  // coberturas perto dos cantos
-  { x: -13, z: -16, w: 1, d: 6, h: 2.5, cor: BLOCO },
-  { x: 13, z: 16, w: 1, d: 6, h: 2.5, cor: BLOCO },
-  { x: -13, z: 16, w: 1, d: 6, h: 2.5, cor: BLOCO },
-  { x: 13, z: -16, w: 1, d: 6, h: 2.5, cor: BLOCO },
-  // carros destruídos (a colisão é uma caixa; o desenho vem do modelo 3D)
-  { x: -14, z: 4.5, w: 1.9, d: 4.3, h: 1.4, cor: CAIXA, oculta: true },
-  { x: 14, z: -4.5, w: 1.9, d: 4.3, h: 1.4, cor: CAIXA, oculta: true },
-];
-
-// modelos 3D do cenário (yaw em radianos; nos modelos a frente aponta para +X)
-export interface Objeto3D { arquivo: string; x: number; z: number; yaw: number }
-export const OBJETOS: Objeto3D[] = [
-  { arquivo: "carro_destruido", x: -14, z: 4.5, yaw: Math.PI / 2 },
-  { arquivo: "carro_destruido", x: 14, z: -4.5, yaw: -Math.PI / 2 },
-  { arquivo: "blindado_semidestruido", x: 0, z: 0, yaw: 0 },
+  // paredes externas (a borda da arena)
+  { x: 0, z: -ARENA - 0.5, w: ARENA * 2 + 2, d: 1, h: 5, cor: PAREDE },
+  { x: 0, z: ARENA + 0.5, w: ARENA * 2 + 2, d: 1, h: 5, cor: PAREDE },
+  { x: -ARENA - 0.5, z: 0, w: 1, d: ARENA * 2 + 2, h: 5, cor: PAREDE },
+  { x: ARENA + 0.5, z: 0, w: 1, d: ARENA * 2 + 2, h: 5, cor: PAREDE },
+  ...OBJETOS.flatMap(caixasDe),
 ];
 
 export interface Spawn {
@@ -108,17 +149,70 @@ export interface Spawn {
   yaw: number;
 }
 
-function virado(x: number, z: number): Spawn {
-  // olha para o centro; a frente com yaw é (-sin, -cos)
-  return { x, z, yaw: Math.atan2(x, z) };
+// ---- Nascimento aleatório ----
+// Candidatos: uma grade sobre a arena, sem os pontos perto de qualquer obstáculo nem dentro das construções.
+// A cada rodada sorteia-se um conjunto: bem afastados entre si e, quando possível, sem linha de visão direta.
+const MARGEM_SPAWN = 1.3;
+const CONSTRUCOES = OBJETOS.filter((o) => o.arquivo === "casa" || o.arquivo === "predio");
+
+function pontoLivre(x: number, z: number): boolean {
+  if (Math.abs(x) > ARENA - 1.5 || Math.abs(z) > ARENA - 1.5) return false;
+  for (const c of CAIXAS) {
+    if (Math.abs(x - c.x) < c.w / 2 + RAIO + MARGEM_SPAWN && Math.abs(z - c.z) < c.d / 2 + RAIO + MARGEM_SPAWN) return false;
+  }
+  // dentro de uma casa ou prédio (a caixa de uma construção é a área toda dela)
+  for (const o of CONSTRUCOES) {
+    const meio = o.arquivo === "casa" ? [5.8, 4.8] : [7.8, 5.8];
+    const gira = Math.round(Math.sin(o.yaw)) !== 0;
+    const mx = gira ? meio[1] : meio[0];
+    const mz = gira ? meio[0] : meio[1];
+    if (Math.abs(x - o.x) < mx && Math.abs(z - o.z) < mz) return false;
+  }
+  return true;
 }
 
-export const SPAWNS: Spawn[] = [
-  virado(-16, -16),
-  virado(16, 16),
-  virado(16, -16),
-  virado(-16, 16),
-];
+export const POSTOS_SPAWN: { x: number; z: number }[] = [];
+for (let gx = -27; gx <= 27; gx += 3) {
+  for (let gz = -27; gz <= 27; gz += 3) {
+    if (pontoLivre(gx, gz)) POSTOS_SPAWN.push({ x: gx, z: gz });
+  }
+}
+
+function seVeem(a: { x: number; z: number }, b: { x: number; z: number }): boolean {
+  const o: Vec3 = [a.x, 1.5, a.z];
+  const v: Vec3 = [b.x - a.x, 0, b.z - a.z];
+  const dist = Math.hypot(v[0], v[2]);
+  const d: Vec3 = [v[0] / dist, 0, v[2] / dist];
+  return !CAIXAS.some((c) => {
+    if (c.h < 1.6) return false; // coberturas baixas não escondem ninguém em pé
+    const t = raioCaixa(o, d, [c.x - c.w / 2, 0, c.z - c.d / 2], [c.x + c.w / 2, c.h, c.z + c.d / 2]);
+    return t !== null && t < dist;
+  });
+}
+
+export function sortearSpawns(n: number, azar: () => number = Math.random): Spawn[] {
+  let melhor: { x: number; z: number }[] = [];
+  let melhorNota = -Infinity;
+  for (let tentativa = 0; tentativa < 90; tentativa++) {
+    const escolha: { x: number; z: number }[] = [];
+    while (escolha.length < n) {
+      const p = POSTOS_SPAWN[Math.floor(azar() * POSTOS_SPAWN.length)];
+      if (!escolha.includes(p)) escolha.push(p);
+    }
+    let menor = Infinity;
+    let visiveis = 0;
+    for (let i = 0; i < n; i++) {
+      for (let k = i + 1; k < n; k++) {
+        menor = Math.min(menor, Math.hypot(escolha[i].x - escolha[k].x, escolha[i].z - escolha[k].z));
+        if (seVeem(escolha[i], escolha[k])) visiveis++;
+      }
+    }
+    const nota = Math.min(menor, 24) - 9 * visiveis + azar() * 3;
+    if (nota > melhorNota) { melhorNota = nota; melhor = escolha; }
+  }
+  // o jogador olha mais ou menos para o meio da arena, com uma variação
+  return melhor.map((p) => ({ x: p.x, z: p.z, yaw: Math.atan2(p.x, p.z) + (azar() - 0.5) * 1.8 }));
+}
 
 // ---- Física ----
 
@@ -181,7 +275,7 @@ function moverEixo(b: Corpo, dx: number, dz: number): void {
 }
 
 const PASSO_MAX = 1 / 60;
-const LIMITE_ARENA = 20 - RAIO;
+const LIMITE_ARENA = ARENA - RAIO;
 
 export function moverCorpo(b: Corpo, cmd: Pick<Cmd, "dt" | "fwd" | "strafe" | "jump" | "yaw">): void {
   let restante = Math.min(cmd.dt, MAX_DT);
@@ -197,7 +291,7 @@ export function moverCorpo(b: Corpo, cmd: Pick<Cmd, "dt" | "fwd" | "strafe" | "j
     restante -= dt;
 
     moverEixo(b, wx * VELOCIDADE * dt, wz * VELOCIDADE * dt);
-    // rede de segurança: nada sai da arena (as paredes internas ficam em +-20), e quem já saiu volta
+    // rede de segurança: nada sai da arena (as paredes internas ficam em +-ARENA), e quem já saiu volta
     b.x = Math.max(-LIMITE_ARENA, Math.min(LIMITE_ARENA, b.x));
     b.z = Math.max(-LIMITE_ARENA, Math.min(LIMITE_ARENA, b.z));
 

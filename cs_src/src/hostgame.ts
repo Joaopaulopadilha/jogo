@@ -4,7 +4,7 @@
 import {
   ALCANCE, ALTURA, AQUECIMENTO, ARMAS, CAIXAS, EXPLOSAO_DANO, EXPLOSAO_RAIO, FIM_ROUND,
   GRANADAS_POR_ROUND, GRANADA_FUSIVEL, GRANADA_RAIO, GRANADA_VELOCIDADE, GRAVIDADE, MAX_DT, OLHO,
-  ROUNDS_PARA_VENCER, SLOT_GRANADA, SPAWNS, TEMPO_ROUND, VIDA,
+  ARENA, ROUNDS_PARA_VENCER, SLOT_GRANADA, TEMPO_ROUND, VIDA, sortearSpawns,
   direcao, moverCorpo, raioCaixa,
 } from "./shared";
 import type { Arma, Corpo } from "./shared";
@@ -45,7 +45,7 @@ interface Granada {
 
 const META_HEAD = 1.45; // acima disso (a partir dos pés) conta como headshot
 const LARGURA_HITBOX = 0.35;
-const LIMITE_ARENA = 19.6;
+const LIMITE_ARENA = ARENA - 0.4;
 const TROCA_ARMA = 0.35; // s de espera ao trocar de arma
 
 export class HostGame {
@@ -106,8 +106,9 @@ export class HostGame {
     this.tempo = AQUECIMENTO;
     this.vencedor = -1;
     this.granadas = [];
+    const spawns = sortearSpawns(this.jogadores.length); // cada rodada nasce em lugares diferentes
     for (const p of this.jogadores) {
-      const s = SPAWNS[p.id];
+      const s = spawns[p.id];
       p.x = s.x; p.y = 0; p.z = s.z; p.vy = 0;
       p.yaw = s.yaw; p.pitch = 0;
       p.hp = VIDA;
