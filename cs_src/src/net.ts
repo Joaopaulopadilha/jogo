@@ -34,6 +34,7 @@ export interface Convidado {
   pid: number;   // id do jogador na partida (definido ao iniciar)
   ola: boolean;  // já enviou o "hello" (nome e vaga confirmados)
   slot: number;  // vaga pedida pelo convidado (grupo de amigos); sem pedido, vai para o fim
+  visto: number; // instante (ms) da última mensagem recebida: quem some sem fechar a conexão é detectado por aqui
 }
 
 export interface HostHandlers {
@@ -50,32 +51,52 @@ export class HostNet {
   convidados: Convidado[] = [];
   iniciada = false;
 
-  // codigo vazio gera um aleatório
-  constructor(nomeHost: string, codigo: string, private h: HostHandlers) {
+  // codigo vazio gera um aleatório. Com "existente", assume a sala usando a conexão que um convidado já tinha (troca de host no meio da partida).
+  constructor(nomeHost: string, codigo: string, private h: HostHandlers, existente?: Peer, esperados?: number[]) {
     this.nomeHost = nomeHost;
-    this.peer = new Peer(PREFIXO + (codigo || gerarCodigo()));
-    this.peer.on("open", (id) => h.aoAbrir(id.slice(PREFIXO.length)));
+    if (existente) {
+      existente.removeAllListeners("error");
+      existente.removeAllListeners("call");
+      this.peer = existente;
+      this.iniciada = true;
+      this.esperados = esperados ?? [];
+    } else {
+      this.peer = new Peer(PREFIXO + (codigo || gerarCodigo()));
+      this.peer.on("open", (id) => h.aoAbrir(id.slice(PREFIXO.length)));
+    }
     this.peer.on("call", (call) => h.aoChamada?.(call));
     this.peer.on("error", (err) => h.aoErro(err.type));
     this.peer.on("connection", (conn) => this.novaConexao(conn));
   }
 
   nomeHost: string;
+  // troca de host: ids de jogador que podem religar (cada um diz o seu no "hello"); null = sala normal
+  esperados: number[] | null = null;
 
   private novaConexao(conn: DataConnection): void {
-    if (this.iniciada || this.convidados.length + 1 >= MAX_JOGADORES) {
+    const religando = this.esperados !== null;
+    if ((this.iniciada && !religando) || this.convidados.length + 1 >= MAX_JOGADORES) {
       conn.on("open", () => { try { conn.close(); } catch { /* ignore */ } });
       return;
     }
-    const g: Convidado = { conn, nome: `Jogador ${this.convidados.length + 2}`, pid: this.convidados.length + 1, ola: false, slot: 99 };
+    const g: Convidado = { conn, nome: `Jogador ${this.convidados.length + 2}`, pid: religando ? -1 : this.convidados.length + 1, ola: false, slot: 99, visto: performance.now() };
     this.convidados.push(g);
 
-    conn.on("open", () => this.h.aoMudarLobby());
+    conn.on("open", () => { if (!religando) this.h.aoMudarLobby(); });
     conn.on("data", (data) => {
       const m = data as GuestMsg;
+      g.visto = performance.now();
       if (m.t === "hello") {
         g.nome = (m.nome || "").trim().slice(0, 14) || g.nome;
-        if (typeof m.slot === "number" && m.slot >= 1 && m.slot < MAX_JOGADORES) g.slot = Math.floor(m.slot);
+        if (religando) {
+          if (typeof m.pid !== "number" || !this.esperados!.includes(m.pid)) { try { conn.close(); } catch { /* ignore */ } return; }
+          // a mesma pessoa tentou mais de uma vez: fica só a conexão mais nova
+          for (const velho of this.convidados.filter((x) => x !== g && x.pid === m.pid)) {
+            this.convidados = this.convidados.filter((x) => x !== velho);
+            try { velho.conn.close(); } catch { /* ignore */ }
+          }
+          g.pid = m.pid;
+        } else if (typeof m.slot === "number" && m.slot >= 1 && m.slot < MAX_JOGADORES) g.slot = Math.floor(m.slot);
         g.ola = true;
         this.h.aoMudarLobby();
       }
@@ -155,7 +176,7 @@ export class GuestNet {
   peer: Peer;
   conn: DataConnection | null = null;
 
-  constructor(codigo: string, nome: string, h: GuestHandlers, slot?: number) {
+  constructor(codigo: string, private nome: string, private h: GuestHandlers, slot?: number) {
     this.peer = new Peer();
     this.peer.on("call", (call) => h.aoChamada?.(call));
     this.peer.on("open", () => {
@@ -165,10 +186,30 @@ export class GuestNet {
         conn.send({ t: "hello", nome, slot } satisfies GuestMsg);
         h.aoConectar();
       });
-      conn.on("data", (data) => h.aoMensagem(data as HostMsg));
-      conn.on("close", () => h.aoFechar());
+      conn.on("data", (data) => { if (this.conn === conn) h.aoMensagem(data as HostMsg); });
+      conn.on("close", () => { if (this.conn === conn) h.aoFechar(); });
     });
     this.peer.on("error", (err) => h.aoErro(err.type));
+  }
+
+  // troca de host: liga a mesma conexão ao jogador que assume a sala (o id dele no PeerJS vem da lista da partida)
+  religar(alvoPeerId: string, pid: number): void {
+    const velha = this.conn;
+    this.conn = null;
+    try { velha?.close(); } catch { /* ignore */ }
+    const conn = this.peer.connect(alvoPeerId, { reliable: true });
+    this.conn = conn;
+    conn.on("open", () => conn.send({ t: "hello", nome: this.nome, pid } satisfies GuestMsg));
+    conn.on("data", (data) => { if (this.conn === conn) this.h.aoMensagem(data as HostMsg); });
+    conn.on("close", () => { if (this.conn === conn) this.h.aoFechar(); });
+  }
+
+  // entrega a conexão sem fechá-la (para virar o host da sala)
+  entregarPeer(): Peer {
+    const conn = this.conn;
+    this.conn = null;
+    try { conn?.close(); } catch { /* ignore */ }
+    return this.peer;
   }
 
   enviar(m: GuestMsg): void {

@@ -72,6 +72,26 @@ export class HostGame {
     this.iniciarRodada();
   }
 
+  // continua uma partida a partir da última foto recebida (troca de host); "ausentes" são os jogadores que saíram
+  static restaurar(infos: PlayerInfo[], s: Snapshot, ausentes: number[]): HostGame {
+    const g = new HostGame(infos);
+    g.fase = s.phase;
+    g.tempo = s.timer;
+    g.rodada = s.round;
+    g.vencedor = s.winner;
+    for (const q of s.ps) {
+      const p = g.jogadores[q.id];
+      if (!p) continue;
+      p.x = q.x; p.y = q.y; p.z = q.z; p.vy = q.vy; p.yaw = q.yaw; p.pitch = q.pitch;
+      p.hp = q.hp; p.vivo = q.alive; p.conectado = q.on;
+      p.arma = q.arma; p.municao = [...q.am]; p.granadas = q.gr;
+      p.recarga = q.reloading && q.arma < SLOT_GRANADA ? ARMAS[q.arma].recarga : 0;
+      p.ack = q.ack; p.vitorias = q.wins; p.abates = q.kills; p.mortes = q.deaths;
+    }
+    for (const id of ausentes) g.desconectar(id);
+    return g; // granadas no ar se perdem na troca
+  }
+
   reiniciarPartida(): void {
     for (const p of this.jogadores) {
       p.vitorias = 0; p.abates = 0; p.mortes = 0;

@@ -5,6 +5,16 @@
 const SENSIBILIDADE = 0.0022;
 const SENSIBILIDADE_TOQUE = 0.005;
 
+// diário curto dos eventos que mexem no mouse (para investigar cursor preso): no console, ou em window.__csLog
+const diario: string[] = [];
+function registrar(evento: string): void {
+  const linha = `${(performance.now() / 1000).toFixed(1)}s ${evento}`;
+  diario.push(linha);
+  if (diario.length > 60) diario.shift();
+  (window as unknown as { __csLog?: string[] }).__csLog = diario;
+  console.log("[cs]", linha);
+}
+
 export class Entrada {
   yaw = 0;
   pitch = 0;
@@ -25,11 +35,19 @@ export class Entrada {
 
   constructor(private canvas: HTMLElement, private aoMudarTravamento: (travado: boolean) => void) {
     document.addEventListener("pointerlockchange", () => {
+      registrar(`pointerlockchange: ${document.pointerLockElement ? "travado" : "solto"}`);
       if (this.toque) return;
       this.travado = document.pointerLockElement === this.canvas;
       if (!this.travado) this.limpar();
       aoMudarTravamento(this.travado);
     });
+
+    // pedido de trava que falhou, ou janela que perdeu o foco: solta o cursor
+    document.addEventListener("pointerlockerror", () => { registrar("pointerlockerror"); this.liberarCursor(); });
+    window.addEventListener("blur", () => { registrar("janela perdeu o foco"); this.liberarCursor(); });
+    window.addEventListener("focus", () => registrar("janela ganhou o foco"));
+    document.addEventListener("visibilitychange", () => registrar(`aba ${document.hidden ? "escondida" : "visível"}`));
+    document.addEventListener("fullscreenchange", () => registrar(`tela cheia: ${!!document.fullscreenElement}`));
 
     document.addEventListener("mousemove", (e) => {
       if (this.toque || !this.travado) return;
@@ -77,6 +95,11 @@ export class Entrada {
       if (!this.travado) { this.travado = true; this.aoMudarTravamento(true); }
       return;
     }
+    // sem gesto do usuário (ex.: a partida do grupo começou sozinha) ou sem foco, o navegador recusa; pedir assim às vezes
+    // deixa o cursor preso numa área pequena da tela. Então só pede com gesto: senão fica o painel "Clique para jogar".
+    if (navigator.userActivation && !navigator.userActivation.isActive) { registrar("travar() ignorado: sem gesto do usuário"); return; }
+    if (!document.hasFocus()) { registrar("travar() ignorado: janela sem foco"); return; }
+    registrar("travar() pedindo o mouse");
     // pode rejeitar se o usuário acabou de sair com Esc; nesse caso o painel de pausa continua
     const r = this.canvas.requestPointerLock() as unknown;
     if (r instanceof Promise) r.catch(() => {});
@@ -88,6 +111,11 @@ export class Entrada {
       return;
     }
     if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  // rede de segurança: nada de cursor preso fora da partida
+  liberarCursor(): void {
+    if (!this.toque && document.pointerLockElement) document.exitPointerLock();
   }
 
   // ---- Tela cheia ----

@@ -135,6 +135,17 @@ let eu = 0;
 let infos: PlayerInfo[] = [];
 let rodando = false;
 let fimMostrado = false;
+
+// troca de host: se o host cai no meio da partida, o jogador de menor número que sobrou assume a sala
+interface Migracao { candidatos: number[]; indice: number; timer: number }
+let migracao: Migracao | null = null;
+let pidHost = 0;                       // quem é o host agora (0 no início)
+const ausentesPartida = new Set<number>(); // jogadores que já saíram (inclui hosts antigos)
+let aguardoMigracaoAte = 0;            // host novo: partida parada até os outros religarem
+let esperadosMigracao: number[] = [];
+let difPartida: Dificuldade = "normal";
+let ultimaMsgHost = 0;                 // convidado: instante da última mensagem do host
+const SILENCIO_MAX = 8000;             // ms sem nada do outro lado = caiu (a conexão pode não avisar que fechou)
 let fimInicio = 0; // instante em que a partida terminou (0 = ainda não terminou)
 const ATRASO_FIM = 2500;      // ms jogando/vendo o resultado antes do painel final
 const TRAVA_BOTOES_FIM = 1000; // ms com os botões do painel final desativados (evita clique perdido)
@@ -704,6 +715,7 @@ function abrirSalaDoGrupo(inicio: InicioPartida): void {
       const prontos = hostNet.convidados.filter((g) => g.ola && g.conn.open).length;
       if (prontos + 1 < inicio.humanos) return;
       const players = hostNet.iniciar(inicio.config.cpus);
+      difPartida = inicio.config.dificuldade;
       bots = players.slice(inicio.humanos).map((p) => new Bot(p.id, inicio.config.dificuldade));
       iniciarPartida(players, 0, "host");
     },
@@ -722,11 +734,14 @@ function entrarNaSalaDoGrupo(inicio: InicioPartida): void {
     aoConectar: () => { $("textoConectando").textContent = "Conectado! Aguardando o início..."; },
     aoMensagem: aoMensagemHost,
     aoFechar: () => {
-      if (rodando) perderConexao();
+      if (rodando) aoPerderHost();
       else if (conectandoGrupo) falhaGrupo("A conexão com o grupo foi encerrada.");
     },
     aoChamada: aoChamadaPartida,
-    aoErro: (msg) => falhaGrupo(msg === "peer-unavailable" ? "Não encontrei a sala do grupo." : `Erro de conexão (${msg}).`),
+    aoErro: (msg) => {
+      if (migracao) return; // durante a troca de host, "não encontrei" é esperado (o candidato ainda não abriu a sala)
+      falhaGrupo(msg === "peer-unavailable" ? "Não encontrei a sala do grupo." : `Erro de conexão (${msg}).`);
+    },
   }, grupo.minhaVaga);
 }
 
@@ -833,7 +848,7 @@ aplicarAjustes();
 // ---- Voz ----
 
 if (import.meta.env.DEV) (window as unknown as { __csJogo?: unknown }).__csJogo = () => jogo;
-if (import.meta.env.DEV) (window as unknown as { __csDbg?: unknown }).__csDbg = () => ({ rodando, modo, estado: amigos.estado, eu: amigos.apelido, membros: grupo.membros.map((m) => [m.id, amigos.estaOnline(m.id)]) });
+if (import.meta.env.DEV) (window as unknown as { __csDbg?: unknown }).__csDbg = () => ({ rodando, modo, pid: eu, pidHost, migrando: !!migracao, snapT: ultimaSnap?.timer, snapOn: ultimaSnap?.ps.map((q) => q.on), estado: amigos.estado, eu: amigos.apelido, membros: grupo.membros.map((m) => [m.id, amigos.estaOnline(m.id)]) });
 
 function rotuloVoz(p: Participante): string {
   if (p.contexto === "partida") {
@@ -914,9 +929,9 @@ function aoChamadaGrupo(call: MediaConnection, apelido: string): void {
 // partida online: o host diz quem está na sala; cada jogador liga para os de posição menor
 function anunciarVoz(): void {
   if (!hostNet) return;
-  const pares = [{ pid: 0, peerId: hostNet.peerId }, ...hostNet.convidados.map((g) => ({ pid: g.pid, peerId: g.conn.peer }))];
+  const pares = [{ pid: eu, peerId: hostNet.peerId }, ...hostNet.convidados.filter((g) => g.pid >= 0).map((g) => ({ pid: g.pid, peerId: g.conn.peer }))];
   rosterVoz = pares;
-  hostNet.transmitir({ t: "voz", pares });
+  hostNet.transmitir({ t: "voz", pares, dif: difPartida });
   sincronizarVozPartida();
 }
 
@@ -1056,6 +1071,9 @@ function resetarParaInicio(): void {
   voz.fecharContexto("partida");
   rosterVoz = [];
   presencaPartida = [];
+  window.clearTimeout(migracao?.timer);
+  migracao = null;
+  aguardoMigracaoAte = 0;
   mostrarPainel("painelLobby");
   renderLobby();
   sincronizarVozGrupo();
@@ -1166,10 +1184,11 @@ function conectar(): void {
         btnConectar.disabled = false;
         return;
       }
-      perderConexao();
+      aoPerderHost();
     },
     aoChamada: aoChamadaPartida,
     aoErro: (msg) => {
+      if (migracao) return;
       btnConectar.disabled = false;
       statusJoin.textContent = msg === "peer-unavailable"
         ? "Sala não encontrada. Verifique a senha."
@@ -1178,7 +1197,115 @@ function conectar(): void {
   });
 }
 
-// o host caiu no meio da partida
+// ---- Troca de host ----
+// O convidado tem a última foto da partida (posições, vida, placar) e a lista de quem está na sala, então dá para continuar:
+// todos escolhem o mesmo sucessor (menor número que ainda está na partida); ele abre a sala com a conexão que já tinha e os
+// outros ligam nele. Se o sucessor não responde, vale o próximo da lista.
+
+function aoPerderHost(): void {
+  if (!rodando) return;
+  if (migracao) return; // a conexão com um candidato que não respondeu: o relógio da troca cuida disso
+  if (modo !== "guest" || fimMostrado || !ultimaSnap || !guestNet || rosterVoz.length < 2) { perderConexao(); return; }
+  ausentesPartida.add(pidHost);
+  const snap = ultimaSnap;
+  const candidatos = rosterVoz.map((p) => p.pid).filter((pid) => !ausentesPartida.has(pid) && snap.ps[pid]?.on).sort((a, b) => a - b);
+  mostrarToast("O host saiu. Trocando de host...");
+  migracao = { candidatos, indice: 0, timer: 0 };
+  tentarCandidato();
+}
+
+function tentarCandidato(): void {
+  const m = migracao;
+  if (!m) return;
+  window.clearTimeout(m.timer);
+  const cand = m.candidatos[m.indice];
+  if (cand === undefined) { migracao = null; perderConexao(); return; }
+  if (cand === eu) { assumirHost(); return; }
+  const alvo = rosterVoz.find((p) => p.pid === cand)?.peerId;
+  if (!alvo) { ausentesPartida.add(cand); m.indice++; tentarCandidato(); return; }
+  const fim = performance.now() + 12000;
+  const tentar = (): void => {
+    if (migracao !== m) return;
+    if (performance.now() > fim) { ausentesPartida.add(cand); m.indice++; tentarCandidato(); return; }
+    guestNet?.religar(alvo, eu); // repete até o candidato responder (ele pode demorar a perceber que o host caiu)
+    m.timer = window.setTimeout(tentar, 2000);
+  };
+  tentar();
+}
+
+// chegou algo do novo host: a troca terminou
+function concluirMigracao(): void {
+  const m = migracao;
+  if (!m) return;
+  window.clearTimeout(m.timer);
+  pidHost = m.candidatos[m.indice];
+  migracao = null;
+  ultimaMsgHost = performance.now();
+  pendentes = [];
+  saida = [];
+  mostrarToast(`${infos[pidHost]?.nome ?? "Outro jogador"} é o novo host.`);
+}
+
+function ligarEventosJogo(): void {
+  if (!jogo) return;
+  jogo.onShot = (m) => { eventoTiro(m); hostNet?.transmitir(m); };
+  jogo.onKill = (m) => { eventoAbate(m); hostNet?.transmitir(m); };
+  jogo.onBoom = (m) => { eventoExplosao(m); hostNet?.transmitir(m); };
+}
+
+// eu sou o próximo host: reconstrói o jogo a partir da última foto e abre a sala na conexão que eu já tinha
+function assumirHost(): void {
+  const m = migracao;
+  if (m) window.clearTimeout(m.timer);
+  migracao = null;
+  const snap = ultimaSnap;
+  const gn = guestNet;
+  if (!snap || !gn) { perderConexao(); return; }
+
+  const humanos = rosterVoz.map((p) => p.pid);
+  esperadosMigracao = humanos.filter((pid) => pid !== eu && !ausentesPartida.has(pid) && snap.ps[pid]?.on);
+  jogo = HostGame.restaurar(infos, snap, [...ausentesPartida]);
+  ligarEventosJogo();
+  const meu = jogo.jogadores[eu];
+  if (meu && corpo) { meu.x = corpo.x; meu.y = corpo.y; meu.z = corpo.z; meu.vy = corpo.vy; } // continua de onde eu estava (minha posição prevista)
+  bots = infos.filter((i) => !humanos.includes(i.id)).map((i) => new Bot(i.id, difPartida));
+
+  const peer = gn.entregarPeer();
+  guestNet = null;
+  hostNet = new HostNet(meuNome, "", {
+    aoAbrir: () => {},
+    aoMudarLobby: () => {
+      if (!hostNet) return;
+      anunciarVoz();
+      if (esperadosMigracao.every((pid) => hostNet!.convidados.some((g) => g.pid === pid && g.ola))) aguardoMigracaoAte = 0;
+    },
+    aoMensagem: (g, msg) => {
+      if (msg.t === "cmds" && jogo) for (const c of msg.cmds) jogo.aplicarComando(g.pid, c);
+    },
+    aoSair: (g) => { if (g.pid >= 0) jogo?.desconectar(g.pid); },
+    aoChamada: aoChamadaPartida,
+    aoErro: () => {},
+  }, peer, esperadosMigracao);
+
+  modo = "host";
+  pidHost = eu;
+  pendentes = [];
+  saida = [];
+  subtitulo.textContent = "você é o host";
+  aguardoMigracaoAte = performance.now() + 10000;
+  mostrarToast("O host saiu: você assumiu a partida.");
+  // quem não religar a tempo é tratado como ausente
+  window.setTimeout(() => {
+    if (!hostNet || modo !== "host") return;
+    for (const pid of esperadosMigracao) {
+      if (!hostNet.convidados.some((g) => g.pid === pid && g.ola)) { ausentesPartida.add(pid); jogo?.desconectar(pid); }
+    }
+    aguardoMigracaoAte = 0;
+  }, 10000);
+  anunciarVoz();
+}
+
+// o host caiu no meio da partida (e não dá para trocar)
 function perderConexao(): void {
   fimMostrado = true;
   entrada.soltar();
@@ -1192,6 +1319,8 @@ $("btnConectar").addEventListener("click", conectar);
 inputCodigo.addEventListener("keydown", (e) => { if (e.key === "Enter") conectar(); });
 
 function aoMensagemHost(m: HostMsg): void {
+  ultimaMsgHost = performance.now();
+  if (migracao) concluirMigracao();
   switch (m.t) {
     case "lobby":
       listaJoin.innerHTML = listaHtml(m.players, m.you);
@@ -1214,6 +1343,7 @@ function aoMensagemHost(m: HostMsg): void {
       break;
     case "voz":
       rosterVoz = m.pares;
+      if (m.dif) difPartida = m.dif;
       sincronizarVozPartida();
       break;
   }
@@ -1233,6 +1363,12 @@ function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "gu
   fimInicio = 0;
   ultimaRodada = 0;
   corpo = null;
+  window.clearTimeout(migracao?.timer);
+  migracao = null;
+  pidHost = 0;
+  ultimaMsgHost = performance.now();
+  ausentesPartida.clear();
+  aguardoMigracaoAte = 0;
   presencaPartida = [];
   ultimaSnap = null;
   pendentes = [];
@@ -1251,9 +1387,7 @@ function iniciarPartida(players: PlayerInfo[], meuId: number, como: "host" | "gu
 
   if (como !== "guest") {
     jogo = new HostGame(players);
-    jogo.onShot = (m) => { eventoTiro(m); hostNet?.transmitir(m); };
-    jogo.onKill = (m) => { eventoAbate(m); hostNet?.transmitir(m); };
-    jogo.onBoom = (m) => { eventoExplosao(m); hostNet?.transmitir(m); };
+    ligarEventosJogo();
     // se o navegador não conceder a captura do mouse, o jogador vê "Clique para jogar" e não o menu antigo
     mostrarPainel("painelPausa");
     entrada.travar();
@@ -1461,13 +1595,30 @@ function quadro(agora: number): void {
       yaw: entrada.yaw, pitch: entrada.pitch, fire: inp.fire, reload: inp.reload, arma: entrada.arma,
     };
 
+    if (modo === "guest" && guestNet && !migracao && !fimMostrado && agora - ultimaMsgHost > SILENCIO_MAX) {
+      // o host sumiu sem fechar a conexão: trata como queda (pode até me tornar o host)
+      try { guestNet.conn?.close(); } catch { /* ignore */ }
+      aoPerderHost();
+    }
+
     if (modo !== "guest" && jogo) {
       // no solo, o jogo pausa enquanto o mouse está solto (Esc)
-      const pausado = modo === "solo" && !entrada.travado;
+      // (e, logo depois de uma troca de host, espera os outros jogadores religarem)
+      const pausado = (modo === "solo" && !entrada.travado) || performance.now() < aguardoMigracaoAte;
       if (!pausado) {
-        jogo.aplicarComando(0, cmd);
+        jogo.aplicarComando(eu, cmd);
         for (const b of bots) jogo.aplicarComando(b.id, b.pensar(dt, jogo));
         jogo.atualizar(dt);
+      }
+      // convidado que sumiu sem a conexão avisar (aparelho desligou, rede caiu): sai da partida
+      if (hostNet) {
+        for (const g of hostNet.convidados) {
+          if (g.pid >= 0 && g.ola && performance.now() - g.visto > SILENCIO_MAX) {
+            jogo.desconectar(g.pid);
+            ausentesPartida.add(g.pid);
+            try { g.conn.close(); } catch { /* ignore */ }
+          }
+        }
       }
       acumSnap += dt;
       if (hostNet && acumSnap >= INTERVALO_SNAP) {
@@ -1507,6 +1658,7 @@ function quadro(agora: number): void {
     }
   }
 
+  if (!rodando) entrada.liberarCursor();
   renderer.ativarLobby(!rodando);
   renderer.desenhar(dt);
   requestAnimationFrame(quadro);

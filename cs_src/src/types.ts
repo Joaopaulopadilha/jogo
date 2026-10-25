@@ -94,8 +94,9 @@ export type HostMsg =
   | ShotMsg
   | KillMsg
   | BoomMsg
-  | { t: "voz"; pares: { pid: number; peerId: string }[] }; // quem está na sala (para ligar as chamadas de voz)
+  // quem está na sala (ligar as chamadas de voz e, se o host cair, escolher o próximo host); dif: dificuldade das CPUs
+  | { t: "voz"; pares: { pid: number; peerId: string }[]; dif?: "facil" | "normal" | "dificil" };
 
 export type GuestMsg =
-  | { t: "hello"; nome: string; slot?: number } // slot: posição no grupo de amigos (define cor e vaga na partida)
+  | { t: "hello"; nome: string; slot?: number; pid?: number } // slot: posição no grupo de amigos; pid: quem já está numa partida e religa a um novo host
   | { t: "cmds"; cmds: Cmd[] };
