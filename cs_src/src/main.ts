@@ -113,8 +113,9 @@ const entrada = new Entrada(canvas, (travado) => {
 if (entrada.toque) {
   document.body.classList.add("toque");
   // primeiro toque em qualquer lugar: tela cheia e paisagem travada (precisa de um gesto do usuário)
-  document.addEventListener("click", () => entrada.prepararTela(), { once: true, capture: true });
-  montarToque(entrada, () => entrada.soltar(), () => abrirAjustes());
+  // a cada toque, volta para a tela cheia se o navegador saiu dela (ex.: ao girar o aparelho)
+  document.addEventListener("click", () => entrada.prepararTela(), { capture: true });
+  montarToque(entrada, () => entrada.soltar(), () => abrirAjustes(), () => alternarTelaCheia());
   $("btnRetomar").textContent = "Toque para jogar";
   $("ajudaControles").innerHTML =
     "Arraste à esquerda para <b>andar</b> · à direita para <b>mirar</b><br>" +
@@ -456,10 +457,16 @@ const grupo = new Grupo(
 
 let assinaturaLobby = "";
 
+// com pouca altura (celular deitado) a lista de amigos começa recolhida; o jogador abre quando quiser
+if (window.innerHeight < 460) $<HTMLDetailsElement>("detAmigos").open = false;
+
 // diz ao 3D quanto da tela está livre entre os painéis, para os personagens não ficarem atrás deles
 function atualizarAreaLobby(): void {
-  const centro = document.querySelector<HTMLElement>(".lobby-centro");
-  if (centro && centro.clientWidth > 0) renderer.definirAreaLobby(centro.clientWidth / window.innerWidth);
+  const palco = document.querySelector<HTMLElement>(".lobby-palco");
+  if (!palco || palco.clientWidth <= 0) return;
+  const largura = window.innerWidth;
+  // o painel fica à direita: os personagens ficam centralizados na área livre à esquerda dele
+  renderer.definirAreaLobby(palco.clientWidth / largura, (largura - palco.clientWidth) / (2 * largura));
 }
 window.addEventListener("resize", atualizarAreaLobby);
 
@@ -484,15 +491,16 @@ function renderLobby(): void {
   $("tituloGrupo").textContent = `Grupo (${membros.length}/${MAX_JOGADORES})`;
   const vagas = membros.map((m, i) => {
     const euMesmo = m.id === meuId;
-    return `<div class="slot-membro${euMesmo ? " eu" : ""}${m.pronto ? " pronto" : ""}"><span class="ponto" style="background:${CORES[i]}"></span>` +
-      `<span class="nome">${m.id === grupo.lider ? "♛ " : ""}${esc(euMesmo ? nomeEu : m.nome)}${euMesmo ? " (você)" : ""}</span>` +
-      `<small>${m.pronto ? "PRONTO ✓" : "aguardando"}</small></div>`;
+    return `<div class="chip${euMesmo ? " eu" : ""}${m.pronto ? " pronto" : ""}"><span class="ponto" style="background:${CORES[i]}"></span>` +
+      `<span class="nome">${m.id === grupo.lider ? "♛ " : ""}${esc(euMesmo ? nomeEu : m.nome)}</span>` +
+      `<small>${m.pronto ? "✓" : ""}</small></div>`;
   });
+  const nivel = cfg.dificuldade === "facil" ? "fácil" : cfg.dificuldade === "dificil" ? "difícil" : "normal";
   for (let i = membros.length; i < MAX_JOGADORES; i++) {
     const cpu = cfg.modo === "cpu" && i < membros.length + cfg.cpus;
     vagas.push(cpu
-      ? `<div class="slot-cpu"><span class="ponto" style="background:${CORES[i]}"></span>CPU · ${cfg.dificuldade === "facil" ? "fácil" : cfg.dificuldade === "dificil" ? "difícil" : "normal"}</div>`
-      : `<div class="slot-vazio">+ vaga livre</div>`);
+      ? `<div class="chip cpu"><span class="ponto" style="background:${CORES[i]}"></span><span class="nome">CPU</span><small>${nivel}</small></div>`
+      : `<div class="chip vazio">+ vaga</div>`);
   }
   $("slotsGrupo").innerHTML = vagas.join("");
   const btnSair = $("btnSairGrupo");
@@ -520,19 +528,21 @@ function renderLobby(): void {
   selDif.disabled = !lider;
   $("avisoLider").textContent = lider ? "" : "Só o líder do grupo escolhe o modo.";
 
-  // amigos: o líder convida quem está online
+  // amigos: lista enxuta (só o nome); o líder convida quem está online
   const confirmados = amigos.lista().filter((x) => !x.pendente).sort((a, b) => Number(b.online) - Number(a.online));
+  const nOnline = confirmados.filter((x) => x.online).length;
+  $("tituloAmigosLobby").textContent = confirmados.length ? `Amigos · ${nOnline} online` : "Amigos";
   $("lobbyAmigos").innerHTML = confirmados.length
     ? confirmados.map(({ amigo, online, desatualizado }) => {
-        if (desatualizado) {
-          return linhaAmigo(amigo.nome, amigo.id, "offline", `<button class="mini" data-refazer="${amigo.id}">Refazer</button>`, "amizade desatualizada");
-        }
+        const linha = (acao: string, cor: string, extra = "") =>
+          `<div class="amigo${online ? "" : " offline"}"><span class="nome"><span class="ponto" style="background:${cor}"></span><span>${esc(amigo.nome)}${extra}</span></span>${acao}</div>`;
+        if (desatualizado) return linha(`<button class="mini" data-refazer="${amigo.id}">Refazer</button>`, "var(--muted)", " · desatualizada");
         const noGrupo = membros.some((m) => m.id === amigo.id);
         let acao = `<small>${online ? "online" : "offline"}</small>`;
         if (noGrupo) acao = `<small>no grupo</small>`;
-        else if (grupo.jaConvidado(amigo.id)) acao = `<button class="mini" disabled>Convite enviado</button>`;
+        else if (grupo.jaConvidado(amigo.id)) acao = `<button class="mini" disabled>Enviado</button>`;
         else if (online && lider && membros.length < MAX_JOGADORES) acao = `<button class="mini" data-convidargrupo="${amigo.id}">Convidar</button>`;
-        return linhaAmigo(amigo.nome, amigo.id, online ? "online" : "offline", acao);
+        return linha(acao, online ? "var(--accent)" : "var(--muted)");
       }).join("")
     : vazio("Você ainda não tem amigos. Abra <b>Amigos</b> e convide por link.");
 
@@ -677,6 +687,23 @@ $("btnAtualizar").addEventListener("click", () => location.reload());
 window.setTimeout(() => void verificarVersao(), 3000);
 window.setInterval(() => void verificarVersao(), 5 * 60_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void verificarVersao(); });
+
+// ---- Tela cheia ----
+
+function alternarTelaCheia(): void {
+  if (entrada.alternarTelaCheia() === "indisponivel") {
+    mostrarToast("Este navegador não tem tela cheia. No iPhone: toque em Compartilhar e em “Adicionar à Tela de Início”, e abra o jogo pelo ícone, sem barra de endereço.");
+  }
+}
+
+for (const id of ["btnTelaCheia", "btnTelaCheiaAj"]) $(id).addEventListener("click", alternarTelaCheia);
+document.addEventListener("fullscreenchange", () => {
+  const cheia = !!document.fullscreenElement;
+  for (const id of ["btnTelaCheia", "btnTelaCheiaAj", "btnTelaCheiaJogo"]) {
+    $(id).title = cheia ? "Sair da tela cheia" : "Tela cheia";
+    $(id).setAttribute("aria-pressed", String(cheia));
+  }
+});
 
 // ---- Ajustes (brilho, qualidade, sensibilidade) ----
 

@@ -355,6 +355,7 @@ body.toque canvas { touch-action: none; }
 #btnPausa { left: calc(env(safe-area-inset-left, 0px) + 10px); }
 #btnPlacar { left: calc(env(safe-area-inset-left, 0px) + 62px); }
 #btnAjustesJogo { left: calc(env(safe-area-inset-left, 0px) + 114px); width: 44px; height: 32px; border-radius: 10px; font-size: 16px; top: calc(env(safe-area-inset-top, 0px) + 10px); }
+#btnTelaCheiaJogo { left: calc(env(safe-area-inset-left, 0px) + 166px); width: 44px; height: 32px; border-radius: 10px; font-size: 16px; top: calc(env(safe-area-inset-top, 0px) + 10px); }
 
 /* HUD no toque: números acima da barra de armas (que vira botões) e fora do caminho dos dedos */
 body.toque #status {
@@ -403,7 +404,7 @@ body.toque #faixa { top: 22%; }
 
 .painel.lobby {
   position: absolute; inset: 0; width: auto; max-width: none; margin: 0; gap: 0;
-  align-items: stretch; text-align: left; overflow-y: auto;
+  align-items: stretch; text-align: left; overflow: hidden;
   padding: calc(10px + env(safe-area-inset-top, 0px)) calc(14px + env(safe-area-inset-right, 0px))
            calc(10px + env(safe-area-inset-bottom, 0px)) calc(14px + env(safe-area-inset-left, 0px));
 }
@@ -419,79 +420,85 @@ body.toque #faixa { top: 22%; }
 .lobby-eu { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
 .lobby-acoes { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 button.mini { font-size: 11px; padding: 8px 12px; letter-spacing: 0.08em; }
+button.hidden { display: none; }
 
+/* personagem à esquerda/centro (livre) e todas as informações num painel compacto à direita */
 .lobby-corpo {
   flex: 1; min-height: 0; margin-top: 10px; display: grid; gap: 14px;
-  grid-template-columns: minmax(220px, 300px) 1fr minmax(250px, 330px);
+  grid-template-columns: 1fr minmax(270px, 340px);
 }
-.lobby-esq, .lobby-dir {
-  display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; padding: 12px;
-  background: rgba(6,10,16,0.7); border-radius: 12px; backdrop-filter: blur(4px);
+.lobby-palco { pointer-events: none; }
+.lobby-lateral {
+  display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; padding: 12px;
+  background: rgba(6,10,16,0.74); border-radius: 12px; backdrop-filter: blur(4px);
 }
-.lobby-centro { pointer-events: none; } /* o personagem em 3D aparece por trás */
+.lobby-lateral section { display: flex; flex-direction: column; gap: 8px; }
+.lobby-lateral details { display: flex; flex-direction: column; gap: 8px; }
+.lobby-lateral summary { cursor: pointer; list-style-position: inside; }
+.lobby-lateral summary::marker { color: var(--muted); }
+.lobby-lateral .lista-amigos { max-height: 26vh; overflow-y: auto; }
 .ajuda { font-size: 11px; color: var(--muted); line-height: 1.6; text-align: left; }
 .ajuda b { color: var(--ink); }
 
-.lobby-rodape { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 10px; }
-#lobbyProntoStatus { min-height: 18px; font-size: 12px; color: var(--muted); }
-button.grande { font-size: 18px; padding: 16px 56px; letter-spacing: 0.2em; min-width: 280px; }
+.lobby-rodape {
+  margin-top: auto; position: sticky; bottom: -12px; display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  padding: 12px 0 0; background: linear-gradient(transparent, rgba(6,10,16,0.97) 24%);
+}
+#lobbyProntoStatus { min-height: 16px; font-size: 12px; color: var(--muted); text-align: center; }
+button.grande { font-size: 18px; padding: 14px 20px; letter-spacing: 0.2em; width: 100%; }
 button.grande.pronto { background: var(--accent); box-shadow: 0 6px 24px rgba(77,226,194,0.4); }
 
-.slots { display: flex; flex-direction: column; gap: 8px; }
-.slot-membro, .slot-cpu, .slot-vazio {
-  display: flex; align-items: center; gap: 10px; border-radius: 10px; padding: 9px 11px; font-size: 13px;
-  border: 1px solid transparent; background: rgba(255,255,255,0.05);
+/* membros do grupo como etiquetas pequenas, em grade */
+.slots { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.chip {
+  display: flex; align-items: center; gap: 6px; min-width: 0; padding: 7px 9px; border-radius: 9px; font-size: 12px;
+  background: rgba(255,255,255,0.05); border: 1px solid transparent;
 }
-.slot-membro .nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
-.slot-membro small { color: var(--muted); font-size: 11px; white-space: nowrap; }
-.slot-membro.eu { border-color: rgba(255,209,102,0.5); }
-.slot-membro.pronto { border-color: var(--accent); background: rgba(77,226,194,0.12); }
-.slot-membro.pronto small { color: var(--accent); font-weight: 700; }
-.slot-cpu { color: var(--muted); font-size: 12px; }
-.slot-vazio { border: 1px dashed rgba(232,240,255,0.2); background: transparent; color: var(--muted); font-size: 12px; }
+.chip .nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.chip small { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.chip.eu { border-color: rgba(255,209,102,0.5); }
+.chip.pronto { border-color: var(--accent); background: rgba(77,226,194,0.12); }
+.chip.pronto small { color: var(--accent); font-weight: 700; font-size: 13px; }
+.chip.cpu .nome { color: var(--muted); }
+.chip.vazio { border: 1px dashed rgba(232,240,255,0.2); background: transparent; color: var(--muted); }
 
-.modos { display: flex; flex-direction: column; gap: 8px; }
+.modos { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 button.modo {
-  text-transform: none; letter-spacing: 0.03em; text-align: left; font-weight: 700; padding: 10px 12px; font-size: 13px;
+  text-transform: none; letter-spacing: 0.03em; text-align: center; font-weight: 700; padding: 9px 8px; font-size: 12px;
   background: rgba(255,255,255,0.05); color: var(--ink); box-shadow: none;
 }
-button.modo small { display: block; margin-top: 2px; font-weight: 400; font-size: 11px; color: var(--muted); }
+button.modo small { display: block; margin-top: 2px; font-weight: 400; font-size: 10px; color: var(--muted); }
 button.modo.ativo { background: rgba(255,209,102,0.16); box-shadow: inset 0 0 0 1px var(--accent3); }
 button.modo:disabled { opacity: 1; cursor: default; transform: none; }
 button.modo:not(.ativo):disabled { opacity: 0.55; }
-.config { display: flex; gap: 10px; }
+.config { display: flex; gap: 8px; }
 .config.hidden { display: none; }
-.config .campo { flex: 1; max-width: none; }
+.config .campo { flex: 1; max-width: none; font-size: 10px; gap: 4px; }
+.config select { padding: 7px 8px; font-size: 13px; }
 
-@media (max-width: 880px) {
-  .lobby-corpo { grid-template-columns: minmax(170px, 32%) 1fr minmax(200px, 36%); gap: 8px; }
-}
-
-/* celular em pé: o personagem fica em cima e os painéis rolam embaixo */
-@media (max-width: 600px) and (orientation: portrait) {
+/* janela estreita (computador) ou celular em pé: o personagem em cima e o painel embaixo */
+@media (max-width: 640px) {
   .painel.lobby { overflow-y: auto; }
-  .lobby-corpo { grid-template-columns: 1fr; grid-template-rows: 32vh auto auto; flex: none; }
-  .lobby-centro { order: -1; }
-  .lobby-esq, .lobby-dir { overflow: visible; }
+  .lobby-corpo { grid-template-columns: 1fr; grid-template-rows: 30vh auto; flex: none; }
   .lobby-acoes { margin-left: 0; width: 100%; }
-  .lobby-rodape {
-    position: sticky; bottom: 0; margin-top: 8px; padding: 14px 0 4px;
-    background: linear-gradient(transparent, rgba(6,10,16,0.95) 35%);
-  }
-  button.grande { width: 100%; min-width: 0; }
+  .lobby-lateral { overflow: visible; }
+  .lobby-lateral .lista-amigos { max-height: none; }
 }
 
-/* celular deitado: pouca altura */
+/* celular deitado: pouca altura, então tudo mais enxuto */
 @media (max-height: 460px) and (orientation: landscape) {
-  .lobby-logo, .lobby-voltar { display: none; }
-  .lobby-corpo { margin-top: 6px; gap: 8px; }
-  .lobby-esq, .lobby-dir { padding: 8px; gap: 6px; }
-  .lobby-esq .ajuda { display: none; }
-  button.grande { padding: 10px 34px; font-size: 14px; min-width: 0; }
-  .lobby-rodape { flex-direction: row; justify-content: center; gap: 14px; padding-top: 6px; }
-  .slot-membro, .slot-cpu, .slot-vazio { padding: 6px 9px; }
-  button.modo { padding: 7px 10px; }
+  .lobby-logo, .lobby-voltar, .lobby-lateral .como-jogar { display: none; }
+  button.mini { min-height: 34px; padding: 6px 10px; }
+  .lobby-corpo { margin-top: 6px; gap: 8px; grid-template-columns: 1fr minmax(240px, 38%); }
+  .lobby-lateral { padding: 8px; gap: 8px; }
+  .lobby-lateral section, .lobby-lateral details { gap: 5px; }
+  .lobby-lateral .lista-amigos { max-height: 74px; }
+  .chip { padding: 5px 8px; }
+  button.modo { padding: 6px 6px; }
   button.modo small { display: none; }
+  .config select { padding: 5px 6px; font-size: 12px; }
+  button.grande { padding: 10px 14px; font-size: 15px; }
+  .lobby-rodape { padding-top: 8px; gap: 4px; }
 }
 
 /* ---- Ajustes ---- */

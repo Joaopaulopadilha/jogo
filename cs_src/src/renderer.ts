@@ -155,7 +155,9 @@ export class Renderer {
   private lobbyVagas: THREE.Group[] = [];       // uma por membro, posicionadas no palco
   private lobbyPersonagens: THREE.Group[] = []; // o personagem em si (gira/balança dentro da vaga)
   private lobbyTempo = 0;
-  private lobbyFracCentro = 0.4; // fração da largura da tela livre entre os painéis laterais
+  private lobbyFracCentro = 0.4; // fração da largura da tela livre (sem o painel de informações)
+  private lobbyDesloc = 0;          // quanto o painel empurra o palco para o lado (fração da largura da tela)
+  private lobbyPalco = new THREE.Group(); // plataforma e personagens: movem juntos
   private qualidade: "baixa" | "media" | "alta" = window.matchMedia("(hover: none) and (pointer: coarse)").matches ? "media" : "alta";
   private camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 200);
   private remotos = new Map<number, Remoto>();
@@ -262,7 +264,8 @@ export class Renderer {
     palco.position.y = -0.06;
     const borda = new THREE.Mesh(new THREE.TorusGeometry(3.7, 0.025, 8, 96), new THREE.MeshBasicMaterial({ color: 0x4de2c2 }));
     borda.rotation.x = Math.PI / 2;
-    c.add(palco, borda);
+    this.lobbyPalco.add(palco, borda);
+    c.add(this.lobbyPalco);
 
     this.definirLobby([{ nome: "Você", cor: "#4de2c2", pronto: false }]);
   }
@@ -273,7 +276,7 @@ export class Renderer {
 
   // reconstrói os personagens do palco (chamar quando o grupo, nomes ou "pronto" mudarem)
   definirLobby(membros: MembroLobby[]): void {
-    for (const v of this.lobbyVagas) this.cenaLobby.remove(v);
+    for (const v of this.lobbyVagas) this.lobbyPalco.remove(v);
     this.lobbyVagas = [];
     this.lobbyPersonagens = [];
 
@@ -288,7 +291,7 @@ export class Renderer {
       anel.rotation.x = -Math.PI / 2;
       anel.position.y = 0.01;
       vaga.add(anel, grupo);
-      this.cenaLobby.add(vaga);
+      this.lobbyPalco.add(vaga);
       this.lobbyVagas.push(vaga);
       this.lobbyPersonagens.push(grupo);
     });
@@ -296,8 +299,9 @@ export class Renderer {
   }
 
   // a interface informa quanto da largura está livre para os personagens (os painéis cobrem as laterais)
-  definirAreaLobby(fracaoCentro: number): void {
+  definirAreaLobby(fracaoCentro: number, deslocamento = 0): void {
     this.lobbyFracCentro = Math.max(0.15, Math.min(1, fracaoCentro));
+    this.lobbyDesloc = Math.max(0, Math.min(0.45, deslocamento));
     this.ajustarCameraLobby();
   }
 
@@ -324,6 +328,8 @@ export class Renderer {
     // em pé, a interface ocupa a parte de baixo: sobe os personagens para o terço superior da tela
     const alturaVisivel = 2 * distancia * meiaAltura;
     const desloc = aspecto < 1 ? 0.16 * alturaVisivel : 0;
+    // o painel de informações ocupa a direita: centraliza os personagens na área que sobra à esquerda
+    this.lobbyPalco.position.x = -this.lobbyDesloc * alturaVisivel * aspecto;
     this.cameraLobby.position.set(0, 1.45 - desloc, distancia);
     this.cameraLobby.lookAt(0, 0.95 - desloc, 0);
   }

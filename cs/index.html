@@ -6,9 +6,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0a0e14" />
+  <!-- instalado na tela inicial, o jogo abre sem barra de endereço (inclusive no iPhone) -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icone-192.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="CS Caps" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>CS Caps</title>
-  <script type="module" crossorigin src="./assets/index-D4qDrIEO.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-CPl3zvtB.css">
+  <script type="module" crossorigin src="./assets/index-BLpg-oUR.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-Dmb5nzLr.css">
 </head>
 <body>
   <header>
@@ -32,6 +39,7 @@
       <div id="btnPlacar" class="tbtn" role="button" aria-label="Placar">TAB</div>
       <div id="btnPausa" class="tbtn" role="button" aria-label="Pausar">II</div>
       <div id="btnAjustesJogo" class="tbtn" role="button" aria-label="Ajustes">⚙</div>
+      <div id="btnTelaCheiaJogo" class="tbtn" role="button" aria-label="Tela cheia">⛶</div>
     </div>
 
     <div id="hud" class="hidden">
@@ -63,50 +71,60 @@
             <button id="btnHost" class="mini secundario">Criar sala</button>
             <button id="btnJoin" class="mini secundario">Entrar em sala</button>
             <button id="btnAmigos" class="mini secundario">Amigos</button>
+            <button id="btnTelaCheia" class="mini secundario engrenagem" aria-label="Tela cheia" title="Tela cheia">⛶</button>
             <button id="btnAjustes" class="mini secundario engrenagem" aria-label="Ajustes" title="Ajustes">⚙</button>
           </span>
         </div>
 
         <div class="lobby-corpo">
-          <aside class="lobby-esq">
-            <h3 class="titulo-secao" id="tituloGrupo">Grupo (1/4)</h3>
-            <div class="slots" id="slotsGrupo"></div>
-            <button id="btnSairGrupo" class="mini secundario hidden">Sair do grupo</button>
-            <p id="ajudaControles" class="ajuda">
-              <b>WASD</b> move · <b>mouse</b> mira · <b>clique</b> atira · <b>1 2 3</b> armas · <b>Espaço</b> pula · <b>R</b> recarrega
-            </p>
-          </aside>
+          <!-- área livre: o personagem em 3D aparece por trás -->
+          <div class="lobby-palco"></div>
 
-          <div class="lobby-centro"></div>
+          <aside class="lobby-lateral">
+            <section>
+              <h3 class="titulo-secao" id="tituloGrupo">Grupo (1/4)</h3>
+              <div class="slots" id="slotsGrupo"></div>
+              <button id="btnSairGrupo" class="mini secundario hidden">Sair do grupo</button>
+            </section>
 
-          <aside class="lobby-dir">
-            <h3 class="titulo-secao">Modo de jogo</h3>
-            <div class="modos" id="modos">
-              <button class="modo" data-modo="cpu">Mata-mata com CPUs<small>Você, seu grupo e CPUs nas vagas livres</small></button>
-              <button class="modo" data-modo="grupo">Mata-mata do grupo<small>Só os amigos do grupo, entre si</small></button>
+            <section>
+              <h3 class="titulo-secao">Modo</h3>
+              <div class="modos" id="modos">
+                <button class="modo" data-modo="cpu">Com CPUs<small>você, grupo e CPUs</small></button>
+                <button class="modo" data-modo="grupo">Só o grupo<small>amigos entre si</small></button>
+              </div>
+              <div class="config" id="configCpu">
+                <label class="campo">CPUs
+                  <select id="selCpus"></select>
+                </label>
+                <label class="campo">Dificuldade
+                  <select id="selDificuldade">
+                    <option value="facil">Fácil</option>
+                    <option value="normal" selected>Normal</option>
+                    <option value="dificil">Difícil</option>
+                  </select>
+                </label>
+              </div>
+              <p id="avisoLider" class="ajuda"></p>
+            </section>
+
+            <details class="sec-amigos" id="detAmigos" open>
+              <summary class="titulo-secao" id="tituloAmigosLobby">Amigos</summary>
+              <div class="lista-amigos" id="lobbyAmigos"></div>
+            </details>
+
+            <details class="como-jogar">
+              <summary class="titulo-secao">Como jogar</summary>
+              <p id="ajudaControles" class="ajuda">
+                <b>WASD</b> move · <b>mouse</b> mira · <b>clique</b> atira · <b>1 2 3</b> armas · <b>Espaço</b> pula · <b>R</b> recarrega
+              </p>
+            </details>
+
+            <div class="lobby-rodape">
+              <p id="lobbyProntoStatus"></p>
+              <button id="btnPronto" class="grande">JOGAR</button>
             </div>
-            <div class="config" id="configCpu">
-              <label class="campo">CPUs
-                <select id="selCpus"></select>
-              </label>
-              <label class="campo">Dificuldade
-                <select id="selDificuldade">
-                  <option value="facil">Fácil</option>
-                  <option value="normal" selected>Normal</option>
-                  <option value="dificil">Difícil</option>
-                </select>
-              </label>
-            </div>
-            <p id="avisoLider" class="ajuda"></p>
-
-            <h3 class="titulo-secao" id="tituloAmigosLobby">Amigos</h3>
-            <div class="lista-amigos" id="lobbyAmigos"></div>
           </aside>
-        </div>
-
-        <div class="lobby-rodape">
-          <p id="lobbyProntoStatus"></p>
-          <button id="btnPronto" class="grande">JOGAR</button>
         </div>
       </div>
 
@@ -121,6 +139,8 @@
             <output id="ajBrilhoValor">100%</output>
           </label>
           <p class="ajuda">Se a imagem estiver escura no seu aparelho, aumente o brilho. Você vê o efeito na hora.</p>
+          <button id="btnTelaCheiaAj" class="secundario">⛶ Tela cheia</button>
+          <p class="ajuda">Esconde a barra de endereço do navegador.</p>
           <label class="aj-linha">
             <span>Qualidade</span>
             <select id="ajQualidade">

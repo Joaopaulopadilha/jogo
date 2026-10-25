@@ -90,17 +90,43 @@ export class Entrada {
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
-  // celular/tablet: tela cheia (esconde as barras do navegador) e orientação travada na horizontal.
-  // Precisa de um toque do usuário. No Android funciona; no iPhone não existe, e quem cobre é o aviso "gire o aparelho".
-  prepararTela(): void {
-    if (!this.toque) return;
+  // ---- Tela cheia ----
+
+  private saiuPorEscolha = false; // o jogador saiu da tela cheia pelo nosso botão: não puxar de volta sozinho
+
+  get telaCheiaDisponivel(): boolean {
+    return !!document.documentElement.requestFullscreen && document.fullscreenEnabled !== false;
+  }
+
+  // entra em tela cheia (esconde a barra de endereço) e, onde existe, trava a orientação na horizontal.
+  // Precisa de um toque do usuário. No iPhone o Safari não oferece isso para sites
+  private entrarTelaCheia(): void {
     const travarPaisagem = () => {
       const o = screen.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined;
       o?.lock?.("landscape")?.catch(() => {});
     };
-    const el = document.documentElement;
-    if (document.fullscreenElement || !el.requestFullscreen) { travarPaisagem(); return; }
-    el.requestFullscreen().then(travarPaisagem).catch(travarPaisagem);
+    if (document.fullscreenElement || !this.telaCheiaDisponivel) { travarPaisagem(); return; }
+    document.documentElement.requestFullscreen().then(travarPaisagem).catch(travarPaisagem);
+  }
+
+  // celular/tablet: chamado a cada toque. (Re)entra em tela cheia, por exemplo depois de girar o aparelho
+  // (muitos navegadores saem dela ao girar), a menos que o jogador tenha saído de propósito
+  prepararTela(): void {
+    if (!this.toque || this.saiuPorEscolha || document.fullscreenElement) return;
+    this.entrarTelaCheia();
+  }
+
+  // botão de tela cheia: entra ou sai. "indisponivel" = o navegador não oferece (ex.: iPhone)
+  alternarTelaCheia(): "entrou" | "saiu" | "indisponivel" {
+    if (!this.telaCheiaDisponivel) return "indisponivel";
+    if (document.fullscreenElement) {
+      this.saiuPorEscolha = true;
+      void document.exitFullscreen().catch(() => {});
+      return "saiu";
+    }
+    this.saiuPorEscolha = false;
+    this.entrarTelaCheia();
+    return "entrou";
   }
 
   // ---- Toque ----
