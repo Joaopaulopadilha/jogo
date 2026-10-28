@@ -13,7 +13,7 @@ export const ALTURA = 1.8;
 export const OLHO = 1.62;
 export const VELOCIDADE = 6;
 // agachado: mais baixo (alvo menor, dá para se esconder atrás de caixas baixas), mais lento e com tiro mais preciso
-export const ALTURA_AGACHADO = 1.35;
+export const ALTURA_AGACHADO = 1.4; // o soldado agachado (modelos/soldado.py) desce 0,44 m
 export const OLHO_AGACHADO = 1.2;
 export const VELOCIDADE_AGACHADO = 2.7;
 export const PRECISAO_AGACHADO = 0.6; // multiplica a dispersão do tiro

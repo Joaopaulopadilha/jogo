@@ -232,13 +232,12 @@ export function carregarSoldado(): void {
 }
 
 interface Animacao {
-  corpo: THREE.Object3D;
   tronco: THREE.Object3D | null;
-  pernaD: THREE.Object3D | null;
-  pernaE: THREE.Object3D | null;
   mixer: THREE.AnimationMixer;
   parado: THREE.AnimationAction | null;
   correr: THREE.AnimationAction | null;
+  agachado: THREE.AnimationAction | null;
+  agachadoAndar: THREE.AnimationAction | null;
 }
 
 // troca a cápsula pelo soldado: colete e faixa do capacete na cor do jogador, armas na mão
@@ -284,17 +283,22 @@ function vestirSoldado(grupo: THREE.Group, placeholders: THREE.Object3D[], armas
 
   const mixer = new THREE.AnimationMixer(corpo);
   const achar = (n: string) => soldadoModelo!.animations.find((c) => c.name === n);
-  const cp = achar("parado");
-  const cc = achar("correr");
-  const parado = cp ? mixer.clipAction(cp) : null;
-  const correr = cc ? mixer.clipAction(cc) : null;
-  parado?.play();
-  if (correr) { correr.play(); correr.setEffectiveWeight(0); }
+  const acao = (n: string): THREE.AnimationAction | null => {
+    const clipe = achar(n);
+    if (!clipe) return null;
+    const a = mixer.clipAction(clipe);
+    a.play();
+    a.setEffectiveWeight(0);
+    return a;
+  };
+  const parado = acao("parado");
+  parado?.setEffectiveWeight(1);
   grupo.userData.anim = {
-    corpo, mixer, parado, correr,
+    mixer, parado,
+    correr: acao("correr"),
+    agachado: acao("agachado"),
+    agachadoAndar: acao("agachado_andar"),
     tronco: corpo.getObjectByName("tronco") ?? null,
-    pernaD: corpo.getObjectByName("perna_d") ?? null,
-    pernaE: corpo.getObjectByName("perna_e") ?? null,
   } as Animacao;
   grupo.userData.armas = armas;
 }
@@ -305,9 +309,8 @@ const EIXO_X = new THREE.Vector3(1, 0, 0);
 const q1 = new THREE.Quaternion();
 const q2 = new THREE.Quaternion();
 const v1 = new THREE.Vector3();
-// agachado: o quadril desce e as pernas (rígidas, sem joelho) abrem uma para frente e outra para trás, com os pés no chão
-const DESCIDA_AGACHADO = 0.45;
-const ABERTURA_PERNAS = 1.0; // rad: perna de 0,97 m nesse ângulo alcança o chão com o quadril 0,45 m mais baixo
+// agachado: a animação "agachado" (modelos/soldado.py) desce o quadril 0,44 m; as armas e o nome descem junto
+const DESCIDA_AGACHADO = 0.44;
 
 // gira um osso em torno do eixo X do soldado (o mesmo eixo para qualquer orientação do pai)
 function girarNoEixoX(grupo: THREE.Group, osso: THREE.Object3D | null, ang: number): void {
@@ -324,21 +327,26 @@ function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number, pitch
   if (fixo) fixo.position.y = -descida;
   const a = grupo.userData.anim as Animacao | undefined;
   if (!a) return;
-  const f = Math.max(0, Math.min(1, (velocidade - 0.4) / 1.6)) * (1 - 0.7 * agachar);
-  a.parado?.setEffectiveWeight(1 - f);
+  // em pé: parado <-> correr; agachado: parado <-> andar agachado (mais devagar)
+  const f = Math.max(0, Math.min(1, (velocidade - 0.4) / 1.6));
+  const fa = Math.max(0, Math.min(1, (velocidade - 0.3) / 1.0));
+  const ag = a.agachado ? agachar : 0; // modelo antigo, sem a animação: fica em pé
+  a.parado?.setEffectiveWeight((1 - f) * (1 - ag));
   if (a.correr) {
-    a.correr.setEffectiveWeight(f);
+    a.correr.setEffectiveWeight(f * (1 - ag));
     a.correr.setEffectiveTimeScale(Math.max(0.6, Math.min(1.5, velocidade / 5)));
+  }
+  a.agachado?.setEffectiveWeight((1 - fa) * ag);
+  if (a.agachadoAndar) {
+    a.agachadoAndar.setEffectiveWeight(fa * ag);
+    a.agachadoAndar.setEffectiveTimeScale(Math.max(0.5, Math.min(1.4, velocidade / 2.2)));
   }
   a.mixer.update(dt);
 
   // mira: o tronco (com os braços) levanta ou abaixa o cano; o tiro dá um coice curto
   const ang = Math.max(-1.0, Math.min(1.0, pitch)) * 0.85 + recuo * 0.09;
-  a.corpo.position.y = -descida;
   grupo.updateMatrixWorld(true);
   girarNoEixoX(grupo, a.tronco, ang);
-  girarNoEixoX(grupo, a.pernaD, agachar * ABERTURA_PERNAS);
-  girarNoEixoX(grupo, a.pernaE, -agachar * ABERTURA_PERNAS);
   // as armas acompanham a mão: giram em torno da cintura junto com o tronco e recuam um pouco ao atirar
   const armas = grupo.userData.armas as THREE.Group[] | undefined;
   if (armas) {

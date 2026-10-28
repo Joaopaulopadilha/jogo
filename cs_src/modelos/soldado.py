@@ -1,10 +1,11 @@
-# Soldado low poly (~1,8 m, com esqueleto e animações "parado" e "correr") para os jogadores do CS Caps.
+# Soldado low poly (~1,8 m, com esqueleto e animações "parado", "correr", "agachado" e "agachado_andar") para o CS Caps.
 # Rodar:  blender --background --python soldado.py [-- --rapido]
 # Saídas: soldado.glb (jogo) e soldado.png / soldado_2.png / soldado_3.png (prévias)
 #
 # Medidas em metros; no Blender o soldado olha para +Y (no jogo, o exportador o deixa olhando para -Z, como a câmera).
 # O colete e a faixa do capacete usam o material "equipe" (branco): o jogo pinta com a cor de cada jogador.
-# Os ossos (quadril, tronco, perna_d, perna_e) são rígidos: cada peça pertence 100% a um osso.
+# Os ossos (quadril, tronco, perna_*, canela_*, pe_*) são rígidos: cada peça pertence 100% a um osso.
+# A perna tem joelho (canela) e tornozelo (pe) para o agachar: no jogo o quadril desce 0,44 m (ALTURA_AGACHADO).
 
 import math
 import os
@@ -87,18 +88,20 @@ def segmento(nome, a, b, r1, r2, osso, material, seg=9):
 
 
 # ---------------------------------------------------------------- modelagem ----
-def perna(lado, osso):
+def perna(lado):
     x = 0.115 * lado
     n = "d" if lado > 0 else "e"
-    segmento(f"coxa_{n}", (x, 0.0, 0.97), (x, 0.03, 0.55), 0.100, 0.078, osso, M_UNIFORME)
-    caixa(f"joelheira_{n}", (x, 0.085, 0.56), (0.15, 0.07, 0.13), osso, M_PRETO, 0.02)
-    segmento(f"canela_{n}", (x, 0.03, 0.55), (x, -0.01, 0.15), 0.074, 0.056, osso, M_UNIFORME)
-    caixa(f"bota_{n}", (x, 0.045, 0.08), (0.16, 0.31, 0.16), osso, M_PRETO, 0.035)
-    caixa(f"cano_bota_{n}", (x, -0.005, 0.21), (0.13, 0.13, 0.14), osso, M_PRETO, 0.03)
+    segmento(f"coxa_{n}", (x, 0.0, 0.97), (x, 0.03, 0.55), 0.100, 0.078, f"perna_{n}", M_UNIFORME)
+    # o joelho (esfera) preenche a junta quando a perna dobra
+    esfera(f"joelho_{n}", (x, 0.03, 0.55), (0.079, 0.079, 0.079), f"canela_{n}", M_UNIFORME)
+    caixa(f"joelheira_{n}", (x, 0.085, 0.56), (0.15, 0.07, 0.13), f"canela_{n}", M_PRETO, 0.02)
+    segmento(f"canela_{n}", (x, 0.03, 0.55), (x, -0.01, 0.15), 0.074, 0.056, f"canela_{n}", M_UNIFORME)
+    caixa(f"cano_bota_{n}", (x, -0.005, 0.21), (0.13, 0.13, 0.14), f"canela_{n}", M_PRETO, 0.03)
+    caixa(f"bota_{n}", (x, 0.045, 0.08), (0.16, 0.31, 0.16), f"pe_{n}", M_PRETO, 0.035)
 
 
-perna(1, "perna_d")
-perna(-1, "perna_e")
+perna(1)
+perna(-1)
 
 # quadril e cinto
 caixa("quadril", (0, 0, 0.99), (0.38, 0.22, 0.17), "quadril", M_UNIFORME, 0.04)
@@ -231,8 +234,10 @@ def osso(nome, cabeca, cauda, pai=None):
 
 osso("quadril", (0, 0, 0.95), (0, 0, 1.05))
 osso("tronco", (0, 0, 1.05), (0, 0, 1.60), "quadril")
-osso("perna_d", (0.115, 0, 0.97), (0.115, 0, 0.5), "quadril")
-osso("perna_e", (-0.115, 0, 0.97), (-0.115, 0, 0.5), "quadril")
+for n, x in (("d", 0.115), ("e", -0.115)):
+    osso(f"perna_{n}", (x, 0, 0.97), (x, 0.03, 0.55), "quadril")
+    osso(f"canela_{n}", (x, 0.03, 0.55), (x, -0.01, 0.15), f"perna_{n}")
+    osso(f"pe_{n}", (x, -0.01, 0.15), (x, 0.17, 0.08), f"canela_{n}")
 bpy.ops.object.mode_set(mode="OBJECT")
 
 soldado.parent = arm
@@ -277,18 +282,61 @@ def clipe(nome, quadros, poses):
 
 
 X = (1, 0, 0)
-# correr: pernas alternando, quadril sobe e desce duas vezes por ciclo, tronco inclina um pouco
+# ângulo positivo em X leva o pé para a frente (+Y). Canela e pé giram em relação ao osso pai,
+# então "dobrar o joelho" é girar a canela para trás (negativo)
+# correr: pernas alternando, joelho dobra na volta da perna, quadril sobe e desce duas vezes por ciclo
 ciclo = 24
 correr = {}
 for q in range(0, ciclo + 1, 3):
     t = 2 * math.pi * q / ciclo
+    s = math.sin(t)
     correr[q] = {
-        "perna_d": ("rot", (X, 38 * math.sin(t))),
-        "perna_e": ("rot", (X, -38 * math.sin(t))),
+        "perna_d": ("rot", (X, 38 * s)),
+        "perna_e": ("rot", (X, -38 * s)),
+        "canela_d": ("rot", (X, -(12 + 50 * max(0.0, -math.cos(t + 0.6))))),
+        "canela_e": ("rot", (X, -(12 + 50 * max(0.0, math.cos(t + 0.6))))),
+        "pe_d": ("rot", (X, 8)),
+        "pe_e": ("rot", (X, 8)),
         "quadril": ("pos", (0, 0, 0.035 * math.cos(2 * t))),
         "tronco": ("rot", (X, 5 + 2 * math.cos(2 * t))),
     }
 clipe("correr", list(range(0, ciclo + 1, 3)), correr)
+
+# agachado: quadril 0,44 m mais baixo; cada perna resolve o joelho para o pé ficar no chão.
+# Coxa 0,42 m (0,97 -> 0,55), canela 0,40 m (0,55 -> 0,15), tornozelo a 0,15 m do chão
+DESCIDA = 0.44
+QUADRIL_Z = 0.97 - DESCIDA
+
+
+def perna_no_chao(coxa_graus, pe_max=None):
+    """dado o ângulo da coxa (para a frente), acha a canela que deixa o tornozelo a 0,15 m do chão.
+    Devolve rotações relativas (coxa, canela, pé); o pé fica reto no chão (ou no máximo pe_max graus)"""
+    a = math.radians(coxa_graus)
+    c = (QUADRIL_Z - 0.15 - 0.42 * math.cos(a)) / 0.40
+    b = math.degrees(math.acos(max(-1.0, min(1.0, c))))  # canela inclinada para trás, no mundo
+    pe = b if pe_max is None else min(b, pe_max)
+    return coxa_graus, -(coxa_graus + b), pe
+
+
+def pose_agachado(frente):
+    """frente = ângulo da coxa da perna da frente (direita); a de trás fica perto do chão"""
+    d = perna_no_chao(frente)
+    e = perna_no_chao(120 - frente, pe_max=25)  # perna de trás: joelho quase no chão, apoiada na ponta do pé
+    return {
+        "quadril": ("pos", (0, -0.02, -DESCIDA)),
+        "perna_d": ("rot", (X, d[0])), "canela_d": ("rot", (X, d[1])), "pe_d": ("rot", (X, d[2])),
+        "perna_e": ("rot", (X, e[0])), "canela_e": ("rot", (X, e[1])), "pe_e": ("rot", (X, e[2])),
+    }
+
+
+clipe("agachado", [0, 24], {0: pose_agachado(88), 24: pose_agachado(88)})
+# andar agachado: as pernas trocam de lugar devagar (passos curtos)
+andar = {}
+for q in range(0, 33, 4):
+    t = 2 * math.pi * q / 32
+    andar[q] = pose_agachado(60 + 28 * math.sin(t))
+    andar[q]["quadril"] = ("pos", (0, -0.02, -DESCIDA + 0.015 * abs(math.cos(t))))
+clipe("agachado_andar", list(range(0, 33, 4)), andar)
 # parado: respiração leve
 parado = {}
 for q in range(0, 49, 12):
@@ -334,5 +382,15 @@ for pb_ in arm.pose.bones:
     pb_.rotation_mode = "QUATERNION"
 pb["perna_d"].rotation_quaternion = girar("perna_d", X, 35)
 pb["perna_e"].rotation_quaternion = girar("perna_e", X, -35)
+pb["canela_e"].rotation_quaternion = girar("canela_e", X, -40)
 foto("soldado_3", AQUI, (4.6, 0.2, 1.2), (0, 0, 0.9), lente=40)
+# pose agachada na prévia (de lado e de frente)
+for nome_osso, (tipo, valor) in pose_agachado(88).items():
+    if tipo == "rot":
+        pb[nome_osso].rotation_quaternion = girar(nome_osso, *valor)
+    else:
+        pb[nome_osso].location = pb[nome_osso].bone.matrix_local.to_3x3().inverted() @ Vector(valor)
+fuzil.location = (0.13, 0.48, 1.17 - DESCIDA)
+foto("soldado_agachado", AQUI, (4.6, 0.2, 0.9), (0, 0, 0.6), lente=40)
+foto("soldado_agachado_2", AQUI, (2.6, 3.4, 1.3), (0, 0, 0.6), lente=40)
 print("pronto")
