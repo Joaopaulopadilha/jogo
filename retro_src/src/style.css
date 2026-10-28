@@ -1,0 +1,154 @@
+html, body {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #9cc7e6;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #fff;
+  user-select: none;
+}
+
+#cena { display: block; width: 100vw; height: 100vh; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; }
+
+#hud > div {
+  position: absolute;
+  background: rgba(20, 22, 26, 0.72);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  backdrop-filter: blur(4px);
+}
+
+#painel-modo { top: 14px; left: 14px; }
+#modo { font-size: 18px; font-weight: 700; }
+#velocidade { color: #ffd34d; font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+#painel-missao { top: 14px; right: 14px; width: 270px; }
+#painel-missao .titulo { font-weight: 700; margin-bottom: 4px; }
+#missao-texto { font-size: 13px; opacity: 0.9; margin-bottom: 8px; line-height: 1.35; }
+
+#painel-carga { bottom: 14px; right: 14px; width: 210px; }
+
+.barra { height: 8px; background: rgba(255, 255, 255, 0.15); border-radius: 4px; margin: 4px 0 8px; overflow: hidden; }
+.barra > div { height: 100%; width: 0; background: #e8a33d; transition: width 0.15s; }
+#barra-vala { background: #4cc46a; }
+
+#ajuda { bottom: 14px; left: 14px; font-size: 13px; line-height: 1.6; }
+#ajuda.escondido { display: none; }
+#ajuda b { color: #ffd34d; display: inline-block; min-width: 54px; }
+#ajuda .titulo { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+#ajuda .rodape { margin-top: 4px; opacity: 0.85; }
+#ajuda .rodape b { min-width: 0; }
+
+#aviso {
+  top: 30%; left: 50%; transform: translateX(-50%);
+  font-size: 22px; font-weight: 700; padding: 14px 24px; text-align: center;
+  transition: opacity 0.3s;
+}
+#aviso.escondido { opacity: 0; }
+
+#inicio {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 14, 20, 0.55);
+}
+#inicio.escondido { display: none; }
+#inicio .caixa {
+  background: #1d2026; border-radius: 14px; padding: 28px 34px; max-width: 460px; text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+#inicio h1 { margin: 0 0 10px; color: #ffc61a; }
+#inicio p { line-height: 1.5; opacity: 0.9; }
+#inicio .pequeno { font-size: 12px; opacity: 0.65; }
+#jogar {
+  background: #ffc61a; color: #222; border: none; border-radius: 8px; padding: 12px 34px;
+  font-size: 18px; font-weight: 700; cursor: pointer; margin: 8px 0;
+}
+#jogar:hover { background: #ffd34d; }
+
+/* ---------- Controles de toque ---------- */
+#toque, #girar-aparelho, .so-toque { display: none; }
+body.toque .so-teclado { display: none; }
+body.toque .so-toque { display: block; }
+body.toque.jogando #toque { display: block; }
+body.toque #ajuda { display: none; }
+#toque { position: fixed; inset: 0; pointer-events: none; }
+#toque > * { pointer-events: auto; }
+
+.manche {
+  position: absolute;
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  width: clamp(120px, 19vmax, 190px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.18) 70%, rgba(255, 255, 255, 0.28) 100%);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  touch-action: none;
+}
+#manche-esq { left: calc(26px + env(safe-area-inset-left)); }
+#manche-dir { right: calc(26px + env(safe-area-inset-right)); }
+.manche-pino {
+  position: absolute; left: 50%; top: 50%; width: 42%; aspect-ratio: 1; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 35% 30%, #ffe27a, #e8a30f);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.manche-rotulo {
+  position: absolute; font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); pointer-events: none;
+}
+.manche-rotulo.cima { top: -18px; left: 50%; transform: translateX(-50%); }
+.manche-rotulo.baixo { bottom: -17px; left: 50%; transform: translateX(-50%); }
+.manche-rotulo.esq { left: 7px; top: 50%; transform: translateY(-50%); }
+.manche-rotulo.dir { right: 7px; top: 50%; transform: translateY(-50%); }
+
+#botoes-toque {
+  position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px;
+}
+#botoes-toque button, #bt-freio {
+  background: rgba(20, 22, 26, 0.75); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px; padding: 10px 14px; font-size: 16px; font-weight: 700; touch-action: none;
+}
+#bt-modo { background: #e8a30f !important; color: #222 !important; border-color: #ffd34d !important; }
+#bt-freio {
+  position: absolute; right: calc(clamp(120px, 19vmax, 190px) + 52px + env(safe-area-inset-right));
+  bottom: calc(30px + env(safe-area-inset-bottom));
+  background: rgba(179, 38, 30, 0.85); padding: 16px 14px; border-radius: 50%; font-size: 12px; aspect-ratio: 1;
+}
+#bt-freio.apertado, #botoes-toque button:active { filter: brightness(1.4); }
+body.modo-escavar #bt-freio { display: none; }
+
+#girar-aparelho {
+  position: fixed; left: 50%; top: 40%; transform: translateX(-50%); z-index: 5;
+  background: rgba(20, 22, 26, 0.9); padding: 14px 18px; border-radius: 12px; font-weight: 700; text-align: center;
+}
+@media (orientation: portrait) {
+  body.toque.jogando #girar-aparelho { display: block; animation: sumir 0.5s 5s forwards; }
+  /* em pé: botões logo acima dos manches, freio acima do manche direito, painéis menores */
+  body.toque #botoes-toque { top: auto; bottom: calc(clamp(120px, 19vmax, 190px) + 48px + env(safe-area-inset-bottom)); left: 26px; transform: none; }
+  body.toque #bt-freio { right: 26px; bottom: calc(clamp(120px, 19vmax, 190px) + 106px + env(safe-area-inset-bottom)); }
+  body.toque #painel-missao, body.toque #painel-carga { width: 150px; }
+  body.toque #painel-carga { top: calc(96px + env(safe-area-inset-top)); }
+}
+@keyframes sumir { to { opacity: 0; visibility: hidden; } }
+
+/* HUD mais compacto em telas pequenas: sobra espaço para os manches */
+body.toque #painel-modo { top: calc(10px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); padding: 6px 10px; }
+body.toque #modo { font-size: 15px; }
+body.toque #painel-missao { top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); width: 200px; padding: 8px 10px; font-size: 12px; }
+body.toque #missao-texto { display: none; }
+body.toque #painel-carga {
+  bottom: auto; top: calc(118px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); width: 200px; padding: 8px 10px; font-size: 12px;
+}
+body.toque #aviso { font-size: 17px; top: 22%; }
+@media (max-height: 430px) {
+  body.toque #painel-carga { top: auto; bottom: auto; left: calc(10px + env(safe-area-inset-left)); right: auto; top: calc(58px + env(safe-area-inset-top)); width: 150px; }
+  body.toque #painel-missao { width: 160px; }
+  #botoes-toque button { padding: 7px 10px; font-size: 14px; }
+}
+#inicio .caixa { margin: 12px; max-height: 90vh; overflow: auto; }

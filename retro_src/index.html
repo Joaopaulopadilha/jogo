@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#1d2026" />
+<title>Retroescavadeira — simulador</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚜</text></svg>" />
+<link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+<canvas id="cena"></canvas>
+
+<div id="hud">
+  <div id="painel-modo">
+    <div id="modo">🚗 Dirigindo</div>
+    <div id="velocidade">0 km/h</div>
+  </div>
+  <div id="painel-missao">
+    <div class="titulo">📋 Missão</div>
+    <div id="missao-texto">Cave a vala marcada com as estacas (1 m de fundo) e jogue a terra na caçamba do caminhão.</div>
+    <div class="barra"><div id="barra-vala"></div></div>
+    <div id="missao-vala">Vala: 0%</div>
+    <div id="missao-caminhao">Caminhão: 0,0 m³</div>
+  </div>
+  <div id="painel-carga">
+    <div>Concha traseira <span id="carga-retro">0%</span></div>
+    <div class="barra"><div id="barra-retro"></div></div>
+    <div>Concha frontal <span id="carga-frente">0%</span></div>
+    <div class="barra"><div id="barra-frente"></div></div>
+  </div>
+  <div id="ajuda"></div>
+  <div id="aviso" class="escondido"></div>
+</div>
+
+<!-- controles de toque (só aparecem em celular/tablet) -->
+<div id="toque">
+  <div id="manche-esq"></div>
+  <div id="manche-dir"></div>
+  <div id="botoes-toque">
+    <button id="bt-modo">⛏️ Escavar</button>
+    <button id="bt-camera">🎥</button>
+    <button id="bt-som">🔊</button>
+    <button id="bt-tela">⛶</button>
+  </div>
+  <button id="bt-freio">FREIO</button>
+</div>
+<div id="girar-aparelho">📱↻ Vire o aparelho na horizontal para jogar melhor</div>
+
+<div id="inicio">
+  <div class="caixa">
+    <h1>🚜 Retroescavadeira</h1>
+    <p>Dirija até a obra, abaixe as sapatas e cave a vala com o braço traseiro.<br />
+      A terra fica na concha: gire e solte na caçamba do caminhão.</p>
+    <button id="jogar">▶ Começar</button>
+    <p class="pequeno so-teclado">Tab troca entre dirigir e escavar · C muda a câmera · H mostra os comandos</p>
+    <p class="pequeno so-toque">Dois manches na tela: o esquerdo e o direito mudam de função ao dirigir e ao escavar. Arraste no meio da tela para girar a câmera e use dois dedos para aproximar.</p>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
