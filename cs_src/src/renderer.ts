@@ -18,6 +18,8 @@ interface Remoto {
   clarao: THREE.Mesh;
   tClarao: number;
   velocidade: number;
+  agachar: number;    // 0 em pé, 1 agachado (suavizado)
+  agAlvo: boolean;
   grupo: THREE.Group;
   armas: THREE.Group[];
   alvo: THREE.Vector3;
@@ -230,7 +232,10 @@ export function carregarSoldado(): void {
 }
 
 interface Animacao {
+  corpo: THREE.Object3D;
   tronco: THREE.Object3D | null;
+  pernaD: THREE.Object3D | null;
+  pernaE: THREE.Object3D | null;
   mixer: THREE.AnimationMixer;
   parado: THREE.AnimationAction | null;
   correr: THREE.AnimationAction | null;
@@ -269,6 +274,7 @@ function vestirSoldado(grupo: THREE.Group, placeholders: THREE.Object3D[], armas
     const fixo = new THREE.Group();
     fixo.add(...estatico);
     grupo.add(fixo);
+    grupo.userData.fixo = fixo; // sem animação, agachar só afunda o modelo (as pernas somem sob o chão)
     for (const a of armas) a.position.set(0.14, 1.16, -0.24);
     return;
   }
@@ -284,7 +290,12 @@ function vestirSoldado(grupo: THREE.Group, placeholders: THREE.Object3D[], armas
   const correr = cc ? mixer.clipAction(cc) : null;
   parado?.play();
   if (correr) { correr.play(); correr.setEffectiveWeight(0); }
-  grupo.userData.anim = { mixer, parado, correr, tronco: corpo.getObjectByName("tronco") ?? null } as Animacao;
+  grupo.userData.anim = {
+    corpo, mixer, parado, correr,
+    tronco: corpo.getObjectByName("tronco") ?? null,
+    pernaD: corpo.getObjectByName("perna_d") ?? null,
+    pernaE: corpo.getObjectByName("perna_e") ?? null,
+  } as Animacao;
   grupo.userData.armas = armas;
 }
 
@@ -294,11 +305,26 @@ const EIXO_X = new THREE.Vector3(1, 0, 0);
 const q1 = new THREE.Quaternion();
 const q2 = new THREE.Quaternion();
 const v1 = new THREE.Vector3();
+// agachado: o quadril desce e as pernas (rígidas, sem joelho) abrem uma para frente e outra para trás, com os pés no chão
+const DESCIDA_AGACHADO = 0.45;
+const ABERTURA_PERNAS = 1.0; // rad: perna de 0,97 m nesse ângulo alcança o chão com o quadril 0,45 m mais baixo
 
-function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number, pitch = 0, recuo = 0): void {
+// gira um osso em torno do eixo X do soldado (o mesmo eixo para qualquer orientação do pai)
+function girarNoEixoX(grupo: THREE.Group, osso: THREE.Object3D | null, ang: number): void {
+  if (!osso?.parent || ang === 0) return;
+  osso.parent.getWorldQuaternion(q1);
+  grupo.getWorldQuaternion(q2);
+  v1.copy(EIXO_X).applyQuaternion(q2).applyQuaternion(q1.invert());
+  osso.quaternion.premultiply(q2.setFromAxisAngle(v1, ang));
+}
+
+function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number, pitch = 0, recuo = 0, agachar = 0): void {
+  const descida = agachar * DESCIDA_AGACHADO;
+  const fixo = grupo.userData.fixo as THREE.Object3D | undefined;
+  if (fixo) fixo.position.y = -descida;
   const a = grupo.userData.anim as Animacao | undefined;
   if (!a) return;
-  const f = Math.max(0, Math.min(1, (velocidade - 0.4) / 1.6));
+  const f = Math.max(0, Math.min(1, (velocidade - 0.4) / 1.6)) * (1 - 0.7 * agachar);
   a.parado?.setEffectiveWeight(1 - f);
   if (a.correr) {
     a.correr.setEffectiveWeight(f);
@@ -308,14 +334,11 @@ function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number, pitch
 
   // mira: o tronco (com os braços) levanta ou abaixa o cano; o tiro dá um coice curto
   const ang = Math.max(-1.0, Math.min(1.0, pitch)) * 0.85 + recuo * 0.09;
-  const tronco = a.tronco;
-  if (tronco?.parent) {
-    grupo.updateMatrixWorld(true);
-    tronco.parent.getWorldQuaternion(q1);
-    grupo.getWorldQuaternion(q2);
-    v1.copy(EIXO_X).applyQuaternion(q2).applyQuaternion(q1.invert());
-    tronco.quaternion.premultiply(q2.setFromAxisAngle(v1, ang));
-  }
+  a.corpo.position.y = -descida;
+  grupo.updateMatrixWorld(true);
+  girarNoEixoX(grupo, a.tronco, ang);
+  girarNoEixoX(grupo, a.pernaD, agachar * ABERTURA_PERNAS);
+  girarNoEixoX(grupo, a.pernaE, -agachar * ABERTURA_PERNAS);
   // as armas acompanham a mão: giram em torno da cintura junto com o tronco e recuam um pouco ao atirar
   const armas = grupo.userData.armas as THREE.Group[] | undefined;
   if (armas) {
@@ -325,7 +348,7 @@ function animarSoldado(grupo: THREE.Group, dt: number, velocidade: number, pitch
     const y = rel.y * c - rel.z * s;
     const z = rel.y * s + rel.z * c;
     for (const arma of armas) {
-      arma.position.set(rel.x + PIVO_TRONCO.x, y + PIVO_TRONCO.y, z + PIVO_TRONCO.z);
+      arma.position.set(rel.x + PIVO_TRONCO.x, y + PIVO_TRONCO.y - descida, z + PIVO_TRONCO.z);
       arma.rotation.set(ang, 0, 0);
     }
   }
@@ -625,7 +648,7 @@ export class Renderer {
       grupo.add(clarao);
       this.scene.add(grupo);
       grupo.rotation.order = "YXZ"; // a queda (inclinação) acontece no eixo do próprio soldado, depois de girar para onde ele olha
-      this.remotos.set(info.id, { pitch: 0, pitchAlvo: 0, recuo: 0, queda: 0, vivo: true, clarao, tClarao: 0, velocidade: 0, grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
+      this.remotos.set(info.id, { pitch: 0, pitchAlvo: 0, recuo: 0, queda: 0, vivo: true, clarao, tClarao: 0, velocidade: 0, agachar: 0, agAlvo: false, grupo, armas, alvo: new THREE.Vector3(), alvoYaw: 0, inicializado: false });
     }
   }
 
@@ -635,6 +658,7 @@ export class Renderer {
     r.alvo.set(p.x, p.y, p.z);
     r.alvoYaw = p.yaw;
     r.pitchAlvo = p.pitch;
+    r.agAlvo = p.ag === true && p.alive;
     // quem morreu fica caído até a próxima rodada; só some quem saiu da partida
     r.grupo.visible = p.on;
     r.armas.forEach((a, i) => { a.visible = i === p.arma; });
@@ -653,8 +677,8 @@ export class Renderer {
     for (const r of this.remotos.values()) r.inicializado = false;
   }
 
-  posicionarCamera(x: number, y: number, z: number, yaw: number, pitch: number, vivo: boolean): void {
-    this.camera.position.set(x, y + (vivo ? OLHO : 0.4), z);
+  posicionarCamera(x: number, y: number, z: number, yaw: number, pitch: number, vivo: boolean, olho = OLHO): void {
+    this.camera.position.set(x, y + (vivo ? olho : 0.4), z);
     this.camera.rotation.order = "YXZ";
     this.camera.rotation.set(vivo ? pitch : -0.2, yaw, vivo ? 0 : 0.6);
     this.arma.visible = vivo;
@@ -761,6 +785,7 @@ export class Renderer {
         if (r.tClarao <= 0) r.clarao.visible = false;
       }
       r.pitch += (r.pitchAlvo - r.pitch) * k;
+      r.agachar += ((r.agAlvo ? 1 : 0) - r.agachar) * Math.min(1, dt * 12);
       r.recuo = Math.max(0, r.recuo - dt * 7);
       // queda ao morrer: cai de costas em ~0,5 s e fica deitado até a próxima rodada
       r.queda = r.vivo ? 0 : Math.min(1, r.queda + dt / 0.5);
@@ -768,11 +793,11 @@ export class Renderer {
       r.grupo.rotation.x = q * 1.5;
       r.grupo.position.y = r.alvo.y + q * 0.27;
       const tag = r.grupo.userData.tag as THREE.Object3D | undefined;
-      if (tag) tag.visible = r.vivo;
+      if (tag) { tag.visible = r.vivo; tag.position.y = ALTURA + 0.55 - r.agachar * DESCIDA_AGACHADO; }
       if (r.grupo.visible && dt > 0) {
         const vel = r.vivo ? Math.hypot(r.grupo.position.x - antes.x, r.grupo.position.z - antes.z) / dt : 0;
         r.velocidade += (vel - r.velocidade) * Math.min(1, dt * 10); // suaviza para a animação não tremer
-        animarSoldado(r.grupo, dt, r.velocidade, r.vivo ? r.pitch : 0, r.vivo ? r.recuo : 0);
+        animarSoldado(r.grupo, dt, r.velocidade, r.vivo ? r.pitch : 0, r.vivo ? r.recuo : 0, r.agachar);
       }
     }
 

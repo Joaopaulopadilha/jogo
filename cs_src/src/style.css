@@ -347,6 +347,10 @@ body.toque canvas { touch-action: none; }
   width: 64px; height: 64px;
   right: calc(env(safe-area-inset-right, 0px) + 128px); bottom: calc(env(safe-area-inset-bottom, 0px) + 40px);
 }
+#btnAgachar {
+  width: 58px; height: 58px; font-size: 8px; letter-spacing: 0.04em;
+  right: calc(env(safe-area-inset-right, 0px) + 134px); bottom: calc(env(safe-area-inset-bottom, 0px) + 118px);
+}
 #btnRecarregar {
   width: 54px; height: 54px;
   right: calc(env(safe-area-inset-right, 0px) + 40px); bottom: calc(env(safe-area-inset-bottom, 0px) + 132px);

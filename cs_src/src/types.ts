@@ -16,6 +16,7 @@ export interface Cmd {
   fwd: number;    // -1..1
   strafe: number; // -1..1
   jump: boolean;
+  crouch?: boolean; // agachado (opcional: versões antigas não mandam)
   yaw: number;
   pitch: number;
   fire: boolean;
@@ -29,6 +30,7 @@ export interface PlayerSnap {
   y: number;
   z: number;
   vy: number;
+  ag?: boolean; // agachado
   yaw: number;
   pitch: number;
   hp: number;

@@ -4,7 +4,7 @@
 import {
   ALCANCE, ALTURA, AQUECIMENTO, ARMAS, CAIXAS, EXPLOSAO_DANO, EXPLOSAO_RAIO, FIM_ROUND,
   GRANADAS_POR_ROUND, GRANADA_FUSIVEL, GRANADA_RAIO, GRANADA_VELOCIDADE, GRAVIDADE, MAX_DT, OLHO,
-  ARENA, ROUNDS_PARA_VENCER, SLOT_GRANADA, TEMPO_ROUND, VIDA, sortearSpawns,
+  ALTURA_AGACHADO, OLHO_AGACHADO, PRECISAO_AGACHADO, ARENA, ROUNDS_PARA_VENCER, SLOT_GRANADA, TEMPO_ROUND, VIDA, sortearSpawns,
   direcao, moverCorpo, raioCaixa,
 } from "./shared";
 import type { Arma, Corpo } from "./shared";
@@ -43,10 +43,13 @@ interface Granada {
   fusivel: number;
 }
 
-const META_HEAD = 1.45; // acima disso (a partir dos pés) conta como headshot
+const CABECA = 0.35; // os últimos 35 cm do corpo contam como headshot (em pé: acima de 1,45 m)
 const LARGURA_HITBOX = 0.35;
 const LIMITE_ARENA = ARENA - 0.4;
 const TROCA_ARMA = 0.35; // s de espera ao trocar de arma
+
+const altura = (p: Corpo): number => (p.ag ? ALTURA_AGACHADO : ALTURA);
+const olho = (p: Corpo): number => (p.ag ? OLHO_AGACHADO : OLHO);
 
 export class HostGame {
   jogadores: Jogador[];
@@ -140,6 +143,7 @@ export class HostGame {
     if (!p.vivo) return;
 
     if (this.fase !== "warmup") moverCorpo(p, { ...c, dt });
+    else p.ag = c.crouch === true;
 
     p.espera = Math.max(0, p.espera - dt);
 
@@ -176,8 +180,8 @@ export class HostGame {
 
   // linha de visão livre entre os olhos de a e o peito de b
   temVisao(a: Jogador, b: Jogador): boolean {
-    const o: Vec3 = [a.x, a.y + OLHO, a.z];
-    const v: Vec3 = [b.x - o[0], b.y + 1.2 - o[1], b.z - o[2]];
+    const o: Vec3 = [a.x, a.y + olho(a), a.z];
+    const v: Vec3 = [b.x - o[0], b.y + altura(b) - 0.6 - o[1], b.z - o[2]];
     const dist = Math.hypot(v[0], v[1], v[2]);
     if (dist < 1e-6) return true;
     const d: Vec3 = [v[0] / dist, v[1] / dist, v[2] / dist];
@@ -191,10 +195,11 @@ export class HostGame {
     p.municao[p.arma]--;
     p.espera = arma.intervalo;
 
-    const o: Vec3 = [p.x, p.y + OLHO, p.z];
+    const o: Vec3 = [p.x, p.y + olho(p), p.z];
+    const disp = arma.dispersao * (p.ag ? PRECISAO_AGACHADO : 1);
     const d = direcao(
-      p.yaw + (Math.random() - 0.5) * arma.dispersao,
-      p.pitch + (Math.random() - 0.5) * arma.dispersao,
+      p.yaw + (Math.random() - 0.5) * disp,
+      p.pitch + (Math.random() - 0.5) * disp,
     );
 
     let melhor = ALCANCE;
@@ -213,7 +218,7 @@ export class HostGame {
       const t = raioCaixa(
         o, d,
         [q.x - LARGURA_HITBOX, q.y, q.z - LARGURA_HITBOX],
-        [q.x + LARGURA_HITBOX, q.y + ALTURA, q.z + LARGURA_HITBOX],
+        [q.x + LARGURA_HITBOX, q.y + altura(q), q.z + LARGURA_HITBOX],
       );
       if (t !== null && t < melhor) { melhor = t; alvo = q.id; }
     }
@@ -222,7 +227,7 @@ export class HostGame {
     let head = false;
     if (alvo >= 0) {
       const q = this.jogadores[alvo];
-      head = e[1] - q.y > META_HEAD;
+      head = e[1] - q.y > altura(q) - CABECA;
       this.causarDano(q, head ? arma.dano * 2 : arma.dano, p, p.arma, head);
     }
     this.onShot({ t: "shot", i: p.id, w: p.arma, o, e, h: alvo, hs: head });
@@ -250,7 +255,7 @@ export class HostGame {
       id: this.proximaGranada++,
       dono: p.id,
       x: p.x + d[0] * 0.5,
-      y: p.y + OLHO + d[1] * 0.5,
+      y: p.y + olho(p) + d[1] * 0.5,
       z: p.z + d[2] * 0.5,
       vx: d[0] * GRANADA_VELOCIDADE,
       vy: d[1] * GRANADA_VELOCIDADE + 3,
@@ -325,7 +330,7 @@ export class HostGame {
 
     for (const q of this.jogadores) {
       if (!q.conectado || !q.vivo) continue;
-      const alvo: Vec3 = [q.x, q.y + ALTURA / 2, q.z];
+      const alvo: Vec3 = [q.x, q.y + altura(q) / 2, q.z];
       const v: Vec3 = [alvo[0] - centro[0], alvo[1] - centro[1], alvo[2] - centro[2]];
       const dist = Math.hypot(v[0], v[1], v[2]);
       if (dist > EXPLOSAO_RAIO) continue;
@@ -395,7 +400,7 @@ export class HostGame {
       round: this.rodada,
       winner: this.vencedor,
       ps: this.jogadores.map((p): PlayerSnap => ({
-        id: p.id, x: p.x, y: p.y, z: p.z, vy: p.vy, yaw: p.yaw, pitch: p.pitch,
+        id: p.id, x: p.x, y: p.y, z: p.z, vy: p.vy, ag: p.ag === true, yaw: p.yaw, pitch: p.pitch,
         hp: p.hp, alive: p.vivo, on: p.conectado,
         arma: p.arma, am: [...p.municao], gr: p.granadas, reloading: p.recarga > 0,
         ack: p.ack, wins: p.vitorias, kills: p.abates, deaths: p.mortes,

@@ -2,7 +2,7 @@
 // Adversário controlado pelo computador (modo solo). Gera um Cmd por frame, como um jogador de verdade;
 // quem aplica o comando (e valida tudo) é o HostGame.
 
-import { ARMAS, OLHO, SLOT_GRANADA, moverCorpo } from "./shared";
+import { ALTURA, ALTURA_AGACHADO, ARMAS, OLHO, SLOT_GRANADA, moverCorpo } from "./shared";
 import type { HostGame, Jogador } from "./hostgame";
 import type { Cmd } from "./types";
 
@@ -141,7 +141,7 @@ export class Bot {
     }
     if (this.visivel) {
       this.vistoHa += dt;
-      this.ultimaPos = [alvo.x, alvo.y, alvo.z];
+      this.ultimaPos = [alvo.x, alvo.y - (alvo.ag ? ALTURA - ALTURA_AGACHADO : 0), alvo.z];
     } else {
       this.vistoHa = 0;
     }

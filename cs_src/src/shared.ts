@@ -12,6 +12,11 @@ export const RAIO = 0.4;
 export const ALTURA = 1.8;
 export const OLHO = 1.62;
 export const VELOCIDADE = 6;
+// agachado: mais baixo (alvo menor, dá para se esconder atrás de caixas baixas), mais lento e com tiro mais preciso
+export const ALTURA_AGACHADO = 1.35;
+export const OLHO_AGACHADO = 1.2;
+export const VELOCIDADE_AGACHADO = 2.7;
+export const PRECISAO_AGACHADO = 0.6; // multiplica a dispersão do tiro
 export const PULO = 6.5;
 export const GRAVIDADE = 18;
 export const DEGRAU = 0.3; // altura máxima que se sobe andando
@@ -221,6 +226,7 @@ export interface Corpo {
   y: number; // pés
   z: number;
   vy: number;
+  ag?: boolean; // agachado
 }
 
 function alturaChao(x: number, y: number, z: number): number {
@@ -277,7 +283,9 @@ function moverEixo(b: Corpo, dx: number, dz: number): void {
 const PASSO_MAX = 1 / 60;
 const LIMITE_ARENA = ARENA - RAIO;
 
-export function moverCorpo(b: Corpo, cmd: Pick<Cmd, "dt" | "fwd" | "strafe" | "jump" | "yaw">): void {
+export function moverCorpo(b: Corpo, cmd: Pick<Cmd, "dt" | "fwd" | "strafe" | "jump" | "yaw" | "crouch">): void {
+  b.ag = cmd.crouch === true; // as caixas vão do chão para cima: levantar nunca fica preso embaixo de nada
+  const vel = b.ag ? VELOCIDADE_AGACHADO : VELOCIDADE;
   let restante = Math.min(cmd.dt, MAX_DT);
   const sin = Math.sin(cmd.yaw);
   const cos = Math.cos(cmd.yaw);
@@ -290,7 +298,7 @@ export function moverCorpo(b: Corpo, cmd: Pick<Cmd, "dt" | "fwd" | "strafe" | "j
     const dt = Math.min(restante, PASSO_MAX);
     restante -= dt;
 
-    moverEixo(b, wx * VELOCIDADE * dt, wz * VELOCIDADE * dt);
+    moverEixo(b, wx * vel * dt, wz * vel * dt);
     // rede de segurança: nada sai da arena (as paredes internas ficam em +-ARENA), e quem já saiu volta
     b.x = Math.max(-LIMITE_ARENA, Math.min(LIMITE_ARENA, b.x));
     b.z = Math.max(-LIMITE_ARENA, Math.min(LIMITE_ARENA, b.z));

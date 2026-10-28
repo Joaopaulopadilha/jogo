@@ -100,6 +100,9 @@ export function montarToque(entrada: Entrada, aoPausar: () => void, aoAjustes: (
     fim: () => { entrada.puloToqueAtivo(false); pulo.classList.remove("ativo"); },
   });
 
+  const agachar = q("btnAgachar");
+  rastrear(agachar, { inicio: () => agachar.classList.toggle("ativo", entrada.alternarAgacharToque()) });
+
   rastrear(q("btnRecarregar"), { inicio: () => entrada.recarregarToque() });
   rastrear(q("btnPlacar"), { inicio: () => entrada.alternarPlacar() });
   rastrear(q("btnPausa"), { inicio: () => aoPausar() });

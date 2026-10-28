@@ -4,6 +4,7 @@
 
 const SENSIBILIDADE = 0.0022;
 const SENSIBILIDADE_TOQUE = 0.005;
+const TECLAS_PRESAS = ["KeyW", "KeyA", "KeyS", "KeyD", "KeyT", "KeyN", "KeyR", "KeyQ", "Tab"];
 
 // diário curto dos eventos que mexem no mouse (para investigar cursor preso): no console, ou em window.__csLog
 const diario: string[] = [];
@@ -32,6 +33,7 @@ export class Entrada {
   private joyX = 0;
   private joyY = 0;
   private puloToque = false;
+  private agacharToque = false; // no toque o botão liga e desliga (segurar ocuparia um dedo)
 
   constructor(private canvas: HTMLElement, private aoMudarTravamento: (travado: boolean) => void) {
     document.addEventListener("pointerlockchange", () => {
@@ -47,7 +49,13 @@ export class Entrada {
     window.addEventListener("blur", () => { registrar("janela perdeu o foco"); this.liberarCursor(); });
     window.addEventListener("focus", () => registrar("janela ganhou o foco"));
     document.addEventListener("visibilitychange", () => registrar(`aba ${document.hidden ? "escondida" : "visível"}`));
-    document.addEventListener("fullscreenchange", () => registrar(`tela cheia: ${!!document.fullscreenElement}`));
+    document.addEventListener("fullscreenchange", () => {
+      registrar(`tela cheia: ${!!document.fullscreenElement}`);
+      // agachar é Ctrl: em tela cheia o navegador deixa o jogo ficar com Ctrl+W/T/N etc. (senão Ctrl+W fecha a aba).
+      // Só essas teclas: o Esc continua soltando o mouse normalmente
+      const kb = (navigator as Navigator & { keyboard?: { lock?: (k: string[]) => Promise<void> } }).keyboard;
+      if (document.fullscreenElement) kb?.lock?.(TECLAS_PRESAS)?.catch(() => {});
+    });
 
     document.addEventListener("mousemove", (e) => {
       if (this.toque || !this.travado) return;
@@ -66,7 +74,7 @@ export class Entrada {
     document.addEventListener("keydown", (e) => {
       if (e.key === "Tab" && this.travado) { e.preventDefault(); this.placar = true; return; }
       if (!this.travado) return;
-      if (e.code === "Space") e.preventDefault();
+      if (e.code === "Space" || e.ctrlKey) e.preventDefault(); // Ctrl é agachar: não deixa virar atalho do navegador
       if (e.code === "KeyR" && !e.repeat) this.recarregar = true;
       if (e.code === "Digit1") this.arma = 0;
       else if (e.code === "Digit2") this.arma = 1;
@@ -174,6 +182,12 @@ export class Entrada {
     this.atirando = ativo && this.travado;
   }
 
+  // liga/desliga o agachar no toque; devolve o novo estado
+  alternarAgacharToque(): boolean {
+    this.agacharToque = !this.agacharToque;
+    return this.agacharToque;
+  }
+
   puloToqueAtivo(ativo: boolean): void {
     this.puloToque = ativo;
   }
@@ -186,7 +200,7 @@ export class Entrada {
     this.placar = !this.placar;
   }
 
-  ler(): { fwd: number; strafe: number; jump: boolean; fire: boolean; reload: boolean } {
+  ler(): { fwd: number; strafe: number; jump: boolean; crouch: boolean; fire: boolean; reload: boolean } {
     const t = this.teclas;
     const limitar = (v: number) => Math.max(-1, Math.min(1, v));
     const fwd = (t.has("KeyW") || t.has("ArrowUp") ? 1 : 0) - (t.has("KeyS") || t.has("ArrowDown") ? 1 : 0);
@@ -197,6 +211,7 @@ export class Entrada {
       fwd: limitar(fwd + this.joyY),
       strafe: limitar(strafe + this.joyX),
       jump: t.has("Space") || this.puloToque,
+      crouch: t.has("ControlLeft") || t.has("ControlRight") || t.has("KeyC") || this.agacharToque,
       fire: this.atirando,
       reload,
     };

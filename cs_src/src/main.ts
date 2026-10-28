@@ -18,7 +18,7 @@ import { CODIGO_MAX, CODIGO_MIN, GuestNet, HostNet, normalizarCodigo } from "./n
 import { Renderer } from "./renderer";
 import { suporteWebGL } from "./webgl";
 import { montarToque } from "./toque";
-import { ARMAS, CORES, MAX_JOGADORES, NOMES_ARMAS, ROUNDS_PARA_VENCER, SLOT_GRANADA, moverCorpo } from "./shared";
+import { ARMAS, CORES, MAX_JOGADORES, NOMES_ARMAS, OLHO, OLHO_AGACHADO, ROUNDS_PARA_VENCER, SLOT_GRANADA, moverCorpo } from "./shared";
 import type { Corpo } from "./shared";
 import type { BoomMsg, Cmd, HostMsg, KillMsg, PlayerInfo, ShotMsg, Snapshot } from "./types";
 
@@ -145,6 +145,7 @@ let aguardoMigracaoAte = 0;            // host novo: partida parada até os outr
 let esperadosMigracao: number[] = [];
 let difPartida: Dificuldade = "normal";
 let ultimaMsgHost = 0;                 // convidado: instante da última mensagem do host
+let olhoVisto = OLHO; // altura da câmera, suavizada ao agachar e levantar
 const SILENCIO_MAX = 8000;             // ms sem nada do outro lado = caiu (a conexão pode não avisar que fechou)
 let fimInicio = 0; // instante em que a partida terminou (0 = ainda não terminou)
 const ATRASO_FIM = 2500;      // ms jogando/vendo o resultado antes do painel final
@@ -765,6 +766,13 @@ async function verificarVersao(): Promise<void> {
 }
 
 $("btnAtualizar").addEventListener("click", () => location.reload());
+
+// agachar é Ctrl, e Ctrl+W (agachar andando) fecha a aba fora da tela cheia: durante a partida, o navegador pergunta antes
+window.addEventListener("beforeunload", (e) => {
+  if (!rodando) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 window.setTimeout(() => void verificarVersao(), 3000);
 window.setInterval(() => void verificarVersao(), 5 * 60_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void verificarVersao(); });
@@ -1427,7 +1435,7 @@ function podeMover(s: Snapshot): boolean {
 function reconciliar(s: Snapshot): void {
   const p = s.ps[eu];
   if (!p) return;
-  const c: Corpo = { x: p.x, y: p.y, z: p.z, vy: p.vy };
+  const c: Corpo = { x: p.x, y: p.y, z: p.z, vy: p.vy, ag: p.ag };
   pendentes = pendentes.filter((x) => x.seq > p.ack);
   if (podeMover(s)) for (const x of pendentes) moverCorpo(c, x);
   corpo = c;
@@ -1595,7 +1603,7 @@ function quadro(agora: number): void {
 
     const inp = entrada.ler();
     const cmd: Cmd = {
-      seq: ++seq, dt, fwd: inp.fwd, strafe: inp.strafe, jump: inp.jump,
+      seq: ++seq, dt, fwd: inp.fwd, strafe: inp.strafe, jump: inp.jump, crouch: inp.crouch,
       yaw: entrada.yaw, pitch: entrada.pitch, fire: inp.fire, reload: inp.reload, arma: entrada.arma,
     };
 
@@ -1656,7 +1664,9 @@ function quadro(agora: number): void {
       const pos = modo === "guest" && corpo ? corpo : meu;
       if (pos && meu) {
         minhaPos = [pos.x, pos.y, pos.z];
-        renderer.posicionarCamera(pos.x, pos.y, pos.z, entrada.yaw, entrada.pitch, meu.alive);
+        const olhoAlvo = pos.ag && meu.alive ? OLHO_AGACHADO : OLHO;
+        olhoVisto += (olhoAlvo - olhoVisto) * Math.min(1, dt * 14);
+        renderer.posicionarCamera(pos.x, pos.y, pos.z, entrada.yaw, entrada.pitch, meu.alive, olhoVisto);
       }
       atualizarHud(snap);
     }
