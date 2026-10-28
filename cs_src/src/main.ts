@@ -1134,8 +1134,8 @@ function criarSala(): void {
     aoSair: (g) => jogo?.desconectar(g.pid),
     aoChamada: aoChamadaPartida,
     aoErro: (msg) => {
-      if (msg === "unavailable-id") {
-        // a senha já está em uso por outra sala: volta para escolher outra
+      if (msg === "unavailable-id" && codigoHost.textContent === "----") {
+        // a senha já está em uso por outra sala: volta para escolher outra (depois de aberta, é só o religar no servidor)
         hostNet?.fechar();
         hostNet = null;
         statusCriar.textContent = `A senha "${senha}" já está em uso. Escolha outra.`;
@@ -1176,6 +1176,7 @@ function conectar(): void {
   statusJoin.textContent = "Conectando...";
   btnConectar.disabled = true;
 
+  guestNet?.fechar(); // tentativa anterior que não deu certo
   guestNet = new GuestNet(codigo, meuNome, {
     aoConectar: () => { statusJoin.textContent = "Conectado! Aguardando o host iniciar..."; },
     aoMensagem: aoMensagemHost,
@@ -1193,7 +1194,9 @@ function conectar(): void {
       btnConectar.disabled = false;
       statusJoin.textContent = msg === "peer-unavailable"
         ? "Sala não encontrada. Verifique a senha."
-        : "Erro: " + msg;
+        : msg === "sem-resposta"
+          ? "O host não respondeu. Peça para ele voltar para a tela do jogo e tente de novo."
+          : "Erro: " + msg;
     },
   });
 }

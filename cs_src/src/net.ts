@@ -28,6 +28,36 @@ function gerarCodigo(): string {
   return c;
 }
 
+// O registro no servidor do PeerJS cai quando a aba ou o app vai para o fundo (ex.: o host abre o WhatsApp para mandar a
+// senha). As conexões já abertas continuam, mas ninguém novo consegue chegar: a sala some para quem digita a senha.
+// Religa sozinho quando cai e ao voltar para a aba.
+const vigias = new WeakMap<Peer, () => void>();
+const RELIGAR_MS = 3000;
+const ESPERA_CONEXAO_MS = 20000; // conexão que não abre nesse tempo é descartada (não ocupa vaga nem trava o "Conectando...")
+
+function manterNoServidor(peer: Peer): void {
+  if (vigias.has(peer)) return;
+  const religar = (): void => {
+    if (peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch { /* ignore */ } }
+  };
+  const aoCair = (): void => { window.setTimeout(religar, RELIGAR_MS); };
+  const aoVoltar = (): void => { if (!document.hidden) religar(); };
+  peer.on("disconnected", aoCair);
+  document.addEventListener("visibilitychange", aoVoltar);
+  window.addEventListener("online", religar);
+  vigias.set(peer, () => {
+    peer.off("disconnected", aoCair);
+    document.removeEventListener("visibilitychange", aoVoltar);
+    window.removeEventListener("online", religar);
+  });
+}
+
+function largarServidor(peer: Peer): void {
+  vigias.get(peer)?.();
+  vigias.delete(peer);
+  try { peer.destroy(); } catch { /* ignore */ }
+}
+
 export interface Convidado {
   conn: DataConnection;
   nome: string;
@@ -67,6 +97,7 @@ export class HostNet {
     this.peer.on("call", (call) => h.aoChamada?.(call));
     this.peer.on("error", (err) => h.aoErro(err.type));
     this.peer.on("connection", (conn) => this.novaConexao(conn));
+    manterNoServidor(this.peer);
   }
 
   nomeHost: string;
@@ -82,7 +113,14 @@ export class HostNet {
     const g: Convidado = { conn, nome: `Jogador ${this.convidados.length + 2}`, pid: religando ? -1 : this.convidados.length + 1, ola: false, slot: 99, visto: performance.now() };
     this.convidados.push(g);
 
-    conn.on("open", () => { if (!religando) this.h.aoMudarLobby(); });
+    // conexão que nunca abre (rede bloqueou, convidado desistiu) não emite "close": sem isto ela ocuparia a vaga para sempre
+    const espera = window.setTimeout(() => {
+      if (conn.open) return;
+      this.convidados = this.convidados.filter((x) => x !== g);
+      try { conn.close(); } catch { /* ignore */ }
+    }, ESPERA_CONEXAO_MS);
+
+    conn.on("open", () => { window.clearTimeout(espera); if (!religando) this.h.aoMudarLobby(); });
     conn.on("data", (data) => {
       const m = data as GuestMsg;
       g.visto = performance.now();
@@ -103,6 +141,8 @@ export class HostNet {
       this.h.aoMensagem(g, m);
     });
     conn.on("close", () => {
+      window.clearTimeout(espera);
+      if (!this.convidados.includes(g)) return; // já descartada
       this.convidados = this.convidados.filter((x) => x !== g);
       this.h.aoSair(g);
       if (!this.iniciada) this.h.aoMudarLobby();
@@ -130,7 +170,10 @@ export class HostNet {
   iniciar(cpus = 0): PlayerInfo[] {
     this.iniciada = true;
     this.convidados.sort((a, b) => a.slot - b.slot);
-    this.convidados.forEach((g, i) => { g.pid = i + 1; });
+    // no lobby os convidados não mandam nada: sem zerar o relógio, quem esperou mais de alguns segundos seria tratado
+    // como "sumiu" logo no primeiro quadro da partida e derrubado
+    const agora = performance.now();
+    this.convidados.forEach((g, i) => { g.pid = i + 1; g.visto = agora; });
     const players = this.jogadores();
     for (let i = 1; i <= cpus && players.length < MAX_JOGADORES; i++) {
       players.push({ id: players.length, nome: `CPU ${i}`, cor: CORES[players.length] });
@@ -160,7 +203,7 @@ export class HostNet {
   fechar(): void {
     for (const g of this.convidados) { try { g.conn.close(); } catch { /* ignore */ } }
     this.convidados = [];
-    try { this.peer.destroy(); } catch { /* ignore */ }
+    largarServidor(this.peer);
   }
 }
 
@@ -180,9 +223,18 @@ export class GuestNet {
     this.peer = new Peer();
     this.peer.on("call", (call) => h.aoChamada?.(call));
     this.peer.on("open", () => {
+      if (this.conn) return; // "open" dispara de novo ao religar no servidor: a conexão com o host já existe
       const conn = this.peer.connect(PREFIXO + codigo, { reliable: true });
       this.conn = conn;
+      // o host não respondeu (saiu da aba, rede bloqueando): avisa em vez de ficar em "Conectando..." para sempre
+      const espera = window.setTimeout(() => {
+        if (conn.open || this.conn !== conn) return;
+        this.conn = null;
+        try { conn.close(); } catch { /* ignore */ }
+        h.aoErro("sem-resposta");
+      }, ESPERA_CONEXAO_MS);
       conn.on("open", () => {
+        window.clearTimeout(espera);
         conn.send({ t: "hello", nome, slot } satisfies GuestMsg);
         h.aoConectar();
       });
@@ -190,6 +242,7 @@ export class GuestNet {
       conn.on("close", () => { if (this.conn === conn) h.aoFechar(); });
     });
     this.peer.on("error", (err) => h.aoErro(err.type));
+    manterNoServidor(this.peer);
   }
 
   // troca de host: liga a mesma conexão ao jogador que assume a sala (o id dele no PeerJS vem da lista da partida)
@@ -209,6 +262,7 @@ export class GuestNet {
     const conn = this.conn;
     this.conn = null;
     try { conn?.close(); } catch { /* ignore */ }
+    this.peer.removeAllListeners("open"); // ao religar no servidor, não pode voltar a ligar no host antigo
     return this.peer;
   }
 
@@ -227,8 +281,9 @@ export class GuestNet {
   }
 
   fechar(): void {
-    try { this.conn?.close(); } catch { /* ignore */ }
-    try { this.peer.destroy(); } catch { /* ignore */ }
+    const conn = this.conn;
     this.conn = null;
+    try { conn?.close(); } catch { /* ignore */ }
+    largarServidor(this.peer);
   }
 }
