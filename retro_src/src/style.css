@@ -200,3 +200,8 @@ body.instalado #bt-tela-inicio, body.instalado #bt-tela, body.instalado #bt-tela
 #ajuda-ios ol { padding-left: 22px; }
 .icone-ios { display: inline-block; border: 1.5px solid #fff; border-radius: 4px; padding: 0 5px; font-size: 13px; }
 #fechar-ajuda-ios { background: #ffc61a; color: #222; border: none; border-radius: 8px; padding: 10px 26px; font-size: 16px; font-weight: 700; }
+
+/* mouse solto (depois do Esc): aviso para clicar e prender de novo */
+#clique-mouse { display: none; top: auto !important; bottom: 18px; left: 50%; transform: translateX(-50%); font-size: 14px; }
+body.jogando:not(.toque):not(.mouse-preso) #clique-mouse { display: block; }
+body.mouse-preso #bt-tela-pc { display: none; }

@@ -108,7 +108,31 @@ const zona = (v: number) => (Math.abs(v) < 0.15 ? 0 : (v - Math.sign(v) * 0.15) 
 const orbita = { yaw: 0, pitch: 0.38, dist: 15 };
 const dedos = new Map<number, { x: number; y: number }>();
 let pinca = 0;
+// no computador o mouse fica preso no jogo (pointer lock): mexer gira a câmera sem clicar; Esc solta
+const mousePreso = () => document.pointerLockElement === canvas;
+function prenderMouse(): void {
+  if (TOQUE || !jogando || mousePreso()) return;
+  try {
+    const p = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
+    p?.catch?.(() => {}); // o navegador recusa logo depois de um Esc: é só clicar de novo
+  } catch {
+    /* sem pointer lock */
+  }
+}
+document.addEventListener("mousemove", (e) => {
+  if (!mousePreso()) return;
+  orbita.yaw -= e.movementX * 0.0035;
+  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + e.movementY * 0.0028, cameraCabine ? -0.8 : 0.05, cameraCabine ? 0.8 : 1.35);
+});
+document.addEventListener("pointerlockchange", () => {
+  document.body.classList.toggle("mouse-preso", mousePreso());
+  if (!mousePreso()) dedos.clear();
+});
 canvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse" && !TOQUE) {
+    prenderMouse();
+    if (mousePreso()) return; // preso: a câmera segue o mouse sem arrastar
+  }
   dedos.set(e.pointerId, { x: e.clientX, y: e.clientY });
   canvas.setPointerCapture(e.pointerId);
   pinca = 0;
@@ -121,7 +145,7 @@ canvas.addEventListener("pointerup", soltarDedo);
 canvas.addEventListener("pointercancel", soltarDedo);
 canvas.addEventListener("pointermove", (e) => {
   const antes = dedos.get(e.pointerId);
-  if (!antes) return;
+  if (!antes || mousePreso()) return;
   const dx = e.clientX - antes.x;
   const dy = e.clientY - antes.y;
   antes.x = e.clientX;
@@ -146,7 +170,7 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 const $ = (id: string) => document.getElementById(id)!;
 const AJUDA_PE = `<div class="titulo">🚶 A pé</div>
     <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> agachar / levantar<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br>
-    <div class="rodape">arraste o mouse para girar a câmera · <b>M</b> som</div>`;
+    <div class="rodape">mouse gira a câmera · <b>Esc</b> solta o mouse · <b>M</b> som</div>`;
 const AJUDA: Record<Modo, string> = {
   dirigir: `<div class="titulo">🚗 Dirigir</div>
     <b>W / S</b> acelerar / ré<br><b>A / D</b> virar<br><b>Espaço</b> freio<br>
@@ -477,6 +501,7 @@ $("jogar").addEventListener("click", () => {
   document.body.classList.add("jogando");
   $("inicio").classList.add("escondido");
   som.iniciar();
+  prenderMouse();
   if (TOQUE) {
     // no celular, entra em tela cheia e tenta travar na horizontal
     if (!instalado()) void entrarTelaCheia();
