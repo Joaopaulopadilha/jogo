@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { Terreno } from "./terreno";
 import { materialTerra } from "./maquina";
+import { Bloco, caixa as bloco, circulo } from "./colisao";
 
 function caixa(w: number, h: number, l: number, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), mat);
@@ -67,7 +68,30 @@ export class Caminhao {
     g.updateMatrixWorld(true);
   }
 
-  private alturaTerra(): number {
+  // blocos de colisão no mundo: base com o piso da caçamba (o topo sobe com a terra), paredes, cabine e para-choque
+  blocos(): Bloco[] {
+    const c = this.cacamba;
+    const g = this.grupo;
+    const y = g.position.y;
+    const r = g.rotation.y;
+    const parte = (lx: number, lz: number, hx: number, hz: number, y0: number, y1: number) => {
+      const p = g.localToWorld(new THREE.Vector3(lx, 0, lz));
+      return bloco(p.x, p.z, r, hx, hz, y + y0, y + y1);
+    };
+    const meio = (c.z0 + c.z1) / 2;
+    const meioComp = (c.z1 - c.z0) / 2 + 0.1;
+    return [
+      parte(0, meio, c.x + 0.1, meioComp, 0, c.piso + this.alturaTerra()), // por baixo e o piso (ou a terra)
+      parte(c.x + 0.075, meio, 0.075, meioComp, 0, c.borda), // parede esquerda
+      parte(-c.x - 0.075, meio, 0.075, meioComp, 0, c.borda), // parede direita
+      parte(0, c.z0 - 0.05, c.x + 0.15, 0.06, 0, c.borda), // tampa traseira
+      parte(0, c.z1 + 0.05, c.x + 0.15, 0.06, 0, c.borda + 0.4), // parede da frente (mais alta)
+      parte(0, 1.9, 1.2, 0.95, 0, 2.7), // cabine
+      parte(0, -3.15, 0.8, 0.35, 0, 1.15), // ponta do chassi atrás
+    ];
+  }
+
+  alturaTerra(): number {
     const c = this.cacamba;
     return Math.min(this.volume / (c.x * 2 * (c.z1 - c.z0)), c.borda - c.piso + 0.4);
   }
@@ -110,7 +134,8 @@ export class Caminhao {
   }
 }
 
-export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE.DirectionalLight; caminhao: Caminhao } {
+export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE.DirectionalLight; caminhao: Caminhao; arvores: Bloco[] } {
+  const arvores: Bloco[] = [];
   cena.background = new THREE.Color("#a9cfe8");
   cena.fog = new THREE.Fog("#a9cfe8", 60, 140);
   cena.add(new THREE.HemisphereLight("#dff0ff", "#5b4a33", 0.9));
@@ -179,6 +204,7 @@ export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE
     const y = terreno.altura(x, z);
     m.compose(new THREE.Vector3(x, y + 1.1 * esc, z), new THREE.Quaternion(), new THREE.Vector3(esc, esc, esc));
     tronco.setMatrixAt(n, m);
+    arvores.push(circulo(x, z, 0.3 * esc, y - 1, y + 2.2 * esc));
     m.compose(new THREE.Vector3(x, y + (2.2 + 1.8) * esc, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aleat() * 6), new THREE.Vector3(esc, esc, esc));
     copa.setMatrixAt(n, m);
   }
@@ -187,5 +213,5 @@ export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE
 
   const caminhao = new Caminhao(terreno, 4.9, 7.6, 0);
   cena.add(caminhao.grupo);
-  return { sol, caminhao };
+  return { sol, caminhao, arvores };
 }

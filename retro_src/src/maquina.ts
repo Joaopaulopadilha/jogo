@@ -203,6 +203,9 @@ export class Retroescavadeira {
   readonly retro: Concha;
   readonly frente: Concha;
   readonly assentoPos = new THREE.Object3D();
+  readonly banco = new THREE.Group();
+  // porta da cabine (lado esquerdo, +x), no corpo da máquina
+  readonly porta = new THREE.Vector3(1.15, 0, -0.75);
   private readonly cilindros: Cilindro[] = [];
 
   constructor() {
@@ -248,8 +251,12 @@ export class Retroescavadeira {
       v.castShadow = false;
       cab.add(v);
     }
-    cab.add(caixa(0.55, 0.12, 0.5, assento, 0, 0.55, 0)); // banco
-    cab.add(caixa(0.55, 0.6, 0.1, assento, 0, 0.85, 0.25));
+    // banco giratório: de frente para dirigir, virado para trás para escavar (o operário senta nele)
+    this.banco.position.set(0, 0, -0.05);
+    cab.add(this.banco);
+    this.banco.add(caixa(0.55, 0.12, 0.5, assento, 0, 0.55, 0));
+    this.banco.add(caixa(0.55, 0.6, 0.1, assento, 0, 0.85, -0.27)); // encosto (atrás de quem senta)
+    this.banco.add(caixa(0.12, 0.45, 0.12, preto, 0, 0.27, 0)); // coluna do banco
     cab.add(caixa(0.12, 0.7, 0.12, preto, 0, 0.45, 0.65)); // coluna do volante
     const volante = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 8, 20), preto);
     volante.position.set(0, 0.85, 0.6);
