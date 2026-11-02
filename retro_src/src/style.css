@@ -29,7 +29,17 @@ html, body {
 #velocidade { color: #ffd34d; font-variant-numeric: tabular-nums; margin-top: 2px; }
 
 #painel-missao { top: 14px; right: 14px; width: 270px; }
-#painel-missao .titulo { font-weight: 700; margin-bottom: 4px; }
+#painel-missao .titulo { font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+#bt-missao {
+  pointer-events: auto; cursor: pointer; background: rgba(255, 255, 255, 0.12); color: #fff; border: none;
+  border-radius: 6px; width: 24px; height: 22px; font-size: 14px; line-height: 1; padding: 0;
+}
+#bt-missao:hover { background: rgba(255, 255, 255, 0.25); }
+#missao-resumo { display: none; font-weight: 400; color: #ffd34d; margin-left: 6px; font-variant-numeric: tabular-nums; }
+#painel-missao.recolhido { width: auto; padding: 6px 8px 6px 12px; background: rgba(20, 22, 26, 0.5); }
+#painel-missao.recolhido .titulo { margin: 0; }
+#painel-missao.recolhido > :not(.titulo) { display: none; }
+#painel-missao.recolhido #missao-resumo { display: inline; }
 #missao-texto { font-size: 13px; opacity: 0.9; margin-bottom: 8px; line-height: 1.35; }
 
 #painel-carga { bottom: 14px; right: 14px; width: 210px; }
@@ -40,6 +50,12 @@ html, body {
 
 #ajuda { bottom: 14px; left: 14px; font-size: 13px; line-height: 1.6; }
 #ajuda.escondido { display: none; }
+/* no computador os comandos ficam só como uma dica discreta; H abre */
+#ajuda { transition: opacity 0.2s; }
+#ajuda.recolhida { padding: 4px 10px; font-size: 0; background: rgba(20, 22, 26, 0.38); opacity: 0.7; }
+#ajuda.recolhida > * { display: none; }
+#ajuda.recolhida::after { content: "H · comandos"; font-size: 12px; }
+#ajuda:not(.recolhida) { background: rgba(20, 22, 26, 0.55); }
 #ajuda b { color: #ffd34d; display: inline-block; min-width: 54px; }
 #ajuda .titulo { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
 #ajuda .rodape { margin-top: 4px; opacity: 0.85; }

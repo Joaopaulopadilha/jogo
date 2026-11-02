@@ -95,7 +95,8 @@ addEventListener("keydown", (e) => {
     op.agachado = !op.agachado;
   } else if (aPe && e.code === "Space" && !e.repeat) pedirPulo = true;
   else if (e.code === "KeyC" && !aPe) cameraCabine = !cameraCabine;
-  else if (e.code === "KeyH") document.getElementById("ajuda")!.classList.toggle("escondido");
+  else if (e.code === "KeyH") alternarPainel("ajuda", "recolhida");
+  else if (e.code === "KeyN") alternarPainel("painel-missao", "recolhido");
   else if (e.code === "KeyM") som.ligado = !som.ligado;
   if (e.code.startsWith("Arrow") || e.code === "Space") e.preventDefault();
   teclas.add(e.code);
@@ -178,6 +179,27 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // ---------------- HUD ----------------
 const $ = (id: string) => document.getElementById(id)!;
+
+// painéis que recolhem (missão e comandos); a escolha fica guardada no navegador
+function alternarPainel(id: string, classe: string, recolher?: boolean): void {
+  const el = $(id);
+  const agora = el.classList.toggle(classe, recolher);
+  $("bt-missao").textContent = $("painel-missao").classList.contains("recolhido") ? "+" : "–";
+  try {
+    localStorage.setItem(`retro-${id}`, agora ? "1" : "0");
+  } catch {
+    /* ignora */
+  }
+}
+function lembrarPainel(id: string, classe: string, padrao: boolean): void {
+  let v: string | null = null;
+  try {
+    v = localStorage.getItem(`retro-${id}`);
+  } catch {
+    /* ignora */
+  }
+  alternarPainel(id, classe, v === null ? padrao : v === "1");
+}
 const AJUDA_PE = `<div class="titulo">🚶 A pé</div>
     <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> agachar / levantar<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br>
     <div class="rodape">mouse gira a câmera · <b>Esc</b> solta o mouse · <b>M</b> som</div>`;
@@ -358,10 +380,6 @@ function blocosMaquina(): Bloco[] {
   return lista;
 }
 
-function todosBlocos(): Bloco[] {
-  return [...blocosMaquina(), ...caminhao.blocos(), ...arvores];
-}
-
 // altura em que o operário fica em pé em (x, z): o chão ou o topo de um bloco que não esteja acima de yMax
 function apoio(blocos: Bloco[], x: number, z: number, yMax: number): number {
   let a = terreno.altura(x, z);
@@ -375,6 +393,7 @@ const DEGRAU = 0.4; // sobe sozinho o que tiver até essa altura
 const ALCANCE = 2.75; // escala o que tiver até essa altura acima dos pés
 let escalada: { t: number; dur: number; x0: number; z0: number; y0: number; x1: number; z1: number; y1: number } | null = null;
 let podeEscalar = false;
+let montado = false; // em pé em cima da máquina (anda junto com ela)
 
 // procura onde o operário iria parar se escalasse o bloco em que encostou; null se alto demais ou sem lugar em cima
 function alvoEscalada(blocos: Bloco[], e: Empurrao): { x: number; z: number; y: number } | null {
@@ -417,6 +436,7 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
     }
     op.grupo.position.set(op.x, op.y, op.z);
     op.grupo.rotation.y = op.rumo;
+    montado = false;
     return;
   }
 
@@ -443,7 +463,8 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
   op.z = THREE.MathUtils.clamp(op.z, -44, 44);
 
   // empurra para fora de tudo que estiver na altura do corpo (o que for baixinho ele sobe: degrau)
-  const blocos = todosBlocos();
+  const blocosMaq = blocosMaquina();
+  const blocos = [...blocosMaq, ...caminhao.blocos(), ...arvores];
   const altura = op.agachado ? 1.15 : 1.75;
   let encosto: Empurrao | null = null;
   for (let passo = 0; passo < 2; passo++) {
@@ -492,6 +513,8 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
       op.noChao = true;
     }
   }
+  // em pé no topo de uma peça da máquina (e não no chão): ela leva o operário junto
+  montado = op.noChao && blocosMaq.some((b) => Math.abs(b.y1 - op.y) < 0.06 && b.y1 > terreno.altura(op.x, op.z) + 0.2 && contem(b, op.x, op.z));
   op.grupo.position.set(op.x, op.y, op.z);
   op.grupo.rotation.y = op.rumo;
   if (!op.noChao) op.tocar("pulo", 0.15);
@@ -499,6 +522,38 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
   else if (op.vel < 0.15) op.tocar("parado", 0.25);
   else if (op.vel < 2.8) op.tocar("andar", 0.25, op.vel / 1.45);
   else op.tocar("correr", 0.25, op.vel / 3.9);
+}
+
+// ---------------- carona: quem está em cima da máquina anda junto com ela ----------------
+const poseAnterior = { x: carro.x, z: carro.z, rumo: carro.rumo, y: carro.y };
+
+// posição (no corpo da máquina) de um ponto do mundo, e o caminho de volta
+function paraCorpo(x: number, z: number, p: { x: number; z: number; rumo: number }): { lx: number; lz: number } {
+  const s = Math.sin(p.rumo);
+  const c = Math.cos(p.rumo);
+  const dx = x - p.x;
+  const dz = z - p.z;
+  return { lx: dx * c - dz * s, lz: dx * s + dz * c };
+}
+
+// chamado depois de a máquina se mexer no quadro: leva o operário pela diferença de pose
+function carregarPassageiro(): void {
+  const dx = carro.x - poseAnterior.x;
+  const dz = carro.z - poseAnterior.z;
+  if (montado && aPe && !escalada && Math.hypot(dx, dz) < 3) {
+    const { lx, lz } = paraCorpo(op.x, op.z, poseAnterior);
+    const p = corpoParaMundo(lx, lz);
+    op.x = p.x;
+    op.z = p.z;
+    op.rumo += carro.rumo - poseAnterior.rumo;
+    op.y += carro.y - poseAnterior.y;
+    op.grupo.position.set(op.x, op.y, op.z);
+    op.grupo.rotation.y = op.rumo;
+  }
+  poseAnterior.x = carro.x;
+  poseAnterior.z = carro.z;
+  poseAnterior.rumo = carro.rumo;
+  poseAnterior.y = carro.y;
 }
 
 // ---------------- toque (celular e tablet) ----------------
@@ -519,6 +574,9 @@ function rotularToque(): void {
   }
 }
 atualizarTextos();
+lembrarPainel("ajuda", "recolhida", true);
+lembrarPainel("painel-missao", "recolhido", false);
+$("bt-missao").addEventListener("click", () => alternarPainel("painel-missao", "recolhido"));
 $("bt-modo").addEventListener("click", () => trocarModo());
 $("bt-entrar").addEventListener("click", () => entrarOuSair());
 const correrToque = botaoSegurar($("bt-correr"));
@@ -954,6 +1012,7 @@ function atualizarHud(dt: number): void {
   } else $("velocidade").textContent = modo === "dirigir" ? `${Math.round(Math.abs(carro.vel) * 3.6)} km/h${carro.vel < -0.1 ? " (ré)" : ""}` : maq.sapatas < 1 ? "Baixando sapatas..." : "Sapatas no chão";
   $("barra-vala").style.width = `${Math.round(progresso * 100)}%`;
   $("missao-vala").textContent = `Vala: ${Math.round(progresso * 100)}%`;
+  $("missao-resumo").textContent = `· vala ${Math.round(progresso * 100)}%`;
   $("missao-caminhao").textContent = `Caminhão: ${caminhao.volume.toFixed(1).replace(".", ",")} m³`;
   const pr = maq.retro.carga / maq.retro.capacidade;
   const pf = maq.frente.carga / maq.frente.capacidade;
@@ -978,7 +1037,13 @@ let tEntradaRemota = 0;
 let anfitriao: Anfitriao | null = null;
 let convidado: Convidado | null = null;
 
-interface Registro extends DadosJogador { uid: string; nome: string; ligado: boolean; ausente: number }
+interface Registro extends DadosJogador {
+  uid: string;
+  nome: string;
+  ligado: boolean;
+  ausente: number;
+  nela?: { lx: number; lz: number; ly: number; lr: number }; // em cima da máquina: posição no corpo dela
+}
 const registros = new Map<string, Registro>(); // anfitrião: todo convidado que passou (os que caíram ficam esperando)
 let pendentesPt: number[][] = [];
 let tRede = 0;
@@ -1007,7 +1072,11 @@ function tickRede(dt: number): void {
   if (tRede > 0) return;
   tRede = 1 / 15;
   if (papel === "anfitriao") tickAnfitriao();
-  else if (aPe && convidado?.conectado) convidado.enviar({ t: "p", ...dadosDoOperario() });
+  else if (aPe && convidado?.conectado) {
+    // em cima da máquina, manda também onde está no corpo dela: assim o anfitrião o põe no lugar certo mesmo com atraso
+    const nela = montado ? { mt: 1, ...paraCorpo(op.x, op.z, carro), ly: op.y - carro.y, lr: op.rumo - carro.rumo } : {};
+    convidado.enviar({ t: "p", ...dadosDoOperario(), ...nela });
+  }
 }
 
 // ----- anfitrião -----
@@ -1051,7 +1120,26 @@ function tickAnfitriao(): void {
   }
 }
 
+function posicionarNela(r: Registro): void {
+  if (!r.nela) return;
+  const p = corpoParaMundo(r.nela.lx, r.nela.lz);
+  r.x = p.x;
+  r.z = p.z;
+  r.y = carro.y + r.nela.ly;
+  r.rumo = carro.rumo + r.nela.lr;
+}
+
+// convidados em cima da máquina seguem a pose dela a cada quadro
+function acompanharPassageiros(): void {
+  for (const r of registros.values()) {
+    if (!r.nela || condutor === r.uid) continue;
+    posicionarNela(r);
+    elenco.atualizar(r.uid, r.nome, r);
+  }
+}
+
 function liberarCabine(r: Registro): void {
+  r.nela = undefined;
   condutor = "";
   const p = corpoParaMundo(maq.porta.x + 0.6, maq.porta.z);
   r.x = p.x;
@@ -1096,10 +1184,16 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
   switch (m.t) {
     case "p":
       if (condutor === l.uid) break; // sentado, quem manda na posição é a máquina
-      r.x = num(m.x, 60);
-      r.y = num(m.y, 60);
-      r.z = num(m.z, 60);
-      r.rumo = num(m.rumo, 1000);
+      if (m.mt === 1) {
+        r.nela = { lx: num(m.lx, 10), lz: num(m.lz, 10), ly: num(m.ly, 10), lr: num(m.lr, 1000) };
+        posicionarNela(r);
+      } else {
+        r.nela = undefined;
+        r.x = num(m.x, 60);
+        r.y = num(m.y, 60);
+        r.z = num(m.z, 60);
+        r.rumo = num(m.rumo, 1000);
+      }
       r.anim = String(m.anim || "parado").slice(0, 24);
       r.esc = num(m.esc, 10) || 1;
       elenco.atualizar(r.uid, r.nome, r);
@@ -1117,6 +1211,7 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
       if (condutor !== "") return recusar("Outro operário está na cabine");
       const porta = corpoParaMundo(maq.porta.x + 0.4, maq.porta.z);
       if (Math.hypot(r.x - porta.x, r.z - porta.z) > 3.2) return recusar("Chegue perto da porta da cabine (lado esquerdo) para entrar");
+      r.nela = undefined;
       condutor = l.uid;
       entradaRemota = ENTRADA_ZERO;
       break;
@@ -1471,6 +1566,8 @@ function quadro(agora: number): void {
   const dt = Math.min(0.05, (agora - ultimo) / 1000);
   ultimo = agora;
   atualizarMaquina(dt);
+  carregarPassageiro();
+  if (papel === "anfitriao") acompanharPassageiros();
   op.atualizar(dt);
   particulas.atualizar(dt, terreno, caminhao);
   elenco.animar(dt, condutor);
@@ -1484,4 +1581,4 @@ function quadro(agora: number): void {
 requestAnimationFrame(quadro);
 
 // para testes automáticos
-(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, get condutor() { return condutor; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
+(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, get montado() { return montado; }, get condutor() { return condutor; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };

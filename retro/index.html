@@ -11,9 +11,9 @@
 <link rel="apple-touch-icon" href="icone-180.png" />
 <meta name="theme-color" content="#1d2026" />
 <title>Retroescavadeira — simulador</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚜</text></svg>" />
-  <script type="module" crossorigin src="./assets/index-BCdMs51l.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-Bmm9DPjp.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚜</text></svg>" />
+  <script type="module" crossorigin src="./assets/index-DdjbxhrN.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-FJLMMeUv.css">
 </head>
 <body>
 <canvas id="cena"></canvas>
@@ -24,7 +24,7 @@
     <div id="velocidade">0 km/h</div>
   </div>
   <div id="painel-missao">
-    <div class="titulo">📋 Missão</div>
+    <div class="titulo"><span>📋 Missão <span id="missao-resumo"></span></span><button id="bt-missao" title="Recolher / abrir a missão (N)">–</button></div>
     <div id="missao-texto">Cave a vala marcada com as estacas (1 m de fundo) e jogue a terra na caçamba do caminhão.</div>
     <div class="barra"><div id="barra-vala"></div></div>
     <div id="missao-vala">Vala: 0%</div>
@@ -106,10 +106,10 @@
       <button id="bt-apagar-obra" class="escondido">🗑️ Recomeçar a obra desta sala</button>
       <p class="pequeno">Quem cria a sala hospeda a obra. Os outros entram com a mesma palavra e, se a conexão cair, voltam digitando de novo (ou recarregando a página).</p>
     </div>
-    <p class="pequeno so-teclado">Tab troca entre dirigir e escavar · C muda a câmera · H mostra os comandos</p>
+    <p class="pequeno so-teclado">Tab troca entre dirigir e escavar · C muda a câmera · H abre os comandos · N recolhe a missão</p>
     <p class="pequeno so-toque">Dois manches na tela: o esquerdo e o direito mudam de função ao dirigir e ao escavar. Arraste no meio da tela para girar a câmera e use dois dedos para aproximar.</p>
   </div>
 </div>
-
+
 </body>
 </html>
