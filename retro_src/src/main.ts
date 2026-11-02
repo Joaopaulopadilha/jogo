@@ -137,6 +137,7 @@ addEventListener("keydown", (e) => {
   teclas.add(e.code);
 });
 addEventListener("keyup", (e) => teclas.delete(e.code));
+document.addEventListener("visibilitychange", () => teclas.clear());
 addEventListener("blur", () => {
   teclas.clear();
   atirando = false;
@@ -169,8 +170,15 @@ const agachandoTeclado = (): boolean => teclas.has("ControlLeft") || teclas.has(
 let botaoYAntes = false;
 let botaoAAntes = false;
 let botaoXAntes = false;
+// Só vale um controle "padrão" e só depois de apertar um botão dele: certos aparelhos USB (pedais, volantes, teclados e mouses gamer) se
+// anunciam como controle e deixam um eixo parado em -1 ou 1, o que fazia o boneco andar sozinho para frente.
+let controleAtivo = false;
 function controle(): Gamepad | null {
-  for (const g of navigator.getGamepads?.() ?? []) if (g && g.connected) return g;
+  for (const g of navigator.getGamepads?.() ?? []) {
+    if (!g || !g.connected || g.mapping !== "standard") continue;
+    if (g.buttons.some((b) => b.pressed)) controleAtivo = true;
+    return controleAtivo ? g : null;
+  }
   return null;
 }
 const zona = (v: number) => (Math.abs(v) < ajustes.zona ? 0 : (v - Math.sign(v) * ajustes.zona) / (1 - ajustes.zona));
@@ -1413,9 +1421,12 @@ function atualizarMaquina(dt: number): void {
       if (agacharToque.apertado) agachar = true;
     }
     if (gp) {
-      const [lx, ly] = gp.axes.map(zona);
-      frente -= ly;
-      lado += lx;
+      // o manche só conta se nenhuma tecla de andar estiver apertada (um eixo travado não anula o teclado)
+      if (frente === 0 && lado === 0) {
+        const [lx, ly] = gp.axes.map(zona);
+        frente -= ly;
+        lado += lx;
+      }
       if ((gp.buttons[7]?.value ?? 0) > 0.5 || gp.buttons[10]?.pressed) correr = true; // RT ou apertar o manche
       const a = !!gp.buttons[0]?.pressed;
       if (a && !botaoAAntes) pedirPulo = true;
@@ -2404,6 +2415,33 @@ $("bt-link").addEventListener("click", () => {
   if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(link).then(() => aviso("🔗 Link copiado", 1.8));
   else window.prompt("Copie o link da sala:", link);
 });
+// volta ao lobby esvaziando tudo que o jogo guardou neste navegador (obra salva, sala, nome, ajustes, personagem, cache)
+async function voltarAoLobby(): Promise<void> {
+  if (!confirm("Voltar ao lobby e esvaziar o cache? A obra salva, o nome, a última sala e os ajustes deste navegador serão apagados.")) return;
+  try {
+    anfitriao?.fechar();
+    convidado?.fechar();
+    voz.fecharTudo();
+  } catch {
+    /* ignora */
+  }
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith("retro-")) localStorage.removeItem(k);
+    sessionStorage.clear();
+  } catch {
+    /* ignora */
+  }
+  try {
+    for (const k of await caches.keys()) await caches.delete(k);
+    for (const r of (await navigator.serviceWorker?.getRegistrations()) ?? []) await r.unregister();
+  } catch {
+    /* sem Cache Storage */
+  }
+  document.exitPointerLock?.();
+  location.replace(`${location.pathname}?limpo=${Date.now()}`); // recarrega sem a sala e sem a página em cache
+}
+$("bt-voltar-pc").addEventListener("click", () => void voltarAoLobby());
+$("bt-voltar-lobby").addEventListener("click", () => void voltarAoLobby());
 $("bt-sair-sala").addEventListener("click", () => {
   try {
     localStorage.removeItem(chaveSessao);

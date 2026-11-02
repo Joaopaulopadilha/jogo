@@ -347,3 +347,11 @@ body.armado:not(.toque) #municao-hud { display: block; }
 #hud > #morto-msg { display: none; top: 38%; left: 50%; transform: translateX(-50%); font-size: 24px; font-weight: 700; padding: 16px 28px; background: rgba(120, 10, 10, 0.78); }
 body.morto #morto-msg { display: block; }
 body.levou::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 6; box-shadow: inset 0 0 90px 24px rgba(255, 30, 30, 0.5); }
+#bt-voltar-pc {
+  position: absolute; top: 14px; left: calc(50% + 190px); pointer-events: auto;
+  background: rgba(20, 22, 26, 0.72); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px;
+  padding: 7px 14px; font-size: 14px; font-weight: 700; cursor: pointer; display: none;
+}
+body.jogando:not(.toque):not(.mouse-preso) #bt-voltar-pc { display: block; }
+body.instalado #bt-voltar-pc { left: calc(50% + 120px); }
+#bt-voltar-lobby { background: #7a2b2b; color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
