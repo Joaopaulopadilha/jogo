@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Retro" />
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icone-180.png" />
 <meta name="theme-color" content="#1d2026" />
@@ -58,6 +59,7 @@
   <div id="municao-hud">🔫 <b id="txt-municao">15</b><small>/15</small><em>recarregando…</em></div>
   <div id="acerto-marca">✕</div>
   <div id="morto-msg">💀 Você foi eliminado — renasce já já…</div>
+  <div id="nova-versao" class="escondido">🔄 Nova versão disponível. Toque aqui para atualizar</div>
   <div id="mira-tela"><svg id="cruz" width="28" height="28" viewBox="0 0 28 28"><path d="M14 3v6M14 19v6M3 14h6M19 14h6" stroke="#fff" stroke-width="2" fill="none"/></svg><span id="ponto"></span></div>
   <div id="clique-mouse">🖱️ Clique na tela para controlar a câmera com o mouse</div>
 </div>
@@ -98,9 +100,8 @@
   <!-- a pé (toque): fuzil -->
   <div id="botoes-arma">
     <button id="bt-recarregar">↻<br>Recarregar</button>
-    <button id="bt-mirar">🎯<br>Mirar</button>
-    <button id="bt-arma">🔫<br>Fuzil</button>
-    <button id="bt-fogo">🔥<br>Atirar</button>
+    <button id="bt-arma">🔫<br>Sacar / guardar</button>
+    <button id="bt-mirar">🎯<br>Segure: mira e atira</button>
   </div>
 </div>
 <div id="girar-aparelho">📱↻ Vire o aparelho na horizontal para jogar melhor</div>

@@ -164,7 +164,7 @@ function alternarArma(): void {
   if (armado) orbita.pitch = 0.2;
   atirando = false;
   mirando = false;
-  aviso(armado ? (TOQUE ? "🔫 Fuzil na mão: 🔥 atira, 🎯 mira, ↻ recarrega" : "🔫 Fuzil na mão: clique atira (ou Enter), clique direito ou X mira, R recarrega, F guarda") : "Fuzil guardado", 3);
+  aviso(armado ? (TOQUE ? "🔫 Fuzil na mão: segure 🎯 para mirar e atirar, ↻ recarrega" : "🔫 Fuzil na mão: clique atira (ou Enter), clique direito ou X mira, R recarrega, F guarda") : "Fuzil guardado", 3);
 }
 const k = (c: string) => (teclas.has(c) ? 1 : 0);
 // Ctrl (ou C, que não fecha a aba como Ctrl+W) agacha enquanto estiver pressionado
@@ -806,15 +806,11 @@ $("bt-pular").addEventListener("pointerdown", (e) => {
   pedirPulo = true;
 });
 const agacharToque = botaoSegurar($("bt-agachar"));
-// fuzil no toque: 🔫 saca/guarda, 🔥 atira (segurando é automático), 🎯 liga/desliga a mira, ↻ recarrega
-const fogoToque = botaoSegurar($("bt-fogo"));
+// fuzil no toque: 🔫 saca/guarda; 🎯 enquanto o dedo estiver nele mira e atira em rajada; ↻ recarrega
+const mirarToque = botaoSegurar($("bt-mirar"));
 $("bt-arma").addEventListener("pointerdown", (e) => {
   e.preventDefault();
   if (aPe) alternarArma();
-});
-$("bt-mirar").addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  if (aPe && armado) mirando = !mirando;
 });
 $("bt-recarregar").addEventListener("pointerdown", (e) => {
   e.preventDefault();
@@ -1427,6 +1423,7 @@ function armaDoJogador(dt: number): void {
     recarregando = 0; // guardar o fuzil (ou ser eliminado) cancela a recarga
   }
   if (aPe) op.grupo.visible = !morto;
+  if (TOQUE) mirando = mirarToque.apertado && ativo; // no toque a mira vale enquanto o dedo estiver no botão
   op.arma.ligada = ativo;
   op.esconderCorpoAoMirar = true;
   adsT += ((mirando && ativo ? 1 : 0) - adsT) * Math.min(1, dt * 10);
@@ -1444,7 +1441,7 @@ function armaDoJogador(dt: number): void {
   }
   op.arma.recarga = recarregando > 0 ? 1 - recarregando / TEMPO_RECARGA : 0;
   // atira com o clique esquerdo (segurando é automático; um toque rápido no touchpad dá um tiro) ou com a tecla Enter
-  const fogo = ((atirando || performance.now() < tiroAte) && !!document.pointerLockElement) || teclas.has("Enter") || fogoToque.apertado;
+  const fogo = ((atirando || performance.now() < tiroAte) && !!document.pointerLockElement) || teclas.has("Enter") || (mirarToque.apertado && adsT > 0.6);
   if (ativo && fogo && esperaTiro === 0 && recarregando === 0) {
     tiroAte = 0;
     if (municao > 0) {
@@ -1794,7 +1791,6 @@ function atualizarHud(dt: number): void {
     const dicaEscalar = TOQUE ? "⬆️ para escalar" : "Espaço para escalar";
     $("velocidade").textContent = perto && podeEscalar && !escalada ? `${dicaEntrar} · ${dicaEscalar}` : perto ? dicaEntrar : escalada ? "Escalando" : podeEscalar ? (TOQUE ? "⬆️ para escalar" : "Espaço para escalar") : !op.noChao ? "No ar" : op.agachado ? "Agachado" : op.vel > 2.8 ? "Correndo" : op.vel > 0.15 ? "Andando" : "Parado";
     $("bt-agachar").classList.toggle("ligado", op.agachado);
-  $("bt-mirar").classList.toggle("ligado", mirando);
   } else if (veiculo === "cam") $("velocidade").textContent = `${Math.round(Math.abs(carroCam.vel) * 3.6)} km/h${carroCam.vel < -0.1 ? " (ré)" : ""}${caminhao.inclinacao > 0.02 ? ` · caçamba ${Math.round((caminhao.inclinacao * 180) / Math.PI)}°` : ""}`;
   else $("velocidade").textContent = modo === "dirigir" ? `${Math.round(Math.abs(carro.vel) * 3.6)} km/h${carro.vel < -0.1 ? " (ré)" : ""}` : maq.sapatas < 1 ? "Baixando sapatas..." : "Sapatas no chão";
   $("barra-vala").style.width = `${Math.round(progresso * 100)}%`;
@@ -2475,6 +2471,37 @@ $("bt-link").addEventListener("click", () => {
   if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(link).then(() => aviso("🔗 Link copiado", 1.8));
   else window.prompt("Copie o link da sala:", link);
 });
+// celular e tablet guardam a página antiga: compara o carimbo deste código com o versao.json do servidor (sem cache). No lobby
+// recarrega sozinho; no meio do jogo mostra um aviso para tocar e atualizar.
+function irParaVersao(v: string): void {
+  const u = new URL(location.href);
+  u.searchParams.set("v", v);
+  location.replace(u.toString());
+}
+async function verificarVersao(): Promise<void> {
+  try {
+    const r = await fetch(`${import.meta.env.BASE_URL}versao.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!r.ok) return;
+    const v = String(((await r.json()) as { v?: unknown }).v ?? "");
+    if (!v || v === __VERSAO__) return;
+    if (!jogando && sessionStorage.getItem("retro-recarregou") !== v) {
+      sessionStorage.setItem("retro-recarregou", v); // uma vez só por versão (se o servidor ainda servir a velha, não entra em laço)
+      irParaVersao(v);
+      return;
+    }
+    const el = $("nova-versao");
+    el.classList.remove("escondido");
+    el.onclick = () => irParaVersao(v);
+  } catch {
+    /* sem rede ou sem versao.json (desenvolvimento) */
+  }
+}
+void verificarVersao();
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void verificarVersao();
+});
+setInterval(() => void verificarVersao(), 5 * 60 * 1000);
+
 // volta ao lobby esvaziando tudo que o jogo guardou neste navegador (obra salva, sala, nome, ajustes, personagem, cache)
 async function voltarAoLobby(): Promise<void> {
   if (!confirm("Voltar ao lobby e esvaziar o cache? A obra salva, o nome, a última sala e os ajustes deste navegador serão apagados.")) return;
