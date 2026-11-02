@@ -326,7 +326,9 @@ body.mirando #mira-tela::before { content: ""; position: absolute; left: -70px; 
 #hud > #mira-tela { background: none; padding: 0; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; min-width: 0; }
 
 /* ---------- Vida, escudo, munição e acertos ---------- */
-#vida-hud { bottom: 14px; left: 50%; transform: translateX(-50%); width: 240px; padding: 8px 12px !important; }
+#vida-hud { bottom: 50px; left: 14px; width: 230px; padding: 8px 12px !important; }
+#ajuda:not(.recolhida):not(.escondido) ~ #vida-hud { bottom: 14px; left: 330px; } /* com os comandos abertos (H), a vida sai da frente */
+body.toque #vida-hud { bottom: auto; top: 14px; left: 50%; transform: translateX(-50%); width: 200px; }
 #vida-hud .linha { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 #vida-hud .barra { flex: 1; height: 10px; background: rgba(255, 255, 255, 0.14); border-radius: 5px; overflow: hidden; }
 #vida-hud .barra i { display: block; height: 100%; width: 100%; border-radius: 5px; transition: width 0.15s; }

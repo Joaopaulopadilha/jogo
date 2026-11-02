@@ -550,6 +550,7 @@ let aposCarrinho = 0; // s que restam, depois do fim do carrinho, para o pulo gu
 let salto: { vel: number; t: number } | null = null; // pulo feito durante/logo depois do carrinho
 let prolongar = false; // Ctrl/C apertado no ar: ao pousar, o carrinho continua
 let agachouAntes = false;
+let rumoPasso = 0; // direção em que o operário se desloca (igual ao rumo do corpo, menos com o fuzil na mão)
 
 // o Shift continua "apertado" por um instante depois de solto: dá tempo de apertar o Ctrl/C com o mesmo dedo e fazer o carrinho
 const SHIFT_RESIDUAL = 0.5; // s
@@ -621,10 +622,17 @@ function andarAPe(dt: number, frente: number, lado: number, shift: boolean, agac
   else if (salto && !op.noChao) op.vel = Math.max(op.vel, salto.vel); // no pulo do combo o impulso se mantém
   // no ar dá para corrigir um pouco a direção, mas não frear de repente
   else op.vel += (alvo - op.vel) * Math.min(1, dt * (op.noChao ? 8 : 1.5));
-  if (armado && !carrinho) {
-    // com o fuzil na mão o corpo fica virado para onde a câmera (a mira) olha
+  const armadoAndando = armado && !carrinho;
+  if (armadoAndando) {
+    // com o fuzil na mão o corpo fica virado para onde a câmera (a mira) olha, mas anda para onde as teclas mandam
+    // (frente, trás e lados em relação à mira): a direção do passo é separada da direção do corpo
     const dif = Math.atan2(Math.sin(orbita.yaw + Math.PI - op.rumo), Math.cos(orbita.yaw + Math.PI - op.rumo));
     op.rumo += dif * Math.min(1, dt * 16);
+    if (forca > 0.05) {
+      const alvoMov = Math.atan2(dx, dz);
+      const dm = Math.atan2(Math.sin(alvoMov - rumoPasso), Math.cos(alvoMov - rumoPasso));
+      rumoPasso += dm * Math.min(1, dt * (op.noChao ? 14 : 3));
+    }
   } else if (forca > 0.05 && !carrinho) {
     const n = Math.hypot(dx, dz);
     dx /= n;
@@ -633,8 +641,9 @@ function andarAPe(dt: number, frente: number, lado: number, shift: boolean, agac
     dif = Math.atan2(Math.sin(dif), Math.cos(dif));
     op.rumo += dif * Math.min(1, dt * (op.noChao ? 10 : 3));
   }
-  op.x += Math.sin(op.rumo) * op.vel * dt;
-  op.z += Math.cos(op.rumo) * op.vel * dt;
+  if (!armadoAndando) rumoPasso = op.rumo;
+  op.x += Math.sin(rumoPasso) * op.vel * dt;
+  op.z += Math.cos(rumoPasso) * op.vel * dt;
   [op.x, op.z] = limitar(op.x, op.z, 4);
 
   // empurra para fora de tudo que estiver na altura do corpo (o que for baixinho ele sobe: degrau)
@@ -1239,11 +1248,40 @@ function atualizarSaude(dt: number): void {
   }
 }
 
-// volta para perto da máquina com o pente cheio
+// renasce em outro lugar: um ponto livre do campo, longe de onde morreu e dos outros jogadores (sorteia entre os melhores), com o pente cheio
 function renascer(): void {
-  colocarOperarioInicial(Math.floor(Math.random() * 8));
+  const outros = elenco.posicoes();
+  const livres: { x: number; z: number; nota: number }[] = [];
+  for (let r = 14; r <= 36; r += 11) {
+    for (let a = 0; a < 16; a++) {
+      const ang = (a / 16) * Math.PI * 2 + r * 0.37;
+      const x = Math.cos(ang) * r;
+      const z = 4 + Math.sin(ang) * r;
+      if (Math.abs(x) > 36 || Math.abs(z) > 36 || (x < -12 && z > 12)) continue; // dentro do mapa e fora do morro da comunidade
+      if (x > VALA.x0 - 3 && x < VALA.x1 + 3 && z > VALA.z0 - 3 && z < VALA.z1 + 3) continue; // longe da vala
+      if (arvores.some((t) => Math.hypot(t.x - x, t.z - z) < t.hx + 2.5)) continue;
+      if ([...blocosMaquina(), ...caminhao.blocos()].some((b) => Math.hypot(b.x - x, b.z - z) < Math.max(b.hx, b.hz) + 3)) continue;
+      let nota = Math.min(35, Math.hypot(x - op.x, z - op.z)); // longe de onde morreu (acima de 35 m já basta)
+      for (const o of outros) nota = Math.min(nota, Math.hypot(x - o.x, z - o.z) * 1.3);
+      livres.push({ x, z, nota });
+    }
+  }
+  const melhor = Math.max(0, ...livres.map((l) => l.nota));
+  const bons = livres.filter((l) => l.nota >= melhor * 0.85); // sorteia entre os pontos quase tão bons quanto o melhor
+  const p = bons.length > 0 ? bons[Math.floor(Math.random() * bons.length)] : { x: op.x + 12, z: op.z, nota: 0 };
+  op.x = p.x;
+  op.z = p.z;
+  op.y = terreno.altura(p.x, p.z);
   op.vel = 0;
   op.vy = 0;
+  op.noChao = true;
+  op.rumo = Math.atan2(-p.x, 4 - p.z); // de frente para a obra
+  op.grupo.position.set(op.x, op.y, op.z);
+  op.grupo.rotation.y = op.rumo;
+  orbita.yaw = op.rumo + Math.PI;
+  orbita.pitch = 0.3;
+  alvoCam.set(0, 0, 0); // a câmera vai direto para o novo lugar, sem deslizar
+  camera.position.set(0, 0, 0);
   municao = PENTE;
   recarregando = 0;
 }
@@ -2597,4 +2635,4 @@ function quadro(agora: number): void {
 requestAnimationFrame(quadro);
 
 // para testes automáticos
-(window as unknown as { jogo: unknown }).jogo = { saudeDe, aplicarDano, recarregar, get municao() { return municao; }, get recarregando() { return recarregando; }, alternarArma, atirar, mirar: (v: boolean) => (mirando = v), get armado() { return armado; }, tiros, LOTES, favela, camera, alvoCam, posCam, maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get condutorCam() { return condutorCam; }, carroCam, get veiculo() { return veiculo; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
+(window as unknown as { jogo: unknown }).jogo = { renascer, saudeDe, aplicarDano, recarregar, get municao() { return municao; }, get recarregando() { return recarregando; }, alternarArma, atirar, mirar: (v: boolean) => (mirando = v), get armado() { return armado; }, tiros, LOTES, favela, camera, alvoCam, posCam, maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get condutorCam() { return condutorCam; }, carroCam, get veiculo() { return veiculo; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
