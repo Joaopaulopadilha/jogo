@@ -30,6 +30,8 @@ export async function entrarTelaCheia(): Promise<boolean> {
     if (raiz.requestFullscreen) await raiz.requestFullscreen();
     else if (raiz.webkitRequestFullscreen) raiz.webkitRequestFullscreen();
     else return false;
+    // computador: em tela cheia o Chrome deixa a página ficar com Ctrl, W etc. (Ctrl+W deixaria de fechar a aba)
+    void (navigator as Navigator & { keyboard?: { lock?: (k: string[]) => Promise<void> } }).keyboard?.lock?.(["ControlLeft", "ControlRight", "KeyW", "KeyA", "KeyS", "KeyD"]).catch(() => {});
     // celular: tenta travar na horizontal (nem todo navegador deixa)
     await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.("landscape").catch(() => {});
     return true;
@@ -39,6 +41,7 @@ export async function entrarTelaCheia(): Promise<boolean> {
 }
 
 export function sairTelaCheia(): void {
+  (navigator as Navigator & { keyboard?: { unlock?: () => void } }).keyboard?.unlock?.();
   if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
   else doc.webkitExitFullscreen?.();
 }

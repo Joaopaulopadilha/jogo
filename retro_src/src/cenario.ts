@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { Terreno } from "./terreno";
 import { Caminhao } from "./caminhao";
+import { construirFavela, Favela } from "./favela";
 import { Bloco, circulo } from "./colisao";
 
 function caixa(w: number, h: number, l: number, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
@@ -14,7 +15,7 @@ function caixa(w: number, h: number, l: number, mat: THREE.Material, x = 0, y = 
 // vala da missão: retângulo marcado por estacas
 export const VALA = { x0: -0.8, x1: 0.8, z0: -1, z1: 5, profundidade: 1 };
 
-export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE.DirectionalLight; caminhao: Caminhao; arvores: Bloco[] } {
+export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE.DirectionalLight; caminhao: Caminhao; arvores: Bloco[]; favela: Favela } {
   const arvores: Bloco[] = [];
   cena.background = new THREE.Color("#a9cfe8");
   cena.fog = new THREE.Fog("#a9cfe8", 60, 140);
@@ -79,7 +80,7 @@ export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE
     do {
       x = (aleat() - 0.5) * 88;
       z = (aleat() - 0.5) * 88;
-    } while (Math.hypot(x, z - 4) < 24);
+    } while (Math.hypot(x, z - 4) < 24 || (x < -14 && z > 14)); // sem árvores na obra nem no morro da comunidade
     const esc = 0.75 + aleat() * 0.6;
     const y = terreno.altura(x, z);
     m.compose(new THREE.Vector3(x, y + 1.1 * esc, z), new THREE.Quaternion(), new THREE.Vector3(esc, esc, esc));
@@ -93,5 +94,6 @@ export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE
 
   const caminhao = new Caminhao(4.9, terreno.altura(4.9, 7.6), 7.6, 0);
   cena.add(caminhao.grupo);
-  return { sol, caminhao, arvores };
+  const favela = construirFavela(cena, terreno);
+  return { sol, caminhao, arvores, favela };
 }

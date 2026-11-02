@@ -1,9 +1,10 @@
 import * as THREE from "three";
+import { TAMANHO, alturaTerreno, pesoComunidade, pesoPlataforma } from "./mapa";
 
 // Terreno de altura (heightmap) que pode ser cavado e aterrado.
 // Grade de N×N vértices cobrindo TAMANHO×TAMANHO metros; índice = i*N + j (i no eixo z, j no eixo x).
-export const TAMANHO = 100;
-export const N = 201;
+export { TAMANHO };
+export const N = 241;
 export const CELULA = TAMANHO / (N - 1); // 0,5 m
 const AREA = CELULA * CELULA;
 const FUNDO_MAXIMO = 3.5; // não deixa cavar mais fundo que isso abaixo do terreno original
@@ -14,14 +15,8 @@ const VERDE_ESCURO = new THREE.Color("#4a7a2e");
 const TERRA = new THREE.Color("#7a5532");
 const TERRA_FUNDA = new THREE.Color("#5a3b22");
 const TERRA_SOLTA = new THREE.Color("#8d6640");
-
-function ruido(x: number, z: number): number {
-  return (
-    Math.sin(x * 0.071 + 1.3) * Math.cos(z * 0.053) * 0.9 +
-    Math.sin(x * 0.17 + z * 0.13) * 0.35 +
-    Math.cos(x * 0.31 - z * 0.27) * 0.12
-  );
-}
+const CHAO_COMUNIDADE = new THREE.Color("#a28b68"); // terra batida do morro
+const CONCRETO = new THREE.Color("#b3ad9f"); // terreno aplainado das casas
 
 export class Terreno {
   readonly alturas = new Float32Array(N * N);
@@ -30,6 +25,8 @@ export class Terreno {
   private readonly geo: THREE.BufferGeometry;
   private readonly cores: Float32Array;
   private readonly tom = new Float32Array(N * N); // variação do verde
+  private readonly comunidade = new Float32Array(N * N); // 0 a 1: chão da comunidade (terra batida)
+  private readonly plataforma = new Float32Array(N * N); // 0 a 1: terreno aplainado de uma casa
   // região alterada desde a última atualização da malha
   private iMin = N;
   private iMax = -1;
@@ -46,14 +43,12 @@ export class Terreno {
       for (let j = 0; j < N; j++) {
         const x = this.xDe(j);
         const z = this.zDe(i);
-        const r = Math.hypot(x, z - 4);
-        // a obra (centro) é plana; morros suaves em volta e uma borda mais alta fechando o mapa
-        const plano = THREE.MathUtils.smoothstep(r, 18, 34);
-        const borda = Math.max(0, Math.max(Math.abs(x), Math.abs(z)) - 40);
-        const h = ruido(x, z) * 1.6 * plano + borda * borda * 0.12;
+        const h = alturaTerreno(x, z);
         const k = i * N + j;
         this.alturas[k] = h;
         this.original[k] = h;
+        this.comunidade[k] = pesoComunidade(x, z);
+        this.plataforma[k] = pesoPlataforma(x, z);
         this.tom[k] = 0.5 + 0.5 * Math.sin(x * 0.9 + Math.cos(z * 0.7) * 2) * Math.cos(z * 1.1);
       }
     }
@@ -218,6 +213,11 @@ export class Terreno {
     if (dif < -0.04) c.lerpColors(TERRA, TERRA_FUNDA, THREE.MathUtils.clamp(-dif / 2, 0, 1));
     else if (dif > 0.03) c.copy(TERRA_SOLTA).lerp(TERRA, this.tom[k] * 0.4);
     else if (dif < -0.01 || dif > 0.01) c.lerp(TERRA, 0.6);
+    else {
+      // intocado: no morro da comunidade o chão é terra batida (e concreto onde as casas foram aplainadas)
+      c.lerp(CHAO_COMUNIDADE, this.comunidade[k] * 0.9);
+      c.lerp(CONCRETO, this.plataforma[k] * 0.75);
+    }
     this.cores[k * 3] = c.r;
     this.cores[k * 3 + 1] = c.g;
     this.cores[k * 3 + 2] = c.b;

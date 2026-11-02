@@ -8,6 +8,7 @@ const modelos = new Map<string, Promise<GLTF>>();
 
 // Operário: modelo do Meshy com esqueleto e animações feitas no Blender (modelos/operario.py).
 // Animações: parado, andar, correr, agachado, agachado_andar, pulo, sentado. Frente do modelo = +z.
+// "carrinho" (escorregada de futebol) usa a animação agachado com o corpo inclinado para trás.
 export class Operario {
   readonly grupo = new THREE.Group();
   x = 0;
@@ -23,6 +24,7 @@ export class Operario {
   private readonly acoes = new Map<string, THREE.AnimationAction>();
   atual = ""; // animação tocando (os outros jogadores recebem pelo nome)
   escala = 1; // velocidade da animação pedida por último
+  private inclinacao = 0; // quanto o corpo está inclinado para trás (carrinho)
 
   private modelo: THREE.Object3D | null = null;
   private pedido = ""; // modelo pedido por último (vale só o último, se vários pedidos chegarem juntos)
@@ -59,7 +61,8 @@ export class Operario {
 
   // troca de animação com mistura suave; escala = velocidade da animação
   tocar(nome: string, mistura = 0.25, escala = 1): void {
-    const acao = this.acoes.get(nome);
+    const clipe = (n: string): string => (n === "carrinho" ? "agachado" : n);
+    const acao = this.acoes.get(clipe(nome));
     if (!acao) {
       this.atual = nome; // ainda carregando: toca quando chegar
       return;
@@ -67,7 +70,11 @@ export class Operario {
     this.escala = escala;
     acao.timeScale = escala;
     if (nome === this.atual) return;
-    const antiga = this.acoes.get(this.atual);
+    const antiga = this.acoes.get(clipe(this.atual));
+    if (antiga === acao) {
+      this.atual = nome; // mesma animação (agachado <-> carrinho): só muda a inclinação
+      return;
+    }
     acao.reset().play();
     if (antiga && mistura > 0) acao.crossFadeFrom(antiga, mistura, false);
     else if (antiga) antiga.stop();
@@ -76,5 +83,7 @@ export class Operario {
 
   atualizar(dt: number): void {
     this.mixer?.update(dt);
+    this.inclinacao += ((this.atual === "carrinho" ? -1.05 : 0) - this.inclinacao) * Math.min(1, dt * 14);
+    if (this.modelo) this.modelo.rotation.x = this.inclinacao;
   }
 }

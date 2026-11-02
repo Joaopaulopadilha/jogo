@@ -3,6 +3,7 @@ import "./style.css";
 import { Terreno } from "./terreno";
 import { Retroescavadeira, LIMITES, Concha } from "./maquina";
 import { montarCenario, VALA } from "./cenario";
+import { limitar, LOTES } from "./mapa";
 import { Caminhao } from "./caminhao";
 import { Particulas } from "./particulas";
 import { Som } from "./som";
@@ -32,7 +33,7 @@ renderer.toneMappingExposure = 1.05;
 const cena = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
 const terreno = new Terreno();
-const { sol, caminhao, arvores } = montarCenario(cena, terreno);
+const { sol, caminhao, arvores, favela } = montarCenario(cena, terreno);
 const maq = new Retroescavadeira();
 cena.add(maq.raiz);
 const particulas = new Particulas();
@@ -109,11 +110,8 @@ addEventListener("keydown", (e) => {
     e.preventDefault();
     if (!aPe) trocarModo();
   } else if (e.code === "KeyE" && !e.repeat) entrarOuSair();
-  else if (aPe && (e.code === "ControlLeft" || e.code === "ControlRight") && !e.repeat) {
-    // liga/desliga (não precisa segurar): segurar Ctrl e apertar W fecharia a aba do navegador
-    e.preventDefault();
-    op.agachado = !op.agachado;
-  } else if (aPe && e.code === "Space" && !e.repeat) pedirPulo = true;
+  else if (aPe && (e.code === "ControlLeft" || e.code === "ControlRight")) e.preventDefault(); // agachar: vale enquanto segura (ver agachandoTeclado)
+  else if (aPe && e.code === "Space" && !e.repeat) pedirPulo = true;
   else if (e.code === "KeyC" && !aPe) cameraCabine = !cameraCabine;
   else if (e.code === "KeyO") alternarAjustes();
   else if (e.code === "KeyH") alternarPainel("ajuda", "recolhida");
@@ -126,10 +124,12 @@ addEventListener("keydown", (e) => {
 addEventListener("keyup", (e) => teclas.delete(e.code));
 addEventListener("blur", () => teclas.clear());
 const k = (c: string) => (teclas.has(c) ? 1 : 0);
+// Ctrl (ou C, que não fecha a aba como Ctrl+W) agacha enquanto estiver pressionado
+const agachandoTeclado = (): boolean => teclas.has("ControlLeft") || teclas.has("ControlRight") || teclas.has("KeyC");
+
 
 let botaoYAntes = false;
 let botaoAAntes = false;
-let botaoBAntes = false;
 let botaoXAntes = false;
 function controle(): Gamepad | null {
   for (const g of navigator.getGamepads?.() ?? []) if (g && g.connected) return g;
@@ -156,7 +156,7 @@ function prenderMouse(): void {
 document.addEventListener("mousemove", (e) => {
   if (!mousePreso()) return;
   orbita.yaw -= e.movementX * 0.0035 * ajustes.mouse;
-  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + e.movementY * 0.0028 * ajustes.mouse * sinalY(), cameraCabine ? -0.8 : 0.05, cameraCabine ? 0.8 : 1.35);
+  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + e.movementY * 0.0028 * ajustes.mouse * sinalY(), cameraCabine ? -0.8 : -0.85, cameraCabine ? 0.8 : 1.35);
 });
 document.addEventListener("pointerlockchange", () => {
   document.body.classList.toggle("mouse-preso", mousePreso());
@@ -197,7 +197,7 @@ canvas.addEventListener("pointermove", (e) => {
   }
   const k = e.pointerType === "touch" ? 0.008 * ajustes.toque : 0.005 * ajustes.mouse;
   orbita.yaw -= dx * k;
-  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + dy * k * 0.8 * sinalY(), cameraCabine ? -0.8 : 0.05, cameraCabine ? 0.8 : 1.35);
+  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + dy * k * 0.8 * sinalY(), cameraCabine ? -0.8 : -0.85, cameraCabine ? 0.8 : 1.35);
 });
 canvas.addEventListener("wheel", (e) => {
   orbita.dist = THREE.MathUtils.clamp(orbita.dist * (1 + Math.sign(e.deltaY) * 0.1 * ajustes.zoom), 5, 40);
@@ -228,7 +228,7 @@ function lembrarPainel(id: string, classe: string, padrao: boolean): void {
   alternarPainel(id, classe, v === null ? padrao : v === "1");
 }
 const AJUDA_PE = `<div class="titulo">🚶 A pé</div>
-    <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> agachar / levantar<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br>
+    <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> ou <b>C</b> agachar (segurando) · correndo (Shift, pode soltar) e apertando Ctrl/C = carrinho · pular e Ctrl logo depois = prolonga o carrinho<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br>
     <div class="rodape">mouse gira a câmera · <b>Esc</b> solta o mouse · <b>M</b> som · <b>V</b> microfone</div>`;
 const AJUDA: Record<Modo, string> = {
   dirigir: `<div class="titulo">🚗 Dirigir</div>
@@ -480,7 +480,30 @@ function alvoEscalada(blocos: Bloco[], e: Empurrao): { x: number; z: number; y: 
   return null;
 }
 
-function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pular: boolean): void {
+// carrinho: correndo e apertando Ctrl/C, o operário escorrega como no futebol: arranque maior que o de correr, que perde força
+// até parar de arrastar na distância máxima (a direção fica travada e não precisa segurar a tecla). Depois ele se levanta.
+// Combo: pular durante o carrinho (ou logo depois) guarda o impulso no ar; apertar Ctrl/C em seguida (no ar ou logo depois
+// de pousar) prolonga o carrinho, saindo do pouso com o impulso. Só um prolongamento por carrinho.
+const CARRINHO_DIST = 5; // m
+const CARRINHO_VEL0 = 8.6; // m/s no início (correr = 4,2)
+const CARRINHO_VEL1 = 3.2; // m/s no fim
+const CARRINHO_ESPERA = 1.2; // s até poder fazer outro
+const PROLONGADO_DIST = 4.5; // m do carrinho prolongado
+const PROLONGADO_VEL0 = 6.5; // m/s mínimos na saída do pouso
+const IMPULSO_JANELA = 0.5; // s depois do carrinho em que o pulo ainda guarda o impulso
+const SALTO_JANELA = 1.5; // s depois do pulo em que o Ctrl/C ainda prolonga (o pulo dura ~0,9 s)
+let carrinho: { dist: number; max: number; v0: number; prolongado: boolean } | null = null;
+let esperaCarrinho = 0;
+let aposCarrinho = 0; // s que restam, depois do fim do carrinho, para o pulo guardar o impulso
+let salto: { vel: number; t: number } | null = null; // pulo feito durante/logo depois do carrinho
+let prolongar = false; // Ctrl/C apertado no ar: ao pousar, o carrinho continua
+let agachouAntes = false;
+
+// o Shift continua "apertado" por um instante depois de solto: dá tempo de apertar o Ctrl/C com o mesmo dedo e fazer o carrinho
+const SHIFT_RESIDUAL = 0.5; // s
+let shiftResidual = 0;
+
+function andarAPe(dt: number, frente: number, lado: number, shift: boolean, agachar: boolean, pular: boolean): void {
   // escalando: a animação leva o operário para cima e depois para dentro do topo
   if (escalada) {
     const e = escalada;
@@ -508,16 +531,45 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
     return;
   }
 
+  shiftResidual = shift ? SHIFT_RESIDUAL : Math.max(0, shiftResidual - dt);
+  const correr = shift || shiftResidual > 0;
   const yaw = orbita.yaw;
   let dx = -Math.sin(yaw) * frente + Math.cos(yaw) * lado;
   let dz = -Math.cos(yaw) * frente - Math.sin(yaw) * lado;
   const forca = Math.min(1, Math.hypot(dx, dz));
-  if (correr && forca > 0.05) op.agachado = false; // correr levanta
-  const maxima = op.agachado ? 0.9 : correr ? 4.2 : 1.7;
+  esperaCarrinho = Math.max(0, esperaCarrinho - dt);
+  aposCarrinho = Math.max(0, aposCarrinho - dt);
+  if (salto) {
+    salto.t -= dt;
+    if (salto.t <= 0) {
+      salto = null;
+      prolongar = false;
+    }
+  }
+  if (carrinho && !op.noChao) fimCarrinho(false);
+  const apertou = agachar && !agachouAntes;
+  agachouAntes = agachar;
+  if (apertou && !carrinho) {
+    if (salto) prolongar = true; // pulo do combo: continua o carrinho ao pousar (ou já, se já pousou)
+    // correndo (Shift segurado, ou solto há menos de meio segundo): o agachar vira carrinho
+    else if (correr && forca > 0.05 && op.vel > 2.8 && op.noChao && esperaCarrinho === 0) carrinho = { dist: 0, max: CARRINHO_DIST, v0: CARRINHO_VEL0, prolongado: false };
+  }
+  if (prolongar && salto && op.noChao && !carrinho) {
+    carrinho = { dist: 0, max: PROLONGADO_DIST, v0: Math.max(salto.vel, PROLONGADO_VEL0), prolongado: true };
+    salto = null;
+    prolongar = false;
+  }
+  op.agachado = agachar || carrinho !== null;
+  // agachado anda devagar; agachado com Shift anda rápido
+  const maxima = op.agachado ? (correr ? 2.6 : 0.9) : correr ? 4.2 : 1.7;
   const alvo = forca > 0.05 ? maxima * forca : 0;
+  const x0 = op.x;
+  const z0 = op.z;
+  if (carrinho) op.vel = carrinho.v0 + (CARRINHO_VEL1 - carrinho.v0) * Math.min(1, carrinho.dist / carrinho.max);
+  else if (salto && !op.noChao) op.vel = Math.max(op.vel, salto.vel); // no pulo do combo o impulso se mantém
   // no ar dá para corrigir um pouco a direção, mas não frear de repente
-  op.vel += (alvo - op.vel) * Math.min(1, dt * (op.noChao ? 8 : 1.5));
-  if (forca > 0.05) {
+  else op.vel += (alvo - op.vel) * Math.min(1, dt * (op.noChao ? 8 : 1.5));
+  if (forca > 0.05 && !carrinho) {
     const n = Math.hypot(dx, dz);
     dx /= n;
     dz /= n;
@@ -527,13 +579,12 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
   }
   op.x += Math.sin(op.rumo) * op.vel * dt;
   op.z += Math.cos(op.rumo) * op.vel * dt;
-  op.x = THREE.MathUtils.clamp(op.x, -44, 44);
-  op.z = THREE.MathUtils.clamp(op.z, -44, 44);
+  [op.x, op.z] = limitar(op.x, op.z, 4);
 
   // empurra para fora de tudo que estiver na altura do corpo (o que for baixinho ele sobe: degrau)
   const blocosMaq = blocosMaquina();
   const blocosCam = caminhao.blocos();
-  const blocos = [...blocosMaq, ...blocosCam, ...arvores];
+  const blocos = [...blocosMaq, ...blocosCam, ...arvores, ...favela.perto(op.x, op.z)];
   const altura = op.agachado ? 1.15 : 1.75;
   let encosto: Empurrao | null = null;
   for (let passo = 0; passo < 2; passo++) {
@@ -546,11 +597,19 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
       if (b.escalavel) encosto = e;
     }
   }
+  if (carrinho) {
+    // a escorregada acaba ao chegar na distância máxima ou ao bater em algo
+    const andou = Math.hypot(op.x - x0, op.z - z0);
+    carrinho.dist += andou;
+    if (carrinho.dist >= carrinho.max || andou < op.vel * dt * 0.5) fimCarrinho(false);
+  }
 
   // escalar: encostado em algo alcançável, o pulo vira escalada
   const alvoEsc = encosto ? alvoEscalada(blocos, encosto) : null;
   podeEscalar = !!alvoEsc;
   if (pular && alvoEsc && encosto) {
+    carrinho = null;
+    salto = null;
     op.agachado = false;
     op.vel = 0;
     op.rumo = Math.atan2(-encosto.nx, -encosto.nz); // de frente para a parede
@@ -558,7 +617,12 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
     return;
   }
   if (pular && op.noChao) {
-    op.agachado = false;
+    // pulo durante o carrinho (ou logo depois): guarda o impulso para o combo
+    if ((carrinho && !carrinho.prolongado) || aposCarrinho > 0) {
+      salto = { vel: Math.max(op.vel, 5.5), t: SALTO_JANELA };
+      prolongar = false;
+    }
+    if (carrinho) fimCarrinho(true);
     op.noChao = false;
     op.vy = 4.6;
   }
@@ -588,10 +652,18 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
   op.grupo.position.set(op.x, op.y, op.z);
   op.grupo.rotation.y = op.rumo;
   if (!op.noChao) op.tocar("pulo", 0.15);
-  else if (op.agachado) op.tocar(op.vel < 0.15 ? "agachado" : "agachado_andar", 0.25, op.vel < 0.15 ? 1 : op.vel / 0.8);
+  else if (carrinho) op.tocar("carrinho", 0.1);
+  else if (op.agachado) op.tocar(op.vel < 0.15 ? "agachado" : "agachado_andar", 0.25, op.vel < 0.15 ? 1 : Math.min(op.vel / 0.8, 3.2));
   else if (op.vel < 0.15) op.tocar("parado", 0.25);
   else if (op.vel < 2.8) op.tocar("andar", 0.25, op.vel / 1.45);
   else op.tocar("correr", 0.25, op.vel / 3.9);
+}
+
+function fimCarrinho(pulo: boolean): void {
+  aposCarrinho = pulo || carrinho?.prolongado ? 0 : IMPULSO_JANELA;
+  carrinho = null;
+  esperaCarrinho = CARRINHO_ESPERA;
+  if (!pulo) op.vel = Math.min(op.vel, 3.5); // o resto da velocidade se perde andando
 }
 
 // ---------------- carona: quem está em cima de um veículo anda junto com ele ----------------
@@ -664,10 +736,7 @@ $("bt-pular").addEventListener("pointerdown", (e) => {
   e.preventDefault();
   pedirPulo = true;
 });
-$("bt-agachar").addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  op.agachado = !op.agachado;
-});
+const agacharToque = botaoSegurar($("bt-agachar"));
 $("bt-camera").addEventListener("click", () => (cameraCabine = !cameraCabine));
 // escolha do personagem: botões com data-pers no menu inicial e nos ajustes; vale na hora e vai para os outros jogadores
 function escolherPersonagem(id: string): void {
@@ -768,8 +837,7 @@ function dirigir(dt: number, acel: number, virar: number, freio: number): void {
   carro.rumo += (carro.vel * Math.tan(carro.esterco) / maq.entreEixos) * dt;
   carro.x += Math.sin(carro.rumo) * carro.vel * dt;
   carro.z += Math.cos(carro.rumo) * carro.vel * dt;
-  carro.x = THREE.MathUtils.clamp(carro.x, -43, 43);
-  carro.z = THREE.MathUtils.clamp(carro.z, -43, 43);
+  [carro.x, carro.z] = limitar(carro.x, carro.z, 3);
   const batida = maquinaBate();
   if (batida && !maquinaBateEm(antes)) {
     Object.assign(carro, antes);
@@ -846,6 +914,12 @@ function caminhaoBate(): "máquina" | "árvore" | null {
     if (Math.hypot(t.x - carroCam.x, t.z - carroCam.z) > 8) continue;
     for (const a of meus) if (caixaECirculo(a, t)) return "árvore";
   }
+  if (carroCam.x < -14 && carroCam.z > 14) {
+    for (const casa of favela.pegadas) {
+      if (Math.hypot(casa.x - carroCam.x, casa.z - carroCam.z) > 10) continue;
+      for (const a of meus) if (caixasSeCruzam(a, casa)) return "árvore";
+    }
+  }
   return null;
 }
 
@@ -903,8 +977,7 @@ function dirigirCaminhao(dt: number, acel: number, virar: number, freio: number,
   c.rumo += ((c.vel * Math.tan(c.esterco)) / caminhao.entreEixos) * dt;
   c.x += Math.sin(c.rumo) * c.vel * dt;
   c.z += Math.cos(c.rumo) * c.vel * dt;
-  c.x = THREE.MathUtils.clamp(c.x, -43, 43);
-  c.z = THREE.MathUtils.clamp(c.z, -43, 43);
+  [c.x, c.z] = limitar(c.x, c.z, 3);
   if (Math.abs(c.vel) > 0.01 || Math.abs(c.esterco) > 0.01) {
     const batida = caminhaoBate();
     if (batida && !caminhaoBateEm(antes)) {
@@ -955,6 +1028,12 @@ function maquinaBate(): "caminhão" | "árvore" | null {
   for (const a of arvores) {
     if (Math.hypot(a.x - carro.x, a.z - carro.z) > 8) continue;
     if (caixaECirculo(corpo, a) || caixaECirculo(pa, a)) return "árvore";
+  }
+  if (carro.x < -14 && carro.z > 14) {
+    for (const casa of favela.pegadas) {
+      if (Math.hypot(casa.x - carro.x, casa.z - carro.z) > 9) continue;
+      if (caixasSeCruzam(corpo, casa) || caixasSeCruzam(pa, casa)) return "árvore";
+    }
   }
   return null;
 }
@@ -1045,10 +1124,12 @@ function atualizarMaquina(dt: number): void {
     let frente = k("KeyW") + k("ArrowUp") - k("KeyS") - k("ArrowDown");
     let lado = k("KeyD") + k("ArrowRight") - k("KeyA") - k("ArrowLeft");
     let correr = teclas.has("ShiftLeft") || teclas.has("ShiftRight");
+    let agachar = agachandoTeclado();
     if (TOQUE) {
       frente -= mancheEsq.y;
       lado += mancheEsq.x;
       if (correrToque.apertado) correr = true;
+      if (agacharToque.apertado) agachar = true;
     }
     if (gp) {
       const [lx, ly] = gp.axes.map(zona);
@@ -1058,11 +1139,9 @@ function atualizarMaquina(dt: number): void {
       const a = !!gp.buttons[0]?.pressed;
       if (a && !botaoAAntes) pedirPulo = true;
       botaoAAntes = a;
-      const b = !!gp.buttons[1]?.pressed;
-      if (b && !botaoBAntes) op.agachado = !op.agachado;
-      botaoBAntes = b;
+      if (gp.buttons[1]?.pressed) agachar = true; // B: agacha enquanto segura
     }
-    andarAPe(dt, THREE.MathUtils.clamp(frente, -1, 1), THREE.MathUtils.clamp(lado, -1, 1), correr, pedirPulo);
+    andarAPe(dt, THREE.MathUtils.clamp(frente, -1, 1), THREE.MathUtils.clamp(lado, -1, 1), correr, agachar, pedirPulo);
     pedirPulo = false;
   } else if (!aPe) {
     op.grupo.visible = !cameraCabine;
@@ -1210,6 +1289,25 @@ function atualizarMaquina(dt: number): void {
 // ---------------- câmera ----------------
 const alvoCam = new THREE.Vector3();
 const posCam = new THREE.Vector3();
+const ponto = new THREE.Vector3();
+
+// aproxima a câmera do operário até ela deixar de ficar dentro de uma parede ou laje (dentro das casas)
+function recuarCamera(de: THREE.Vector3, ate: THREE.Vector3): void {
+  const blocos = favela.perto(de.x, de.z);
+  if (blocos.length === 0) return;
+  const passos = 16;
+  for (let i = 1; i <= passos; i++) {
+    ponto.lerpVectors(de, ate, i / passos);
+    for (const b of blocos) {
+      if (ponto.y < b.y0 - 0.3 || ponto.y > b.y1 + 0.3) continue;
+      if (b.circulo ? Math.hypot(ponto.x - b.x, ponto.z - b.z) < b.hx + 0.3 : contem({ ...b, hx: b.hx + 0.3, hz: b.hz + 0.3 }, ponto.x, ponto.z)) {
+        ate.lerpVectors(de, ate, Math.max(0.12, (i - 1.5) / passos)); // para um pouco antes do obstáculo
+        return;
+      }
+    }
+  }
+}
+const PITCH_CHAO = 0.08; // a câmera orbital não desce abaixo disso: o resto do giro vira olhar para cima
 function atualizarCamera(dt: number): void {
   const emCam = !aPe && veiculo === "cam";
   if (cameraCabine) {
@@ -1237,14 +1335,26 @@ function atualizarCamera(dt: number): void {
   const f = 1 - Math.exp(-dt * 6);
   alvoCam.lerp(centro, alvoCam.lengthSq() === 0 ? 1 : f);
   const yaw = aPe ? orbita.yaw : (emCam ? carroCam.rumo : carro.rumo) + Math.PI + orbita.yaw; // a pé, a câmera não gira com o veículo
+  // pitch abaixo de 0,08: a câmera para de descer, chega mais perto das costas e a mira sobe (olhar para cima)
+  const pit = Math.max(orbita.pitch, PITCH_CHAO);
+  const paraCima = Math.max(0, PITCH_CHAO - orbita.pitch) * 0.6; // rad acima da linha até o personagem
+  const dist = orbita.dist * (1 - 0.45 * Math.min(1, paraCima / 0.5));
   posCam.set(
-    alvoCam.x + Math.sin(yaw) * Math.cos(orbita.pitch) * orbita.dist,
-    alvoCam.y + Math.sin(orbita.pitch) * orbita.dist,
-    alvoCam.z + Math.cos(yaw) * Math.cos(orbita.pitch) * orbita.dist,
+    alvoCam.x + Math.sin(yaw) * Math.cos(pit) * dist,
+    alvoCam.y + Math.sin(pit) * dist,
+    alvoCam.z + Math.cos(yaw) * Math.cos(pit) * dist,
   );
   posCam.y = Math.max(posCam.y, terreno.altura(posCam.x, posCam.z) + 0.8);
+  if (aPe) recuarCamera(alvoCam, posCam);
   camera.position.lerp(posCam, camera.position.lengthSq() === 0 ? 1 : Math.min(1, f * 1.5));
-  camera.lookAt(alvoCam);
+  if (paraCima > 0) {
+    const hx = alvoCam.x - camera.position.x;
+    const hz = alvoCam.z - camera.position.z;
+    const hd = Math.hypot(hx, hz) || 1;
+    const a = Math.atan2(alvoCam.y - camera.position.y, hd) + paraCima;
+    const d = Math.max(hd, 3);
+    camera.lookAt(camera.position.x + (hx / hd) * Math.cos(a) * d, camera.position.y + Math.sin(a) * d, camera.position.z + (hz / hd) * Math.cos(a) * d);
+  } else camera.lookAt(alvoCam);
   sol.position.set(alvoCam.x + 18, alvoCam.y + 30, alvoCam.z + 12);
   sol.target.position.copy(alvoCam);
 }
@@ -1516,7 +1626,15 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
 
 // ----- convidado -----
 function receberDoAnfitriao(m: Msg): void {
-  if (m.t === "voz") {
+  if (m.t === "versao") {
+    // a sala roda outra versão do jogo (o mapa mudou): sem recarregar, o terreno não combina
+    $("rede-estado").textContent = "⚠️ Esta sala usa outra versão do jogo. Recarregue a página (Ctrl+F5) e entre de novo.";
+    $("rede-estado").classList.remove("escondido");
+    estadoMenu("Esta sala usa outra versão do jogo. Recarregue a página (Ctrl+F5).", true);
+    convidado?.fechar();
+    convidado = null;
+    menuOcupado(false);
+  } else if (m.t === "voz") {
     rosterVoz = m.pares as ParVoz[];
     sincronizarVoz();
   } else if (m.t === "recusa") {
@@ -1629,7 +1747,7 @@ function enviarControle(dt: number, e: Entrada): void {
 }
 
 // ----- obra salva (no navegador do anfitrião, por palavra) -----
-const chaveObra = (palavra: string): string => `retro-obra-${palavra}`;
+const chaveObra = (palavra: string): string => `retro-obra2-${palavra}`; // v2: o terreno cresceu (120 m), obras salvas antes não servem
 
 function salvarObra(palavra: string): void {
   const t = terreno.tomarTudo();
@@ -1649,13 +1767,13 @@ function restaurarObra(palavra: string): void {
     if (!bruto) return;
     const d = JSON.parse(bruto);
     if (d.ter) terreno.aplicarAlteracao(d.ter.i0, d.ter.i1, d.ter.j0, d.ter.j1, textoParaMm(d.ter.mm));
-    carro.x = num(d.carro?.x, 43);
-    carro.z = num(d.carro?.z, 43);
+    carro.x = num(d.carro?.x, 60);
+    carro.z = num(d.carro?.z, 60);
     carro.rumo = num(d.carro?.rumo, 1e5);
     carro.y = terreno.altura(carro.x, carro.z);
     if (d.cam) {
-      carroCam.x = num(d.cam.x, 43);
-      carroCam.z = num(d.cam.z, 43);
+      carroCam.x = num(d.cam.x, 60);
+      carroCam.z = num(d.cam.z, 60);
       carroCam.rumo = num(d.cam.rumo, 1e5);
       carroCam.y = terreno.altura(carroCam.x, carroCam.z);
       posicionarCaminhao(0);
@@ -2045,4 +2163,4 @@ function quadro(agora: number): void {
 requestAnimationFrame(quadro);
 
 // para testes automáticos
-(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get condutorCam() { return condutorCam; }, carroCam, get veiculo() { return veiculo; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
+(window as unknown as { jogo: unknown }).jogo = { LOTES, favela, camera, alvoCam, posCam, maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get condutorCam() { return condutorCam; }, carroCam, get veiculo() { return veiculo; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };

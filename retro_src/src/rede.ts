@@ -9,6 +9,8 @@ const RELIGAR_MS = 3000;
 const ESPERA_CONEXAO_MS = 10000;
 const BATIDA_MS = 5000;
 const SILENCIO_MAX_MS = 20000;
+// versão do protocolo da sala: sobe quando o mapa ou as mensagens mudam de um jeito que não combina com a versão anterior
+export const PROT = 2;
 
 export type Msg = { t: string; [k: string]: unknown };
 
@@ -110,6 +112,12 @@ export class Anfitriao {
       if (m.t === "ola") {
         const uid = String(m.uid || "").slice(0, 40);
         if (!uid) return;
+        if (m.prot !== PROT) {
+          // o convidado está com outra versão do jogo (mapa diferente): avisa e não deixa entrar
+          try { conn.send({ t: "versao", prot: PROT }); } catch { /* ignora */ }
+          setTimeout(() => { try { conn.close(); } catch { /* ignora */ } }, 1500);
+          return;
+        }
         const antigo = this.ligados.get(uid);
         if (antigo && antigo.conn !== conn) {
           // o mesmo jogador voltou (recarregou ou a internet caiu): a ligação nova substitui a velha
@@ -236,7 +244,7 @@ export class Convidado {
     }, ESPERA_CONEXAO_MS);
     conn.on("open", () => {
       clearTimeout(espera);
-      conn.send({ t: "ola", uid: this.uid, nome: this.nome, av: this.av });
+      conn.send({ t: "ola", uid: this.uid, nome: this.nome, av: this.av, prot: PROT });
       this.conectado = true;
       this.ev.aoConectar();
     });
