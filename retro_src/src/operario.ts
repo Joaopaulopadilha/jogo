@@ -24,10 +24,22 @@ export class Operario {
   atual = ""; // animação tocando (os outros jogadores recebem pelo nome)
   escala = 1; // velocidade da animação pedida por último
 
+  private modelo: THREE.Object3D | null = null;
+  private pedido = ""; // modelo pedido por último (vale só o último, se vários pedidos chegarem juntos)
+
+  // carrega o modelo (ou troca pelo novo, mantendo a animação que estava tocando)
   async carregar(url: string): Promise<void> {
+    this.pedido = url;
     if (!modelos.has(url)) modelos.set(url, new GLTFLoader().loadAsync(url));
     const gltf = await modelos.get(url)!;
+    if (this.pedido !== url) return;
+    if (this.modelo) {
+      this.grupo.remove(this.modelo);
+      this.mixer?.stopAllAction();
+      this.acoes.clear();
+    }
     const modelo = clonarComEsqueleto(gltf.scene);
+    this.modelo = modelo;
     modelo.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {

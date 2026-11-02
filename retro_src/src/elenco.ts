@@ -10,10 +10,12 @@ export interface DadosJogador {
   rumo: number;
   anim: string;
   esc: number; // velocidade da animação
+  av?: string; // personagem escolhido
 }
 
 interface Avatar {
   nome: string;
+  av: string;
   op: Operario;
   alvo: DadosJogador;
   primeiro: boolean; // ainda não recebeu posição: aparece direto no lugar, sem deslizar
@@ -46,7 +48,7 @@ function etiqueta(nome: string): THREE.Sprite {
 export class Elenco {
   private readonly avatares = new Map<string, Avatar>();
 
-  constructor(private readonly cena: THREE.Scene, private readonly banco: THREE.Object3D, private readonly modelo: string) {}
+  constructor(private readonly cena: THREE.Scene, private readonly banco: THREE.Object3D, private readonly urlDe: (av: string) => string) {}
 
   get nomes(): [string, string][] {
     return [...this.avatares].map(([uid, a]) => [uid, a.nome]);
@@ -58,11 +60,17 @@ export class Elenco {
       const op = new Operario();
       op.grupo.add(etiqueta(nome));
       this.cena.add(op.grupo);
-      void op.carregar(this.modelo);
-      a = { nome, op, alvo: dados, primeiro: true };
+      const av = dados.av ?? "";
+      void op.carregar(this.urlDe(av));
+      a = { nome, av, op, alvo: dados, primeiro: true };
       this.avatares.set(uid, a);
     }
     a.alvo = dados;
+    const av = dados.av ?? a.av;
+    if (av !== a.av) {
+      a.av = av; // o jogador trocou de personagem
+      void a.op.carregar(this.urlDe(av));
+    }
   }
 
   // mantém só os jogadores da lista (quem saiu da sala some)
@@ -83,7 +91,7 @@ export class Elenco {
 
   // condutor = quem está sentado na cabine (acompanha a máquina)
   animar(dt: number, condutor: string): void {
-    const f = 1 - Math.exp(-dt * 12);
+    const f = Math.min(1, Math.max(0, 1 - Math.exp(-dt * 12)));
     for (const [uid, a] of this.avatares) {
       const g = a.op.grupo;
       if (uid === condutor) {

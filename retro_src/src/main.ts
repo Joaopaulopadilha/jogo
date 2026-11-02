@@ -10,6 +10,7 @@ import { Operario } from "./operario";
 import { alternarTelaCheia, entrarTelaCheia, instalado } from "./tela";
 import { ajustes, ligarMenuAjustes } from "./ajustes";
 import { Anfitriao, Convidado, Msg, Ligado, normalizarPalavra, palavraAleatoria } from "./rede";
+import { personagemValido, urlPersonagem } from "./personagens";
 import { Elenco, DadosJogador, mmParaBuffer, bufferParaMm, mmParaTexto, textoParaMm } from "./elenco";
 import { Bloco, Empurrao, caixa, circulo, contem, dentro, empurrar, caixasSeCruzam, caixaECirculo } from "./colisao";
 
@@ -36,9 +37,14 @@ cena.add(particulas.malha);
 const som = new Som();
 const op = new Operario();
 cena.add(op.grupo);
-const MODELO_OPERARIO = `${import.meta.env.BASE_URL}modelos/operario.glb`;
-void op.carregar(MODELO_OPERARIO);
-const elenco = new Elenco(cena, maq.banco, MODELO_OPERARIO); // os outros jogadores da sala
+let meuPersonagem = "operario"; // escolhido no menu (guardado no navegador)
+try {
+  meuPersonagem = personagemValido(localStorage.getItem("retro-personagem"));
+} catch {
+  /* ignora */
+}
+void op.carregar(urlPersonagem(meuPersonagem));
+const elenco = new Elenco(cena, maq.banco, urlPersonagem); // os outros jogadores da sala
 // mira: mostra no chão (ou na caçamba) onde a terra da concha traseira vai cair
 const mira = new THREE.Mesh(
   new THREE.RingGeometry(0.32, 0.44, 28).rotateX(-Math.PI / 2),
@@ -355,7 +361,9 @@ function blocosMaquina(): Bloco[] {
     const p = corpoParaMundo(cx, cz);
     return caixa(p.x, p.z, carro.rumo, hx, hz, carro.y + y0, carro.y + y1);
   };
+  const esc = corpoParaMundo(-0.35, 1.7);
   const lista = [
+    circulo(esc.x, esc.z, 0.1, carro.y + 2.05, carro.y + 2.95), // tubo de escape (em cima do capô)
     B(0, 0.1, 0.8, 2.2, 0, 1.25), // chassi entre as rodas
     B(1.05, -0.9, 0.28, 0.86, 0, 1.65), // roda traseira + para-lama (dá para subir)
     B(-1.05, -0.9, 0.28, 0.86, 0, 1.65),
@@ -597,6 +605,21 @@ $("bt-agachar").addEventListener("pointerdown", (e) => {
   op.agachado = !op.agachado;
 });
 $("bt-camera").addEventListener("click", () => (cameraCabine = !cameraCabine));
+// escolha do personagem: botões com data-pers no menu inicial e nos ajustes; vale na hora e vai para os outros jogadores
+function escolherPersonagem(id: string): void {
+  meuPersonagem = personagemValido(id);
+  try {
+    localStorage.setItem("retro-personagem", meuPersonagem);
+  } catch {
+    /* ignora */
+  }
+  if (convidado) convidado.av = meuPersonagem;
+  void op.carregar(urlPersonagem(meuPersonagem));
+  for (const b of document.querySelectorAll<HTMLElement>("[data-pers]")) b.classList.toggle("ativo", b.dataset.pers === meuPersonagem);
+}
+for (const b of document.querySelectorAll<HTMLElement>("[data-pers]")) b.addEventListener("click", () => escolherPersonagem(b.dataset.pers!));
+for (const b of document.querySelectorAll<HTMLElement>("[data-pers]")) b.classList.toggle("ativo", b.dataset.pers === meuPersonagem);
+
 // menu de ajustes (sensibilidade, câmera, controle e som)
 function alternarAjustes(abrir?: boolean): void {
   const aberto = $("ajustes").classList.toggle("escondido", abrir === undefined ? undefined : !abrir) === false;
@@ -672,6 +695,7 @@ function dirigir(dt: number, acel: number, virar: number, freio: number): void {
   carro.vel = THREE.MathUtils.clamp(carro.vel, -3.5, 7);
   // a ladeira puxa
   carro.vel -= 9.8 * Math.sin(carro.arfagem) * dt * 0.35 * (parada ? 0 : 1);
+  carro.vel = THREE.MathUtils.clamp(carro.vel, -3.5, 7);
 
   const alvoEsterco = virar * 0.6;
   carro.esterco += (alvoEsterco - carro.esterco) * Math.min(1, dt * 4);
@@ -1085,7 +1109,7 @@ let hidrRede = 0;
 let tControle = 0;
 
 const num = (v: unknown, limite = 1e6): number => (typeof v === "number" && isFinite(v) ? THREE.MathUtils.clamp(v, -limite, limite) : 0);
-const dadosDoOperario = (): DadosJogador => ({ x: op.x, y: op.y, z: op.z, rumo: op.rumo, anim: op.atual, esc: op.escala });
+const dadosDoOperario = (): DadosJogador => ({ x: op.x, y: op.y, z: op.z, rumo: op.rumo, anim: op.atual, esc: op.escala, av: meuPersonagem });
 
 function tickRede(dt: number): void {
   if (papel === "solo") return;
@@ -1129,8 +1153,8 @@ function tickAnfitriao(): void {
   if (alteracao || caminhao.volume !== volumeSalvo) obraSuja = true;
   if (anfitriao && anfitriao.ligados.size > 0) {
     const e = dadosDoOperario();
-    const jog: unknown[][] = [[UID_ANFITRIAO, meuNome, e.x, e.y, e.z, e.rumo, e.anim, e.esc]];
-    for (const r of registros.values()) jog.push([r.uid, r.nome, r.x, r.y, r.z, r.rumo, r.anim, r.esc]);
+    const jog: unknown[][] = [[UID_ANFITRIAO, meuNome, e.x, e.y, e.z, e.rumo, e.anim, e.esc, meuPersonagem]];
+    for (const r of registros.values()) jog.push([r.uid, r.nome, r.x, r.y, r.z, r.rumo, r.anim, r.esc, r.av]);
     const msg: Msg = {
       t: "s",
       c: [carro.x, carro.y, carro.z, carro.rumo, carro.vel, carro.esterco, carro.arfagem, carro.rolagem],
@@ -1197,6 +1221,7 @@ function entrouConvidado(l: Ligado): void {
     registros.set(l.uid, r);
   }
   r.nome = l.nome;
+  r.av = personagemValido(l.av);
   r.ligado = true;
   r.ausente = 0;
   elenco.atualizar(r.uid, r.nome, r);
@@ -1229,6 +1254,7 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
         r.z = num(m.z, 60);
         r.rumo = num(m.rumo, 1000);
       }
+      r.av = personagemValido(m.av);
       r.anim = String(m.anim || "parado").slice(0, 24);
       r.esc = num(m.esc, 10) || 1;
       elenco.atualizar(r.uid, r.nome, r);
@@ -1289,6 +1315,7 @@ function receberDoAnfitriao(m: Msg): void {
     mostrarPainelSala(convidado!.palavra);
     comecar();
   } else if (m.t === "s") {
+    if (!estadoValido(m)) return;
     alvoRede = m;
     aplicarTerreno(m.ter);
     for (const q of (m.pt as number[][]) ?? []) particulas.emitir(new THREE.Vector3(q[0], q[1], q[2]), new THREE.Vector3(q[3], q[4], q[5]), 0, q[6]);
@@ -1298,13 +1325,21 @@ function receberDoAnfitriao(m: Msg): void {
     else if (condutor !== meuUid && !aPe) levantar();
     definirModo(m.m ? "escavar" : "dirigir");
     const vistos = new Set<string>();
-    for (const q of (m.jog as [string, string, number, number, number, number, string, number][]) ?? []) {
+    for (const q of (m.jog as [string, string, number, number, number, number, string, number, string][]) ?? []) {
       if (q[0] === meuUid) continue;
       vistos.add(q[0]);
-      elenco.atualizar(q[0], q[1], { x: q[2], y: q[3], z: q[4], rumo: q[5], anim: q[6], esc: q[7] });
+      elenco.atualizar(q[0], q[1], { x: q[2], y: q[3], z: q[4], rumo: q[5], anim: q[6], esc: q[7], av: q[8] });
     }
     elenco.manter(vistos);
   }
+}
+
+// o pacote de estado tem números normais? (bobagem da rede nunca vira a pose da máquina)
+function estadoValido(m: Msg): boolean {
+  const c = m.c as number[] | undefined;
+  const j = m.j as number[] | undefined;
+  const ok = (v: unknown, lim: number): boolean => typeof v === "number" && isFinite(v) && Math.abs(v) <= lim;
+  return !!c && !!j && c.length === 8 && j.length === 7 && c.every((v, n) => ok(v, n === 3 ? 1e5 : 100)) && j.every((v) => ok(v, 20)) && ok(m.b, 1e3) && ok(m.cr, 100) && ok(m.cf, 100) && ok(m.v, 1e5);
 }
 
 function aplicarTerreno(t: unknown): void {
@@ -1318,7 +1353,7 @@ function aplicarEstadoRede(dt: number): void {
   if (!a) return;
   const c = a.c as number[];
   const j = a.j as number[];
-  const f = primeiroEstado ? 1 : 1 - Math.exp(-dt * 14);
+  const f = primeiroEstado ? 1 : THREE.MathUtils.clamp(1 - Math.exp(-dt * 14), 0, 1);
   primeiroEstado = false;
   carro.x += (c[0] - carro.x) * f;
   carro.y += (c[1] - carro.y) * f;
@@ -1536,6 +1571,7 @@ function entrarComoConvidado(palavra: string): void {
       }
     },
   });
+  convidado.av = meuPersonagem;
 }
 
 $("bt-entrar-sala").addEventListener("click", abrirSala);
@@ -1628,7 +1664,7 @@ function colocarOperarioInicial(vaga = 0): void {
 colocarOperarioInicial();
 let ultimo = performance.now();
 function quadro(agora: number): void {
-  const dt = Math.min(0.05, (agora - ultimo) / 1000);
+  const dt = Math.max(0, Math.min(0.05, (agora - ultimo) / 1000)); // nunca negativo: dt < 0 faz as suavizações divergirem
   ultimo = agora;
   atualizarMaquina(dt);
   carregarPassageiro();

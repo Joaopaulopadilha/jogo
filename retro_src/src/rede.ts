@@ -45,6 +45,7 @@ export interface Ligado {
   conn: DataConnection;
   uid: string; // identidade fixa do jogador (guardada no navegador dele): é por ela que ele volta ao mesmo lugar
   nome: string;
+  av: string; // personagem escolhido
   visto: number;
 }
 
@@ -106,7 +107,7 @@ export class Anfitriao {
           this.ligados.delete(uid);
           try { antigo.conn.close(); } catch { /* ignora */ }
         }
-        l = { conn, uid, nome: String(m.nome || "Operário").slice(0, 16), visto: Date.now() };
+        l = { conn, uid, nome: String(m.nome || "Operário").slice(0, 16), av: String(m.av || "").slice(0, 20), visto: Date.now() };
         this.ligados.set(uid, l);
         this.ev.aoEntrou(l);
         return;
@@ -168,6 +169,7 @@ export interface EventosConvidado {
 
 export class Convidado {
   conectado = false;
+  av = ""; // personagem escolhido (vai no "ola")
   private conn: DataConnection | null = null;
   private fechado = false;
   private timer = 0;
@@ -216,7 +218,7 @@ export class Convidado {
     }, ESPERA_CONEXAO_MS);
     conn.on("open", () => {
       clearTimeout(espera);
-      conn.send({ t: "ola", uid: this.uid, nome: this.nome });
+      conn.send({ t: "ola", uid: this.uid, nome: this.nome, av: this.av });
       this.conectado = true;
       this.ev.aoConectar();
     });
