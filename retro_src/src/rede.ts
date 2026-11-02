@@ -1,5 +1,5 @@
 import Peer from "peerjs";
-import type { DataConnection } from "peerjs";
+import type { DataConnection, MediaConnection } from "peerjs";
 
 // Sala por palavra (mesmo modelo do /dev): o anfitrião registra o id "retro-<palavra>" no servidor do PeerJS
 // (que só apresenta um ao outro) e cada convidado liga direto nele. Os dois lados religam sozinhos.
@@ -55,11 +55,19 @@ export interface EventosAnfitriao {
   aoEntrou(l: Ligado): void;
   aoSaiu(l: Ligado): void;
   aoMensagem(l: Ligado, m: Msg): void;
+  aoChamada?(call: MediaConnection): void; // chamada de voz recebida
 }
 
 export class Anfitriao {
   readonly ligados = new Map<string, Ligado>(); // uid -> ligação
   private peer!: Peer;
+
+  get peerId(): string { return this.peer.id; }
+
+  // inicia uma chamada de voz com outro jogador da sala
+  ligar(peerId: string, stream: MediaStream): MediaConnection | null {
+    return this.peer.open ? this.peer.call(peerId, stream) : null;
+  }
   private tentativas = 0;
   private readonly vigia: number;
 
@@ -79,6 +87,7 @@ export class Anfitriao {
       this.ev.aoAbrir();
     });
     peer.on("connection", (conn) => this.nova(conn));
+    peer.on("call", (call) => this.ev.aoChamada?.(call));
     peer.on("error", (err) => {
       if (err.type === "unavailable-id" && !abriu) {
         // a palavra já tem dono: quem pediu insiste um pouco (o servidor demora a esquecer o registro antigo)
@@ -165,6 +174,7 @@ export interface EventosConvidado {
   aoDesconectar(): void;
   aoMensagem(m: Msg): void;
   aoEstado(texto: string): void;
+  aoChamada?(call: MediaConnection): void; // chamada de voz recebida
 }
 
 export class Convidado {
@@ -176,9 +186,17 @@ export class Convidado {
   private readonly peer: Peer;
   private readonly batida: number;
 
+  get peerId(): string { return this.peer.id; }
+
+  // inicia uma chamada de voz com outro jogador da sala
+  ligar(peerId: string, stream: MediaStream): MediaConnection | null {
+    return this.peer.open ? this.peer.call(peerId, stream) : null;
+  }
+
   constructor(readonly palavra: string, private readonly uid: string, private readonly nome: string, private readonly ev: EventosConvidado) {
     this.peer = new Peer({ debug: 0 });
     this.peer.on("open", () => { if (!this.conn) this.conectar(); });
+    this.peer.on("call", (call) => this.ev.aoChamada?.(call));
     this.peer.on("error", (err) => {
       if (err.type === "peer-unavailable") {
         this.ev.aoEstado("Esperando o anfitrião abrir a sala...");

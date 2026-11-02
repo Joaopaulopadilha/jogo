@@ -12,8 +12,8 @@
 <meta name="theme-color" content="#1d2026" />
 <title>Retroescavadeira — simulador</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚜</text></svg>" />
-  <script type="module" crossorigin src="./assets/index-B5IGcoNM.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DMG4udxD.css">
+  <script type="module" crossorigin src="./assets/index-CTQ2gbdj.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-9VL_o0j9.css">
 </head>
 <body>
 <canvas id="cena"></canvas>
@@ -44,6 +44,7 @@
     <div class="titulo">🏗️ Sala <b id="sala-palavra"></b></div>
     <div id="sala-jogadores"></div>
     <div class="botoes">
+      <button id="bt-mic" title="Ligar / desligar o microfone (V)">🎤 Mic</button>
       <button id="bt-link">🔗 Copiar link</button>
       <button id="bt-sair-sala">🚪 Sair</button>
     </div>
@@ -100,6 +101,7 @@
     <label class="ajuste marcar"><input type="checkbox" data-aj="invertY" /><span>Inverter a câmera na vertical</span></label>
     <h3>Controle e som</h3>
     <label class="ajuste"><span>Zona morta do controle</span><input type="range" data-aj="zona" min="0" max="0.4" step="0.01" /><output></output></label>
+    <label class="ajuste"><span>Volume da voz dos outros jogadores</span><input type="range" data-aj="volumeVoz" min="0" max="1" step="0.05" /><output></output></label>
     <label class="ajuste"><span>Volume</span><input type="range" data-aj="volume" min="0" max="1" step="0.05" /><output></output></label>
     <div class="linha">
       <button id="aj-padrao">Restaurar padrão</button>

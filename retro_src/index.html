@@ -43,6 +43,7 @@
     <div class="titulo">🏗️ Sala <b id="sala-palavra"></b></div>
     <div id="sala-jogadores"></div>
     <div class="botoes">
+      <button id="bt-mic" title="Ligar / desligar o microfone (V)">🎤 Mic</button>
       <button id="bt-link">🔗 Copiar link</button>
       <button id="bt-sair-sala">🚪 Sair</button>
     </div>
@@ -99,6 +100,7 @@
     <label class="ajuste marcar"><input type="checkbox" data-aj="invertY" /><span>Inverter a câmera na vertical</span></label>
     <h3>Controle e som</h3>
     <label class="ajuste"><span>Zona morta do controle</span><input type="range" data-aj="zona" min="0" max="0.4" step="0.01" /><output></output></label>
+    <label class="ajuste"><span>Volume da voz dos outros jogadores</span><input type="range" data-aj="volumeVoz" min="0" max="1" step="0.05" /><output></output></label>
     <label class="ajuste"><span>Volume</span><input type="range" data-aj="volume" min="0" max="1" step="0.05" /><output></output></label>
     <div class="linha">
       <button id="aj-padrao">Restaurar padrão</button>

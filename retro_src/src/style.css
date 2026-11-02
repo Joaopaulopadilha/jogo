@@ -300,3 +300,13 @@ body.instalado #bt-ajustes-pc { left: 50%; transform: translateX(-50%); }
 .escolha-pers .pers-icone { font-size: 28px; line-height: 1.1; }
 .escolha-pers .pers:hover { background: #3a414c; }
 .escolha-pers .pers.ativo { border-color: #ffc61a; background: #3a3524; }
+
+/* ---------- Voz ---------- */
+#sala-jogadores .jogador { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1px 4px; border-radius: 6px; border-left: 3px solid transparent; }
+#sala-jogadores .jogador.falando { background: rgba(76, 196, 106, 0.22); border-left-color: #4cc46a; }
+#sala-jogadores .jogador.falando span::after { content: " 🎙"; }
+.mudo-btn { pointer-events: auto; background: transparent; border: none; color: #fff; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: 0.8; }
+.mudo-btn:hover { opacity: 1; }
+#painel-sala button.ligado { background: #2f5d3a; border-color: #4cc46a; }
+#painel-sala .mudo-btn { flex: 0 0 auto; background: transparent; border: none; padding: 0 4px; font-size: 14px; }
+#painel-sala .mudo-btn:hover { background: rgba(255, 255, 255, 0.15); }

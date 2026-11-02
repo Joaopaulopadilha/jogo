@@ -6,9 +6,10 @@ export interface Ajustes {
   invertY: boolean; // inverte a câmera na vertical
   zona: number; // zona morta dos manches do controle (0 a 0,4)
   volume: number; // 0 a 1
+  volumeVoz: number; // volume da voz dos outros jogadores, 0 a 1
 }
 
-export const PADRAO: Ajustes = { mouse: 1, toque: 1, zoom: 1, invertY: false, zona: 0.15, volume: 1 };
+export const PADRAO: Ajustes = { mouse: 1, toque: 1, zoom: 1, invertY: false, zona: 0.15, volume: 1, volumeVoz: 1 };
 const CHAVE = "retro-ajustes";
 
 export const ajustes: Ajustes = { ...PADRAO };
@@ -38,7 +39,7 @@ export function ligarMenuAjustes(raiz: HTMLElement, aoMudar: () => void): void {
         c.value = String(ajustes[k]);
         const saida = c.parentElement?.querySelector("output");
         const v = ajustes[k] as number;
-        if (saida) saida.textContent = k === "zona" || k === "volume" ? `${Math.round(v * 100)}%` : `${v.toFixed(2).replace(/0$/, "").replace(".", ",")}×`;
+        if (saida) saida.textContent = k === "zona" || k === "volume" || k === "volumeVoz" ? `${Math.round(v * 100)}%` : `${v.toFixed(2).replace(/0$/, "").replace(".", ",")}×`;
       }
     }
   };

@@ -9,6 +9,8 @@ import { Manche, botaoSegurar, ehToque } from "./toque";
 import { Operario } from "./operario";
 import { alternarTelaCheia, entrarTelaCheia, instalado } from "./tela";
 import { ajustes, ligarMenuAjustes } from "./ajustes";
+import { Voz } from "./voz";
+import type { MediaConnection } from "peerjs";
 import { Anfitriao, Convidado, Msg, Ligado, normalizarPalavra, palavraAleatoria } from "./rede";
 import { personagemValido, urlPersonagem } from "./personagens";
 import { Elenco, DadosJogador, mmParaBuffer, bufferParaMm, mmParaTexto, textoParaMm } from "./elenco";
@@ -111,6 +113,7 @@ addEventListener("keydown", (e) => {
   else if (e.code === "KeyH") alternarPainel("ajuda", "recolhida");
   else if (e.code === "KeyN") alternarPainel("painel-missao", "recolhido");
   else if (e.code === "KeyM") som.ligado = !som.ligado;
+  else if (e.code === "KeyV" && !e.repeat && papel !== "solo") void alternarMic();
   if (e.code.startsWith("Arrow") || e.code === "Space") e.preventDefault();
   teclas.add(e.code);
 });
@@ -159,7 +162,11 @@ canvas.addEventListener("pointerdown", (e) => {
     if (mousePreso()) return; // preso: a câmera segue o mouse sem arrastar
   }
   dedos.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  canvas.setPointerCapture(e.pointerId);
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* ponteiro já inativo */
+  }
   pinca = 0;
 });
 const soltarDedo = (e: PointerEvent) => {
@@ -216,16 +223,16 @@ function lembrarPainel(id: string, classe: string, padrao: boolean): void {
 }
 const AJUDA_PE = `<div class="titulo">🚶 A pé</div>
     <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> agachar / levantar<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br>
-    <div class="rodape">mouse gira a câmera · <b>Esc</b> solta o mouse · <b>M</b> som</div>`;
+    <div class="rodape">mouse gira a câmera · <b>Esc</b> solta o mouse · <b>M</b> som · <b>V</b> microfone</div>`;
 const AJUDA: Record<Modo, string> = {
   dirigir: `<div class="titulo">🚗 Dirigir</div>
     <b>W / S</b> acelerar / ré<br><b>A / D</b> virar<br><b>Espaço</b> freio<br>
     <b>R / F</b> sobe / desce a pá da frente<br><b>T / G</b> recolhe / despeja a pá<br>
-    <div class="rodape"><b>Tab</b> parar e escavar · <b>E</b> sair · <b>C</b> câmera · <b>M</b> som</div>`,
+    <div class="rodape"><b>Tab</b> parar e escavar · <b>E</b> sair · <b>C</b> câmera · <b>M</b> som · <b>V</b> microfone</div>`,
   escavar: `<div class="titulo">⛏️ Escavar (braço traseiro)</div>
     <b>W / S</b> sobe / desce a lança<br><b>A / D</b> gira para a esquerda / direita<br>
     <b>↑ / ↓</b> ou <b>I / K</b> estica / recolhe o braço<br><b>← / →</b> ou <b>J / L</b> fecha / abre a concha<br>
-    <div class="rodape"><b>Tab</b> dirigir · <b>E</b> sair · <b>C</b> câmera · <b>M</b> som</div>`,
+    <div class="rodape"><b>Tab</b> dirigir · <b>E</b> sair · <b>C</b> câmera · <b>M</b> som · <b>V</b> microfone</div>`,
 };
 let avisoTempo = 0;
 function aviso(texto: string, segundos = 2.2): void {
@@ -631,6 +638,7 @@ function alternarAjustes(abrir?: boolean): void {
 }
 ligarMenuAjustes($("ajustes"), () => {
   som.volume = ajustes.volume;
+  voz.definirVolume(ajustes.volumeVoz);
 });
 som.volume = ajustes.volume;
 for (const id of ["bt-ajustes", "bt-ajustes-pc", "bt-ajustes-inicio"]) $(id).addEventListener("click", () => alternarAjustes(true));
@@ -1227,6 +1235,7 @@ function entrouConvidado(l: Ligado): void {
   elenco.atualizar(r.uid, r.nome, r);
   anfitriao?.enviar(l.uid, { t: "bem", ter: pacoteTerreno(), x: r.x, y: r.y, z: r.z, rumo: r.rumo });
   aviso(`👷 ${l.nome} entrou na obra`, 2.5);
+  anunciarVoz();
 }
 
 function saiuConvidado(l: Ligado): void {
@@ -1235,6 +1244,7 @@ function saiuConvidado(l: Ligado): void {
   r.ligado = false;
   r.ausente = Date.now();
   if (condutor === l.uid) entradaRemota = ENTRADA_ZERO;
+  anunciarVoz();
 }
 
 function mensagemDoConvidado(l: Ligado, m: Msg): void {
@@ -1292,7 +1302,10 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
 
 // ----- convidado -----
 function receberDoAnfitriao(m: Msg): void {
-  if (m.t === "recusa") {
+  if (m.t === "voz") {
+    rosterVoz = m.pares as ParVoz[];
+    sincronizarVoz();
+  } else if (m.t === "recusa") {
     aviso(String(m.msg), 2.2);
   } else if (m.t === "bem") {
     aplicarTerreno(m.ter);
@@ -1461,6 +1474,8 @@ function fecharSala(): void {
   anfitriao?.fechar();
   convidado?.fechar();
   anfitriao = convidado = null;
+  voz.fecharTudo();
+  rosterVoz = [];
   papel = "solo";
   meuUid = UID_ANFITRIAO;
   particulas.aoEmitir = null;
@@ -1477,14 +1492,39 @@ function mostrarPainelSala(palavra: string): void {
   atualizarPainelSala();
 }
 
+let assinaturaPainel = "";
 function atualizarPainelSala(): void {
+  const todos: [string, string][] = [[meuUid, `${meuNome} (você)`], ...elenco.nomes];
+  const peerDe = (uid: string): string => rosterVoz.find((p) => p.uid === uid)?.peerId ?? "";
+  const assinatura = todos.map(([uid, nome]) => `${uid}|${nome}|${uid === condutor}|${registros.get(uid)?.ligado === false}|${voz.estaSilenciado(peerDe(uid))}|${!!peerDe(uid)}`).join(";") + `|${voz.microfone}`;
+  $("bt-mic").textContent = voz.microfone ? "🎙 Mic" : "🎤 Mic";
+  $("bt-mic").classList.toggle("ligado", voz.microfone);
+  if (assinatura === assinaturaPainel) return; // só refaz a lista quando algo mudou (senão os botões piscam)
+  assinaturaPainel = assinatura;
   const lista = $("sala-jogadores");
   lista.replaceChildren();
-  const todos: [string, string][] = [[meuUid, `${meuNome} (você)`], ...elenco.nomes];
   for (const [uid, nome] of todos) {
     const linha = document.createElement("div");
+    linha.className = "jogador";
+    linha.dataset.uid = uid;
     const fora = registros.get(uid)?.ligado === false ? " 💤" : "";
-    linha.textContent = `${uid === condutor ? "🚜" : "👷"} ${nome}${fora}`;
+    const rotulo = document.createElement("span");
+    rotulo.textContent = `${uid === condutor ? "🚜" : "👷"} ${nome}${fora}`;
+    linha.appendChild(rotulo);
+    const peer = peerDe(uid);
+    if (uid !== meuUid && peer) {
+      const mudo = voz.estaSilenciado(peer);
+      const bt = document.createElement("button");
+      bt.className = "mudo-btn";
+      bt.textContent = mudo ? "🔇" : "🔊";
+      bt.title = mudo ? `Reativar o som de ${nome}` : `Silenciar ${nome}`;
+      bt.addEventListener("click", () => {
+        voz.silenciar(peer, !voz.estaSilenciado(peer));
+        assinaturaPainel = "";
+        atualizarPainelSala();
+      });
+      linha.appendChild(bt);
+    }
     lista.appendChild(linha);
   }
 }
@@ -1544,6 +1584,7 @@ function entrarComoAnfitriao(palavra: string, insistir: boolean): void {
       aoEntrou: entrouConvidado,
       aoSaiu: saiuConvidado,
       aoMensagem: mensagemDoConvidado,
+      aoChamada: aoChamadaVoz,
     },
     insistir,
   );
@@ -1563,6 +1604,7 @@ function entrarComoConvidado(palavra: string): void {
       $("rede-estado").classList.remove("escondido");
     },
     aoMensagem: receberDoAnfitriao,
+    aoChamada: aoChamadaVoz,
     aoEstado: (texto) => {
       if (!jogando) estadoMenu(texto);
       else {
@@ -1623,6 +1665,89 @@ $("bt-sair-sala").addEventListener("click", () => {
   location.href = location.pathname; // recarrega sem a sala
 });
 
+// ----- voz -----
+// Malha completa de chamadas de áudio (como no CS Caps): o anfitrião publica quem está na sala (id de cada um no servidor do
+// PeerJS) e cada jogador liga para os de uid menor. Todos ouvem desde o início; o microfone abre no primeiro toque (o navegador
+// só deixa pedir a permissão depois de um gesto) e só fica desligado se a pessoa desligar.
+interface ParVoz { uid: string; peerId: string; nome: string }
+let rosterVoz: ParVoz[] = [];
+const voz = new Voz({ aoMudar: () => { assinaturaPainel = ""; atualizarPainelSala(); } });
+voz.definirVolume(ajustes.volumeVoz);
+
+function anunciarVoz(): void {
+  if (!anfitriao) return;
+  rosterVoz = [{ uid: UID_ANFITRIAO, peerId: anfitriao.peerId, nome: meuNome }, ...[...anfitriao.ligados.values()].map((l) => ({ uid: l.uid, peerId: l.conn.peer, nome: l.nome }))];
+  anfitriao.transmitir({ t: "voz", pares: rosterVoz });
+  sincronizarVoz();
+}
+
+function sincronizarVoz(): void {
+  if (!Voz.suportado() || papel === "solo" || !jogando) return;
+  const meuPeer = anfitriao?.peerId ?? convidado?.peerId;
+  if (!meuPeer) return;
+  const outros = rosterVoz.filter((p) => p.peerId !== meuPeer);
+  voz.manter("sala", outros.map((p) => p.peerId));
+  for (const p of outros) {
+    if (meuUid > p.uid && !voz.temLigacao(p.peerId)) {
+      const call = anfitriao ? anfitriao.ligar(p.peerId, voz.fluxo) : convidado?.ligar(p.peerId, voz.fluxo) ?? null;
+      if (call) voz.chamou(call, "sala");
+    }
+  }
+}
+
+function aoChamadaVoz(call: MediaConnection): void {
+  if (!Voz.suportado() || papel === "solo") { call.close(); return; }
+  if (rosterVoz.length > 0 && !rosterVoz.some((p) => p.peerId === call.peer)) { call.close(); return; } // só quem está na sala
+  voz.atender(call, "sala");
+}
+
+const CHAVE_MIC_DESLIGADO = "retro-mic-desligado";
+const micDesligadoPorMim = (): boolean => {
+  try {
+    return localStorage.getItem(CHAVE_MIC_DESLIGADO) === "1";
+  } catch {
+    return false;
+  }
+};
+
+async function alternarMic(): Promise<void> {
+  const erro = await voz.alternarMicrofone();
+  if (!erro) {
+    try {
+      if (voz.microfone) localStorage.removeItem(CHAVE_MIC_DESLIGADO);
+      else localStorage.setItem(CHAVE_MIC_DESLIGADO, "1");
+    } catch {
+      /* ignora */
+    }
+  }
+  aviso(erro ?? (voz.microfone ? "🎙 Microfone ligado: os outros ouvem você" : "🎤 Microfone desligado"), erro ? 4 : 2);
+}
+
+let tentouMicAuto = false;
+async function ligarMicAutomatico(): Promise<void> {
+  if (tentouMicAuto || papel === "solo" || !jogando || voz.microfone || micDesligadoPorMim() || !Voz.suportado()) return;
+  tentouMicAuto = true;
+  const erro = await voz.alternarMicrofone();
+  aviso(erro ?? "🎙 Microfone ligado: os outros ouvem você (V desliga)", erro ? 4 : 3);
+}
+
+// quem está falando: marca a linha na lista da sala
+function indicadoresVoz(): void {
+  voz.atualizarNiveis();
+  if (papel === "solo") return;
+  const falando = new Set(voz.participantes().filter((p) => p.falando).map((p) => p.peerId));
+  for (const linha of document.querySelectorAll<HTMLElement>("#sala-jogadores .jogador")) {
+    const uid = linha.dataset.uid ?? "";
+    const peer = rosterVoz.find((p) => p.uid === uid)?.peerId ?? "";
+    linha.classList.toggle("falando", uid === meuUid ? voz.euFalando : falando.has(peer));
+  }
+}
+$("bt-mic").addEventListener("click", () => void alternarMic());
+// o navegador só toca áudio depois de um gesto: retoma a cada toque/clique
+for (const ev of ["pointerdown", "click", "keydown"]) document.addEventListener(ev, () => { voz.retomar(); void ligarMicAutomatico(); }, { capture: true });
+window.setInterval(indicadoresVoz, 100);
+window.setInterval(() => { if (anfitriao) anunciarVoz(); else sincronizarVoz(); }, 2500);
+
 // ao abrir a página: nome de antes, palavra do link (?sala=) ou da última sala (para voltar com um toque)
 {
   let nome = "";
@@ -1682,4 +1807,4 @@ function quadro(agora: number): void {
 requestAnimationFrame(quadro);
 
 // para testes automáticos
-(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, get montado() { return montado; }, get condutor() { return condutor; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
+(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
