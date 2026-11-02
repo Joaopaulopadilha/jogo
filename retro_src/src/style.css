@@ -312,4 +312,4 @@ body.instalado #bt-ajustes-pc { left: 50%; transform: translateX(-50%); }
 #painel-sala .mudo-btn:hover { background: rgba(255, 255, 255, 0.15); }
 
 /* ---------- Caminhão: sem escavação nem conchas ---------- */
-body.em-caminhao #bt-modo, body.em-caminhao #manche-dir, body.em-caminhao #painel-carga { display: none !important; }
+body.em-caminhao #bt-modo, body.em-caminhao #painel-carga { display: none !important; }

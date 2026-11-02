@@ -98,6 +98,13 @@ export class Caminhao {
   readonly porta = new THREE.Vector3(1.3, 0, 1.85); // porta do motorista (lado esquerdo, +x)
   volume = 0;
   readonly cacamba = { x: 1.1, z0: -2.7, z1: 0.8, piso: 1.4, borda: 2.2 };
+  inclinacao = 0; // basculamento da caçamba, em radianos (0 = deitada; sobe pela frente, girando na dobradiça de trás)
+  static readonly INCLINACAO_MAX = 0.95;
+  private readonly cacambaG = new THREE.Group(); // gira na dobradiça traseira
+  private readonly conteudo = new THREE.Group(); // tudo o que basculou: piso, paredes, terra
+  private readonly dobradica = new THREE.Vector3(0, 1.2, -2.85);
+  private camisa!: THREE.Mesh; // cilindro hidráulico (corpo fixo e haste que acompanha a caçamba)
+  private haste!: THREE.Mesh;
   private readonly terra: THREE.Mesh;
   private readonly local = new THREE.Vector3();
 
@@ -109,14 +116,20 @@ export class Caminhao {
 
     this.chassi(c);
     this.cabine(c);
-    this.caixaDeCarga(c, k);
+    this.cacambaG.position.copy(this.dobradica);
+    this.conteudo.position.copy(this.dobradica).negate(); // as peças da caçamba ficam nas coordenadas do caminhão
+    this.cacambaG.add(this.conteudo);
+    c.add(this.cacambaG);
+    this.caixaDeCarga(this.conteudo, k);
+    this.cilindroHidraulico(c);
     this.rodasEMais(c);
 
     this.terra = new THREE.Mesh(new THREE.BoxGeometry(k.x * 2 - 0.05, 1, k.z1 - k.z0 - 0.05), materialTerra);
     this.terra.position.set(0, k.piso, (k.z0 + k.z1) / 2);
     this.terra.visible = false;
     this.terra.castShadow = true;
-    c.add(this.terra);
+    this.conteudo.add(this.terra);
+    this.aplicarInclinacao();
 
     g.position.set(x, y, z);
     g.rotation.y = rumo;
@@ -252,11 +265,9 @@ export class Caminhao {
     const comp = k.z1 - k.z0;
     const meio = (k.z0 + k.z1) / 2;
     const alt = k.borda - k.piso;
-    // subquadro e cilindro de basculamento
+    // subquadro (o cilindro de basculamento é montado à parte: um lado fica no chassi e o outro na caçamba)
     caixa(2.4, 0.12, comp + 0.3, aco, 0, k.piso - 0.18, meio, c);
     for (const lado of [-1, 1]) caixa(0.1, 0.12, comp + 0.3, aco, lado * 0.8, k.piso - 0.28, meio, c);
-    cilindro(0.11, 0.55, cromo, "y", 0, 1.1, k.z1 - 0.3, c, 12);
-    cilindro(0.07, 0.4, acoClaro, "y", 0, 1.3, k.z1 - 0.3, c, 10);
     // piso reforçado e paredes
     caixa(k.x * 2 + 0.2, 0.12, comp + 0.2, laranjaEscuro, 0, k.piso - 0.06, meio, c);
     for (const lado of [-1, 1]) {
@@ -323,6 +334,49 @@ export class Caminhao {
     }
   }
 
+  // ---------------------------------------------------------------- basculamento
+
+  // cilindro hidráulico: o corpo prende no chassi e a haste vai até a caçamba, esticando conforme ela sobe
+  private cilindroHidraulico(c: THREE.Group): void {
+    this.camisa = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 1, 12), cromo);
+    this.haste = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 1, 10), acoClaro);
+    for (const m of [this.camisa, this.haste]) {
+      m.castShadow = true;
+      c.add(m);
+    }
+  }
+
+  // aplica a inclinação ao modelo (caçamba e cilindro)
+  aplicarInclinacao(): void {
+    const k = this.cacamba;
+    this.cacambaG.rotation.x = -this.inclinacao;
+    if (!this.camisa) return;
+    // ponto da caçamba onde o cilindro se prende (perto da frente, embaixo), depois de girar na dobradiça
+    const dy = k.piso - 0.18 - this.dobradica.y;
+    const dz = k.z1 - 0.3 - this.dobradica.z;
+    const cos = Math.cos(this.inclinacao);
+    const sen = Math.sin(this.inclinacao);
+    const topo = new THREE.Vector2(this.dobradica.y + dy * cos + dz * sen, this.dobradica.z + dz * cos - dy * sen); // (y, z)
+    const base = new THREE.Vector2(0.95, k.z1 - 0.3); // preso no chassi
+    const dir = topo.clone().sub(base);
+    const comp = dir.length();
+    // dir está no plano (y, z): x = parte vertical, y = parte para a frente. O cilindro tem o eixo em y; girar em x por a leva
+    // (0,1,0) para (0, cos a, sin a)
+    const rotX = Math.atan2(dir.y / comp, dir.x / comp);
+    for (const [m, de, ate] of [[this.camisa, 0, comp * 0.55], [this.haste, comp * 0.5, comp]] as const) {
+      const centro = base.clone().addScaledVector(dir, (de + ate) / 2 / comp);
+      m.position.set(0, centro.x, centro.y);
+      m.rotation.set(rotX, 0, 0);
+      m.scale.set(1, ate - de, 1);
+    }
+  }
+
+  // ponto da beira traseira da caçamba, no mundo (por onde a terra escorre ao bascular)
+  beiraTraseira(alvo = new THREE.Vector3()): THREE.Vector3 {
+    const k = this.cacamba;
+    return this.conteudo.localToWorld(alvo.set(0, k.piso + 0.1, k.z0 - 0.15));
+  }
+
   // ---------------------------------------------------------------- colisão, carga
 
   // blocos de colisão no mundo: base com o piso da caçamba (o topo sobe com a terra), paredes, cabine e para-choque
@@ -337,6 +391,14 @@ export class Caminhao {
     };
     const meio = (c.z0 + c.z1) / 2;
     const meioComp = (c.z1 - c.z0) / 2 + 0.1;
+    if (this.inclinacao > 0.12) {
+      // caçamba levantada: só o chassi, o subquadro e a cabine ficam sólidos
+      return [
+        parte(0, meio, c.x + 0.1, meioComp, 0, c.piso - 0.2),
+        parte(0, 1.9, 1.2, 0.95, 0, 2.7), // cabine
+        parte(0, -3.15, 0.8, 0.35, 0, 1.15), // ponta do chassi atrás
+      ];
+    }
     return [
       parte(0, meio, c.x + 0.1, meioComp, 0, c.piso + this.alturaTerra()), // por baixo e o piso (ou a terra)
       parte(c.x + 0.075, meio, 0.075, meioComp, 0, c.borda), // parede esquerda
@@ -355,6 +417,7 @@ export class Caminhao {
 
   // a partícula caiu dentro da caçamba? (então fica aqui e é contada)
   pegar(p: THREE.Vector3, volume: number): boolean {
+    if (this.inclinacao > 0.12) return false; // levantada, a terra cai no chão
     const c = this.cacamba;
     this.grupo.worldToLocal(this.local.copy(p));
     const l = this.local;
@@ -375,6 +438,7 @@ export class Caminhao {
 
   // altura da superfície da caçamba (piso ou terra) no ponto, ou null se o ponto não está sobre ela
   superficie(x: number, z: number): number | null {
+    if (this.inclinacao > 0.12) return null;
     const c = this.cacamba;
     const l = this.grupo.worldToLocal(this.local.set(x, this.grupo.position.y, z));
     if (Math.abs(l.x) > c.x || l.z < c.z0 || l.z > c.z1) return null;
