@@ -62,7 +62,8 @@ export class Anfitriao {
   private tentativas = 0;
   private readonly vigia: number;
 
-  constructor(readonly palavra: string, private readonly ev: EventosAnfitriao) {
+  // insistir: a palavra pode ainda estar registrada por esta mesma pessoa (recarregou a página); espera o servidor esquecer
+  constructor(readonly palavra: string, private readonly ev: EventosAnfitriao, private readonly insistir = false) {
     this.abrir();
     this.vigia = window.setInterval(() => this.conferirSilencio(), BATIDA_MS);
   }
@@ -79,10 +80,9 @@ export class Anfitriao {
     peer.on("connection", (conn) => this.nova(conn));
     peer.on("error", (err) => {
       if (err.type === "unavailable-id" && !abriu) {
-        // quase sempre é o registro antigo desta mesma sala (o anfitrião recarregou): o servidor demora alguns
-        // segundos para esquecer. Insiste um pouco antes de dizer que a palavra está em uso
+        // a palavra já tem dono: quem pediu insiste um pouco (o servidor demora a esquecer o registro antigo)
         try { peer.destroy(); } catch { /* ignora */ }
-        if (++this.tentativas <= 5) setTimeout(() => this.abrir(), RELIGAR_MS);
+        if (this.insistir && ++this.tentativas <= 5) setTimeout(() => this.abrir(), RELIGAR_MS);
         else this.ev.aoErro("palavra-em-uso");
         return;
       }

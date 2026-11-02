@@ -38,6 +38,7 @@
   <div id="ajuda"></div>
   <div id="aviso" class="escondido"></div>
   <button id="bt-tela-pc" title="Tela cheia">⛶ Tela cheia</button>
+  <button id="bt-ajustes-pc" title="Ajustes (O)">⚙️ Ajustes</button>
   <div id="painel-sala" class="escondido">
     <div class="titulo">🏗️ Sala <b id="sala-palavra"></b></div>
     <div id="sala-jogadores"></div>
@@ -74,6 +75,7 @@
     <button id="bt-camera">🎥</button>
     <button id="bt-som">🔊</button>
     <button id="bt-tela">⛶</button>
+    <button id="bt-ajustes">⚙️</button>
   </div>
   <button id="bt-freio">FREIO</button>
   <!-- a pé: correr (segurar), pular e agachar (liga/desliga) -->
@@ -85,6 +87,25 @@
 </div>
 <div id="girar-aparelho">📱↻ Vire o aparelho na horizontal para jogar melhor</div>
 
+<div id="ajustes" class="escondido">
+  <div class="caixa">
+    <h2>⚙️ Ajustes</h2>
+    <h3>Câmera</h3>
+    <label class="ajuste so-teclado"><span>Sensibilidade do mouse</span><input type="range" data-aj="mouse" min="0.2" max="3" step="0.05" /><output></output></label>
+    <label class="ajuste"><span>Sensibilidade do toque (arrastar)</span><input type="range" data-aj="toque" min="0.2" max="3" step="0.05" /><output></output></label>
+    <label class="ajuste"><span>Velocidade do zoom</span><input type="range" data-aj="zoom" min="0.2" max="3" step="0.05" /><output></output></label>
+    <label class="ajuste marcar"><input type="checkbox" data-aj="invertY" /><span>Inverter a câmera na vertical</span></label>
+    <h3>Controle e som</h3>
+    <label class="ajuste"><span>Zona morta do controle</span><input type="range" data-aj="zona" min="0" max="0.4" step="0.01" /><output></output></label>
+    <label class="ajuste"><span>Volume</span><input type="range" data-aj="volume" min="0" max="1" step="0.05" /><output></output></label>
+    <div class="linha">
+      <button id="aj-padrao">Restaurar padrão</button>
+      <button id="aj-fechar" class="principal">Fechar</button>
+    </div>
+    <p class="pequeno so-teclado">O abre e fecha este menu · Esc solta o mouse</p>
+  </div>
+</div>
+
 <div id="inicio">
   <div class="caixa">
     <h1>🚜 Retroescavadeira</h1>
@@ -92,18 +113,19 @@
       A terra fica na concha: gire e solte na caçamba do caminhão.</p>
     <button id="jogar">▶ Jogar sozinho</button>
     <button id="bt-tela-inicio">⛶ Tela cheia</button>
+    <button id="bt-ajustes-inicio">⚙️ Ajustes</button>
     <div id="sala">
       <div class="divisor">ou jogue com amigos</div>
-      <input id="palavra" maxlength="16" placeholder="palavra da sala (ex.: barro42)" autocomplete="off" autocapitalize="off" spellcheck="false" />
-      <input id="nome-jogador" maxlength="16" placeholder="seu nome" autocomplete="off" />
-      <div class="linha">
-        <button id="bt-criar">🏗️ Criar sala</button>
-        <button id="bt-entrar-sala">🚪 Entrar na sala</button>
+      <div class="linha-palavra">
+        <input id="palavra" maxlength="16" placeholder="palavra da sala (ex.: barro42)" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button id="bt-sortear" title="Sugerir uma palavra">🎲</button>
       </div>
+      <input id="nome-jogador" maxlength="16" placeholder="seu nome" autocomplete="off" />
+      <button id="bt-entrar-sala" class="principal">🚪 Entrar na sala</button>
       <div id="sala-estado"></div>
       <button id="bt-cancelar-sala" class="escondido">Cancelar</button>
-      <button id="bt-apagar-obra" class="escondido">🗑️ Recomeçar a obra desta sala</button>
-      <p class="pequeno">Quem cria a sala hospeda a obra. Os outros entram com a mesma palavra e, se a conexão cair, voltam digitando de novo (ou recarregando a página).</p>
+      <button id="bt-apagar-obra" class="escondido">🗑️ Apagar a obra guardada desta sala</button>
+      <p class="pequeno">Digitou a palavra, entrou: se a sala ainda não existe ela é criada, se já existe você entra nela. Se a conexão cair, é só voltar com a mesma palavra.</p>
     </div>
     <p class="pequeno so-teclado">Tab troca entre dirigir e escavar · C muda a câmera · H abre os comandos · N recolhe a missão</p>
     <p class="pequeno so-toque">Dois manches na tela: o esquerdo e o direito mudam de função ao dirigir e ao escavar. Arraste no meio da tela para girar a câmera e use dois dedos para aproximar.</p>

@@ -9,6 +9,14 @@ export class Som {
   private hidrFiltro!: BiquadFilterNode;
   private terraGanho!: GainNode;
   ligado = true;
+  private mestre: GainNode | null = null;
+  private volumeGeral = 1;
+
+  // volume geral (0 a 1)
+  set volume(v: number) {
+    this.volumeGeral = v;
+    if (this.mestre) this.mestre.gain.value = 0.55 * v;
+  }
 
   iniciar(): void {
     if (this.ctx) {
@@ -18,7 +26,8 @@ export class Som {
     const ctx = new AudioContext();
     this.ctx = ctx;
     const mestre = ctx.createGain();
-    mestre.gain.value = 0.55;
+    mestre.gain.value = 0.55 * this.volumeGeral;
+    this.mestre = mestre;
     mestre.connect(ctx.destination);
 
     // motor: duas ondas graves batendo + filtro passa-baixa

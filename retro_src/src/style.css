@@ -256,3 +256,37 @@ body.mouse-preso #bt-tela-pc { display: none; }
   font-weight: 700; white-space: nowrap;
 }
 body.toque #painel-sala { top: 74px; font-size: 12px; }
+
+/* ---------- Ajustes ---------- */
+#bt-ajustes-pc {
+  position: absolute; top: 14px; left: calc(50% + 74px); pointer-events: auto;
+  background: rgba(20, 22, 26, 0.72); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px;
+  padding: 7px 14px; font-size: 14px; font-weight: 700; cursor: pointer; display: none;
+}
+body.jogando:not(.toque):not(.mouse-preso) #bt-ajustes-pc { display: block; }
+body.instalado #bt-ajustes-pc { left: 50%; transform: translateX(-50%); }
+#bt-ajustes-inicio {
+  display: block; margin: 4px auto 6px; background: transparent; color: #ffc61a; border: 1px solid #ffc61a;
+  border-radius: 8px; padding: 8px 20px; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+#ajustes { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; background: rgba(10, 14, 20, 0.6); }
+#ajustes.escondido { display: none; }
+#ajustes .caixa { touch-action: pan-y; }
+#ajustes .caixa { background: #1d2026; border-radius: 14px; padding: 20px 26px; width: min(420px, 92vw); max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+#ajustes h2 { margin: 0 0 6px; color: #ffc61a; font-size: 20px; }
+#ajustes h3 { margin: 14px 0 6px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; }
+.ajuste { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; margin: 8px 0; font-size: 14px; }
+.ajuste input[type="range"] { grid-column: 1; width: 100%; accent-color: #ffc61a; }
+.ajuste output { grid-column: 2; grid-row: 2; min-width: 46px; text-align: right; color: #ffd34d; font-variant-numeric: tabular-nums; font-size: 13px; }
+.ajuste.marcar { grid-template-columns: auto 1fr; justify-content: start; gap: 10px; cursor: pointer; }
+.ajuste.marcar input { width: 18px; height: 18px; accent-color: #ffc61a; }
+#ajustes .linha { display: flex; gap: 8px; margin-top: 16px; }
+#ajustes .linha button { flex: 1; background: #2c313a; color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
+#ajustes .linha button.principal { background: #ffc61a; color: #222; border: none; font-weight: 700; }
+#ajustes .pequeno { font-size: 12px; opacity: 0.6; text-align: center; margin: 10px 0 0; }
+
+.linha-palavra { display: flex; gap: 8px; margin-bottom: 8px; }
+.linha-palavra input { margin: 0 !important; flex: 1; min-width: 0; }
+#sala .linha-palavra button { flex: 0 0 auto; padding: 8px 12px; font-size: 18px; }
+#sala button.principal { width: 100%; background: #ffc61a; color: #222; border: none; font-weight: 700; font-size: 16px; }
+#sala button.principal:hover:not(:disabled) { background: #ffd34d; }

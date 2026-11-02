@@ -8,6 +8,7 @@ import { Som } from "./som";
 import { Manche, botaoSegurar, ehToque } from "./toque";
 import { Operario } from "./operario";
 import { alternarTelaCheia, entrarTelaCheia, instalado } from "./tela";
+import { ajustes, ligarMenuAjustes } from "./ajustes";
 import { Anfitriao, Convidado, Msg, Ligado, normalizarPalavra, palavraAleatoria } from "./rede";
 import { Elenco, DadosJogador, mmParaBuffer, bufferParaMm, mmParaTexto, textoParaMm } from "./elenco";
 import { Bloco, Empurrao, caixa, circulo, contem, dentro, empurrar, caixasSeCruzam, caixaECirculo } from "./colisao";
@@ -85,6 +86,11 @@ addEventListener("beforeunload", (e) => {
 const teclas = new Set<string>();
 addEventListener("keydown", (e) => {
   if (!jogando) return;
+  if (!$("ajustes").classList.contains("escondido")) {
+    // com o menu de ajustes aberto, as teclas não mexem no jogo
+    if (e.code === "KeyO" || e.code === "Escape") alternarAjustes(false);
+    return;
+  }
   if (e.code === "Tab") {
     e.preventDefault();
     if (!aPe) trocarModo();
@@ -95,6 +101,7 @@ addEventListener("keydown", (e) => {
     op.agachado = !op.agachado;
   } else if (aPe && e.code === "Space" && !e.repeat) pedirPulo = true;
   else if (e.code === "KeyC" && !aPe) cameraCabine = !cameraCabine;
+  else if (e.code === "KeyO") alternarAjustes();
   else if (e.code === "KeyH") alternarPainel("ajuda", "recolhida");
   else if (e.code === "KeyN") alternarPainel("painel-missao", "recolhido");
   else if (e.code === "KeyM") som.ligado = !som.ligado;
@@ -113,7 +120,8 @@ function controle(): Gamepad | null {
   for (const g of navigator.getGamepads?.() ?? []) if (g && g.connected) return g;
   return null;
 }
-const zona = (v: number) => (Math.abs(v) < 0.15 ? 0 : (v - Math.sign(v) * 0.15) / 0.85);
+const zona = (v: number) => (Math.abs(v) < ajustes.zona ? 0 : (v - Math.sign(v) * ajustes.zona) / (1 - ajustes.zona));
+const sinalY = () => (ajustes.invertY ? -1 : 1); // câmera vertical invertida
 
 // câmera orbital: arrastar (mouse ou dedo) gira, rodinha ou pinça com dois dedos aproxima
 const orbita = { yaw: 0, pitch: 0.38, dist: 15 };
@@ -132,8 +140,8 @@ function prenderMouse(): void {
 }
 document.addEventListener("mousemove", (e) => {
   if (!mousePreso()) return;
-  orbita.yaw -= e.movementX * 0.0035;
-  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + e.movementY * 0.0028, cameraCabine ? -0.8 : 0.05, cameraCabine ? 0.8 : 1.35);
+  orbita.yaw -= e.movementX * 0.0035 * ajustes.mouse;
+  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + e.movementY * 0.0028 * ajustes.mouse * sinalY(), cameraCabine ? -0.8 : 0.05, cameraCabine ? 0.8 : 1.35);
 });
 document.addEventListener("pointerlockchange", () => {
   document.body.classList.toggle("mouse-preso", mousePreso());
@@ -164,16 +172,16 @@ canvas.addEventListener("pointermove", (e) => {
   if (dedos.size >= 2) {
     const [a, b] = [...dedos.values()];
     const d = Math.hypot(a.x - b.x, a.y - b.y);
-    if (pinca > 0) orbita.dist = THREE.MathUtils.clamp(orbita.dist * (pinca / d), 5, 40);
+    if (pinca > 0) orbita.dist = THREE.MathUtils.clamp(orbita.dist * (pinca / d) ** ajustes.zoom, 5, 40);
     pinca = d;
     return;
   }
-  const k = e.pointerType === "touch" ? 0.008 : 0.005;
+  const k = e.pointerType === "touch" ? 0.008 * ajustes.toque : 0.005 * ajustes.mouse;
   orbita.yaw -= dx * k;
-  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + dy * k * 0.8, cameraCabine ? -0.8 : 0.05, cameraCabine ? 0.8 : 1.35);
+  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + dy * k * 0.8 * sinalY(), cameraCabine ? -0.8 : 0.05, cameraCabine ? 0.8 : 1.35);
 });
 canvas.addEventListener("wheel", (e) => {
-  orbita.dist = THREE.MathUtils.clamp(orbita.dist * (1 + Math.sign(e.deltaY) * 0.1), 5, 40);
+  orbita.dist = THREE.MathUtils.clamp(orbita.dist * (1 + Math.sign(e.deltaY) * 0.1 * ajustes.zoom), 5, 40);
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -589,6 +597,24 @@ $("bt-agachar").addEventListener("pointerdown", (e) => {
   op.agachado = !op.agachado;
 });
 $("bt-camera").addEventListener("click", () => (cameraCabine = !cameraCabine));
+// menu de ajustes (sensibilidade, câmera, controle e som)
+function alternarAjustes(abrir?: boolean): void {
+  const aberto = $("ajustes").classList.toggle("escondido", abrir === undefined ? undefined : !abrir) === false;
+  if (aberto && document.pointerLockElement) document.exitPointerLock(); // solta o mouse para mexer nos controles
+  if (!aberto) {
+    teclas.clear();
+    prenderMouse();
+  }
+}
+ligarMenuAjustes($("ajustes"), () => {
+  som.volume = ajustes.volume;
+});
+som.volume = ajustes.volume;
+for (const id of ["bt-ajustes", "bt-ajustes-pc", "bt-ajustes-inicio"]) $(id).addEventListener("click", () => alternarAjustes(true));
+$("aj-fechar").addEventListener("click", () => alternarAjustes(false));
+$("ajustes").addEventListener("pointerdown", (e) => {
+  if (e.target === $("ajustes")) alternarAjustes(false); // toque fora da caixa fecha
+});
 $("bt-som").addEventListener("click", () => {
   som.ligado = !som.ligado;
   $("bt-som").textContent = som.ligado ? "🔊" : "🔇";
@@ -1071,11 +1097,20 @@ function tickRede(dt: number): void {
   tRede -= dt;
   if (tRede > 0) return;
   tRede = 1 / 15;
-  if (papel === "anfitriao") tickAnfitriao();
-  else if (aPe && convidado?.conectado) {
+  if (papel === "anfitriao") {
+    tickAnfitriao();
+    return;
+  }
+  if (aPe && convidado?.conectado) {
     // em cima da máquina, manda também onde está no corpo dela: assim o anfitrião o põe no lugar certo mesmo com atraso
     const nela = montado ? { mt: 1, ...paraCorpo(op.x, op.z, carro), ly: op.y - carro.y, lr: op.rumo - carro.rumo } : {};
     convidado.enviar({ t: "p", ...dadosDoOperario(), ...nela });
+  }
+  // o convidado também guarda uma cópia da obra: se a sala ficar sem dono, quem a reabrir continua de onde parou
+  tSalvar -= 1 / 15;
+  if (tSalvar <= 0) {
+    tSalvar = 10;
+    if (convidado && alvoRede) salvarObra(convidado.palavra);
   }
 }
 
@@ -1116,7 +1151,7 @@ function tickAnfitriao(): void {
   tSalvar -= 1 / 15;
   if (tSalvar <= 0) {
     tSalvar = 5;
-    if (obraSuja) salvarObra();
+    if (obraSuja && anfitriao) salvarObra(anfitriao.palavra);
   }
 }
 
@@ -1319,12 +1354,11 @@ function enviarControle(dt: number, e: Entrada): void {
 // ----- obra salva (no navegador do anfitrião, por palavra) -----
 const chaveObra = (palavra: string): string => `retro-obra-${palavra}`;
 
-function salvarObra(): void {
-  if (!anfitriao) return;
+function salvarObra(palavra: string): void {
   const t = terreno.tomarTudo();
   const dados = { ter: t ? { i0: t.i0, i1: t.i1, j0: t.j0, j1: t.j1, mm: mmParaTexto(t.mm) } : null, carro: { x: carro.x, z: carro.z, rumo: carro.rumo }, vol: caminhao.volume };
   try {
-    localStorage.setItem(chaveObra(anfitriao.palavra), JSON.stringify(dados));
+    localStorage.setItem(chaveObra(palavra), JSON.stringify(dados));
     obraSuja = false;
     volumeSalvo = caminhao.volume;
   } catch {
@@ -1383,7 +1417,7 @@ function estadoMenu(texto: string, erro = false): void {
 }
 
 function menuOcupado(ocupado: boolean): void {
-  for (const id of ["jogar", "bt-criar", "bt-entrar-sala"]) ($(id) as HTMLButtonElement).disabled = ocupado;
+  for (const id of ["jogar", "bt-entrar-sala", "bt-sortear"]) ($(id) as HTMLButtonElement).disabled = ocupado;
   campoPalavra.disabled = campoNome.disabled = ocupado;
   $("bt-cancelar-sala").classList.toggle("escondido", !ocupado);
 }
@@ -1420,27 +1454,37 @@ function atualizarPainelSala(): void {
   }
 }
 
-function abrirSala(como: "anfitriao" | "convidado"): void {
-  const palavra = normalizarPalavra(campoPalavra.value) || (como === "anfitriao" ? palavraAleatoria() : "");
+// Uma ação só: digitou a palavra, entrou. Primeiro tenta abrir a sala (ser quem hospeda a obra); se a palavra já
+// tem dono, entra nela como convidado. Quem era o dono e recarregou a página insiste um pouco antes de desistir.
+function abrirSala(): void {
+  const palavra = normalizarPalavra(campoPalavra.value);
   if (palavra.length < 2) {
     estadoMenu("Digite a palavra da sala (2 a 16 letras ou números)", true);
     return;
   }
   campoPalavra.value = palavra;
   meuNome = campoNome.value.trim().slice(0, 16) || "Operário";
+  let eraDono = false;
   try {
     localStorage.setItem("retro-nome", meuNome);
+    const antes = JSON.parse(localStorage.getItem(chaveSessao) ?? "null");
+    eraDono = antes?.papel === "anfitriao" && antes?.palavra === palavra;
   } catch {
     /* ignora */
   }
   gestoInicial();
   fecharSala();
-  papel = como;
   menuOcupado(true);
-  if (como === "anfitriao") {
-    estadoMenu("Abrindo a sala...");
-    meuUid = UID_ANFITRIAO;
-    anfitriao = new Anfitriao(palavra, {
+  estadoMenu("Procurando a sala...");
+  entrarComoAnfitriao(palavra, eraDono);
+}
+
+function entrarComoAnfitriao(palavra: string, insistir: boolean): void {
+  papel = "anfitriao";
+  meuUid = UID_ANFITRIAO;
+  anfitriao = new Anfitriao(
+    palavra,
+    {
       aoAbrir: () => {
         if (jogando) return;
         restaurarObra(palavra);
@@ -1453,39 +1497,60 @@ function abrirSala(como: "anfitriao" | "convidado"): void {
       },
       aoErro: (tipo) => {
         if (jogando) return; // com a sala aberta, falha de rede o PeerJS religa sozinho
-        estadoMenu(tipo === "palavra-em-uso" ? "Essa palavra já está em uso por outra sala. Escolha outra." : `Não deu para abrir a sala (${tipo}). Confira a internet.`, true);
+        if (tipo === "palavra-em-uso") {
+          anfitriao?.fechar();
+          anfitriao = null;
+          entrarComoConvidado(palavra);
+          return;
+        }
+        estadoMenu(`Não deu para abrir a sala (${tipo}). Confira a internet.`, true);
         fecharSala();
       },
       aoEntrou: entrouConvidado,
       aoSaiu: saiuConvidado,
       aoMensagem: mensagemDoConvidado,
-    });
-  } else {
-    estadoMenu("Procurando a sala...");
-    meuUid = uidSalvo();
-    convidado = new Convidado(palavra, meuUid, meuNome, {
-      aoConectar: () => {
-        if (!jogando) estadoMenu("Entrando na obra...");
-      },
-      aoDesconectar: () => {
-        entradaRemota = ENTRADA_ZERO;
-        $("rede-estado").textContent = "🔌 Sem conexão com a sala. Tentando voltar...";
-        $("rede-estado").classList.remove("escondido");
-      },
-      aoMensagem: receberDoAnfitriao,
-      aoEstado: (texto) => {
-        if (!jogando) estadoMenu(texto);
-        else {
-          $("rede-estado").textContent = `🔌 ${texto}`;
-          $("rede-estado").classList.remove("escondido");
-        }
-      },
-    });
-  }
+    },
+    insistir,
+  );
 }
 
-$("bt-criar").addEventListener("click", () => abrirSala("anfitriao"));
-$("bt-entrar-sala").addEventListener("click", () => abrirSala("convidado"));
+function entrarComoConvidado(palavra: string): void {
+  papel = "convidado";
+  meuUid = uidSalvo();
+  estadoMenu("Entrando na sala...");
+  convidado = new Convidado(palavra, meuUid, meuNome, {
+    aoConectar: () => {
+      if (!jogando) estadoMenu("Entrando na obra...");
+    },
+    aoDesconectar: () => {
+      entradaRemota = ENTRADA_ZERO;
+      $("rede-estado").textContent = "🔌 Sem conexão com a sala. Tentando voltar...";
+      $("rede-estado").classList.remove("escondido");
+    },
+    aoMensagem: receberDoAnfitriao,
+    aoEstado: (texto) => {
+      if (!jogando) estadoMenu(texto);
+      else {
+        $("rede-estado").textContent = `🔌 ${texto}`;
+        $("rede-estado").classList.remove("escondido");
+      }
+    },
+  });
+}
+
+$("bt-entrar-sala").addEventListener("click", abrirSala);
+$("bt-sortear").addEventListener("click", () => {
+  campoPalavra.value = palavraAleatoria();
+  campoPalavra.dispatchEvent(new Event("input"));
+});
+campoPalavra.addEventListener("keydown", (e) => {
+  e.stopPropagation();
+  if (e.key === "Enter") abrirSala();
+});
+campoNome.addEventListener("keydown", (e) => {
+  e.stopPropagation();
+  if (e.key === "Enter") abrirSala();
+});
 $("bt-cancelar-sala").addEventListener("click", () => {
   fecharSala();
   estadoMenu("");
@@ -1539,7 +1604,7 @@ $("bt-sair-sala").addEventListener("click", () => {
     estadoMenu(`Convite para a sala "${doLink}": escreva seu nome e toque em Entrar na sala.`);
   } else if (sessao?.palavra) {
     campoPalavra.value = sessao.palavra;
-    estadoMenu(`↩️ Sua última sala: "${sessao.palavra}". Toque em ${sessao.papel === "anfitriao" ? "Criar sala (a obra salva continua)" : "Entrar na sala"} para voltar.`);
+    estadoMenu(`↩️ Sua última sala: "${sessao.palavra}". Toque em Entrar na sala para voltar.`);
   }
   campoPalavra.dispatchEvent(new Event("input"));
 }
