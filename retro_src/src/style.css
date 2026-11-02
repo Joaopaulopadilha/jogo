@@ -205,3 +205,38 @@ body.instalado #bt-tela-inicio, body.instalado #bt-tela, body.instalado #bt-tela
 #clique-mouse { display: none; top: auto !important; bottom: 18px; left: 50%; transform: translateX(-50%); font-size: 14px; }
 body.jogando:not(.toque):not(.mouse-preso) #clique-mouse { display: block; }
 body.mouse-preso #bt-tela-pc { display: none; }
+
+/* ---------- Sala (multijogador) ---------- */
+#painel-sala.escondido, #rede-estado.escondido, #bt-cancelar-sala.escondido, #bt-apagar-obra.escondido { display: none !important; }
+#inicio .caixa { max-height: 94vh; overflow-y: auto; }
+#sala { margin-top: 10px; text-align: center; }
+#sala .divisor { display: flex; align-items: center; gap: 10px; font-size: 12px; opacity: 0.6; margin: 6px 0 10px; }
+#sala .divisor::before, #sala .divisor::after { content: ""; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.25); }
+#sala input {
+  display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25); background: #12151a; color: #fff; font-size: 16px; text-align: center;
+  user-select: text;
+}
+#sala .linha { display: flex; gap: 8px; }
+#sala button, #painel-sala button {
+  flex: 1; background: #2c313a; color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px;
+  padding: 10px 12px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+#sala button:hover:not(:disabled), #painel-sala button:hover { background: #3a414c; }
+#sala button:disabled { opacity: 0.5; cursor: default; }
+#sala-estado { min-height: 1.3em; margin: 8px 0 4px; font-size: 13px; color: #ffd34d; }
+#sala-estado.erro { color: #ff8a7a; }
+#bt-cancelar-sala, #bt-apagar-obra { width: 100%; margin-top: 6px; }
+#bt-apagar-obra { font-size: 12px; font-weight: 400; opacity: 0.8; }
+
+#painel-sala { top: 84px; left: 14px; min-width: 150px; pointer-events: none; }
+#painel-sala .titulo { font-weight: 700; margin-bottom: 4px; }
+#painel-sala .titulo b { color: #ffd34d; }
+#sala-jogadores { font-size: 13px; line-height: 1.5; margin-bottom: 6px; }
+#painel-sala .botoes { display: flex; gap: 6px; pointer-events: auto; }
+#painel-sala button { padding: 5px 8px; font-size: 12px; }
+#rede-estado {
+  top: 14px; left: 50%; transform: translateX(-50%); background: rgba(176, 52, 38, 0.9) !important;
+  font-weight: 700; white-space: nowrap;
+}
+body.toque #painel-sala { top: 74px; font-size: 12px; }

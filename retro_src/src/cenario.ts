@@ -103,12 +103,17 @@ export class Caminhao {
     const l = this.local;
     if (Math.abs(l.x) > c.x || l.z < c.z0 || l.z > c.z1) return false;
     if (l.y > c.piso + this.alturaTerra() + 0.05 || l.y < c.piso - 0.4) return false;
-    this.volume += volume;
+    this.definirVolume(this.volume + volume);
+    return true;
+  }
+
+  definirVolume(volume: number): void {
+    const c = this.cacamba;
+    this.volume = volume;
     const h = this.alturaTerra();
     this.terra.visible = h > 0.01;
     this.terra.scale.y = Math.max(h, 0.01);
     this.terra.position.y = c.piso + h / 2;
-    return true;
   }
 
   // altura da superfície da caçamba (piso ou terra) no ponto, ou null se o ponto não está sobre ela

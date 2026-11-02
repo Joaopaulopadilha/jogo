@@ -37,6 +37,9 @@ export class Terreno {
   private jMax = -1;
   private tempoNormais = 0;
   private normaisPendentes = false;
+  // alterações a enviar pela rede (desde o último envio) e tudo o que já mudou desde o começo
+  private envio: [number, number, number, number] | null = null;
+  private total: [number, number, number, number] | null = null;
 
   constructor() {
     for (let i = 0; i < N; i++) {
@@ -228,7 +231,52 @@ export class Terreno {
     return [i0, i1, j0, j1];
   }
 
+  // faixa alterada desde a última chamada, em milímetros (Int16); null se nada mudou
+  tomarAlteracao(): { i0: number; i1: number; j0: number; j1: number; mm: Int16Array } | null {
+    const f = this.envio;
+    this.envio = null;
+    return f ? this.empacotar(f) : null;
+  }
+
+  // tudo o que difere do terreno original (para quem acabou de entrar ou para salvar a obra)
+  tomarTudo(): { i0: number; i1: number; j0: number; j1: number; mm: Int16Array } | null {
+    return this.total ? this.empacotar(this.total) : null;
+  }
+
+  private empacotar([i0, i1, j0, j1]: [number, number, number, number]): { i0: number; i1: number; j0: number; j1: number; mm: Int16Array } {
+    const larg = j1 - j0 + 1;
+    const mm = new Int16Array((i1 - i0 + 1) * larg);
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) mm[(i - i0) * larg + (j - j0)] = Math.round(this.alturas[i * N + j] * 1000);
+    }
+    return { i0, i1, j0, j1, mm };
+  }
+
+  aplicarAlteracao(i0: number, i1: number, j0: number, j1: number, mm: ArrayLike<number>): void {
+    i0 = Math.max(0, i0);
+    j0 = Math.max(0, j0);
+    i1 = Math.min(N - 1, i1);
+    j1 = Math.min(N - 1, j1);
+    const larg = j1 - j0 + 1;
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) this.alturas[i * N + j] = mm[(i - i0) * larg + (j - j0)] / 1000;
+    }
+    this.marcarMalha(i0, i1, j0, j1);
+    this.uniao("total", i0, i1, j0, j1);
+  }
+
+  private uniao(que: "envio" | "total", i0: number, i1: number, j0: number, j1: number): void {
+    const f = this[que];
+    this[que] = f ? [Math.min(f[0], i0), Math.max(f[1], i1), Math.min(f[2], j0), Math.max(f[3], j1)] : [i0, i1, j0, j1];
+  }
+
   private marcar(i0: number, i1: number, j0: number, j1: number): void {
+    this.marcarMalha(i0, i1, j0, j1);
+    this.uniao("envio", i0, i1, j0, j1);
+    this.uniao("total", i0, i1, j0, j1);
+  }
+
+  private marcarMalha(i0: number, i1: number, j0: number, j1: number): void {
     this.iMin = Math.min(this.iMin, i0);
     this.iMax = Math.max(this.iMax, i1);
     this.jMin = Math.min(this.jMin, j0);

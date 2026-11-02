@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "peerjs": "^1.5.5",
     "three": "0.160.1"
   },
   "devDependencies": {

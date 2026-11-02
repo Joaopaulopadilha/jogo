@@ -8,6 +8,8 @@ import { Som } from "./som";
 import { Manche, botaoSegurar, ehToque } from "./toque";
 import { Operario } from "./operario";
 import { alternarTelaCheia, entrarTelaCheia, instalado } from "./tela";
+import { Anfitriao, Convidado, Msg, Ligado, normalizarPalavra, palavraAleatoria } from "./rede";
+import { Elenco, DadosJogador, mmParaBuffer, bufferParaMm, mmParaTexto, textoParaMm } from "./elenco";
 import { Bloco, Empurrao, caixa, circulo, contem, dentro, empurrar, caixasSeCruzam, caixaECirculo } from "./colisao";
 
 const TOQUE = ehToque();
@@ -33,7 +35,9 @@ cena.add(particulas.malha);
 const som = new Som();
 const op = new Operario();
 cena.add(op.grupo);
-void op.carregar(`${import.meta.env.BASE_URL}modelos/operario.glb`);
+const MODELO_OPERARIO = `${import.meta.env.BASE_URL}modelos/operario.glb`;
+void op.carregar(MODELO_OPERARIO);
+const elenco = new Elenco(cena, maq.banco, MODELO_OPERARIO); // os outros jogadores da sala
 // mira: mostra no chão (ou na caçamba) onde a terra da concha traseira vai cair
 const mira = new THREE.Mesh(
   new THREE.RingGeometry(0.32, 0.44, 28).rotateX(-Math.PI / 2),
@@ -59,13 +63,19 @@ const taxa: Record<string, number> = { giro: 0, lanca: 0, braco: 0, concha: 0, b
 const VEL_JUNTA: Record<string, number> = { giro: 0.75, lanca: 0.55, braco: 0.75, concha: 1.1, bracoFrente: 0.45, conchaFrente: 0.9 };
 let jogando = false;
 let cameraCabine = false;
-let volumeCaminhao = 0;
 let progresso = 0;
 let valaPronta = false;
 let tempoMissao = 0;
 let somTerra = 0;
 let aPe = true; // o jogo começa com o operário fora da máquina
 let pedirPulo = false;
+// sala: solo, anfitrião (roda a obra) ou convidado (anda, dirige e cava pelo anfitrião)
+type Papel = "solo" | "anfitriao" | "convidado";
+let papel: Papel = "solo";
+const UID_ANFITRIAO = "anfitriao";
+let meuUid = UID_ANFITRIAO; // o convidado usa uma identidade guardada no navegador
+let meuNome = "Operário";
+let condutor = ""; // quem está sentado na cabine ("" = ninguém); só uma pessoa opera a máquina
 // durante o jogo, fechar a aba (Ctrl+W por engano) pede confirmação
 addEventListener("beforeunload", (e) => {
   if (jogando) e.preventDefault();
@@ -189,21 +199,33 @@ function aviso(texto: string, segundos = 2.2): void {
 }
 
 function trocarModo(): void {
-  if (modo === "dirigir") {
-    if (Math.abs(carro.vel) > 0.6) {
-      aviso("Pare a máquina antes de escavar");
-      return;
+  if (aPe) return;
+  if (modo === "dirigir" && Math.abs(carro.vel) > 0.6) {
+    aviso("Pare a máquina antes de escavar");
+    return;
+  }
+  if (papel === "convidado") {
+    convidado?.enviar({ t: "modo" }); // o anfitrião troca e o novo modo volta no próximo quadro da rede
+    return;
+  }
+  definirModo(modo === "dirigir" ? "escavar" : "dirigir");
+}
+
+function definirModo(novo: Modo): void {
+  if (novo === modo) return;
+  modo = novo;
+  if (condutor === meuUid) {
+    // a câmera só muda para quem está operando
+    if (modo === "escavar") {
+      // de lado e um pouco atrás: a pá da frente não tampa o braço
+      orbita.yaw = 0.75;
+      orbita.pitch = 0.5;
+      orbita.dist = 11;
+    } else {
+      orbita.yaw = 0;
+      orbita.pitch = 0.38;
+      orbita.dist = 15;
     }
-    modo = "escavar";
-    // de lado e um pouco atrás: a pá da frente não tampa o braço
-    orbita.yaw = 0.75;
-    orbita.pitch = 0.5;
-    orbita.dist = 11;
-  } else {
-    modo = "dirigir";
-    orbita.yaw = 0;
-    orbita.pitch = 0.38;
-    orbita.dist = 15;
   }
   atualizarTextos();
 }
@@ -236,40 +258,63 @@ function entrarOuSair(): void {
       aviso("Chegue perto da porta da cabine (lado esquerdo) para entrar");
       return;
     }
-    aPe = false;
-    op.agachado = false;
-    op.noChao = true;
-    op.vy = 0;
-    // senta no banco (o banco gira junto quando escava)
-    maq.banco.add(op.grupo);
-    op.grupo.position.set(0, -0.25, 0);
-    op.grupo.rotation.set(0, 0, 0);
-    op.vel = 0;
-    op.tocar("sentado", 0.3);
-    orbita.yaw = modo === "escavar" ? 0.75 : 0;
-    orbita.pitch = modo === "escavar" ? 0.5 : 0.38;
-    orbita.dist = modo === "escavar" ? 11 : 15;
-    aviso(modo === "escavar" ? "Na cabine: escavando" : TOQUE ? "Na cabine: dê ré até a vala e toque em ⛏️ Escavar" : "Na cabine: dê ré até a vala e aperte Tab para escavar", 3);
+    if (condutor !== "") {
+      aviso("Outro operário está na cabine");
+      return;
+    }
+    if (papel === "convidado") {
+      convidado?.enviar({ t: "entrar" }); // o anfitrião confirma e o convidado senta quando a rede avisar
+      return;
+    }
+    condutor = meuUid;
+    sentar();
   } else {
     if (Math.abs(carro.vel) > 0.8) {
       aviso("Pare a máquina antes de sair");
       return;
     }
-    aPe = true;
-    cameraCabine = false;
-    const p = corpoParaMundo(maq.porta.x + 0.6, maq.porta.z);
-    op.x = p.x;
-    op.z = p.z;
-    op.rumo = carro.rumo + Math.PI / 2; // de costas para a porta
-    op.y = terreno.altura(op.x, op.z);
-    op.noChao = true;
-    cena.add(op.grupo);
-    op.grupo.visible = true;
-    op.tocar("parado", 0.3);
-    orbita.yaw = op.rumo + Math.PI;
-    orbita.pitch = 0.3;
-    orbita.dist = 6;
+    if (papel === "convidado") {
+      convidado?.enviar({ t: "sair" });
+      return;
+    }
+    condutor = "";
+    levantar();
   }
+}
+
+function sentar(): void {
+  aPe = false;
+  op.agachado = false;
+  op.noChao = true;
+  op.vy = 0;
+  // senta no banco (o banco gira junto quando escava)
+  maq.banco.add(op.grupo);
+  op.grupo.position.set(0, -0.25, 0);
+  op.grupo.rotation.set(0, 0, 0);
+  op.vel = 0;
+  op.tocar("sentado", 0.3);
+  orbita.yaw = modo === "escavar" ? 0.75 : 0;
+  orbita.pitch = modo === "escavar" ? 0.5 : 0.38;
+  orbita.dist = modo === "escavar" ? 11 : 15;
+  aviso(modo === "escavar" ? "Na cabine: escavando" : TOQUE ? "Na cabine: dê ré até a vala e toque em ⛏️ Escavar" : "Na cabine: dê ré até a vala e aperte Tab para escavar", 3);
+  atualizarTextos();
+}
+
+function levantar(): void {
+  aPe = true;
+  cameraCabine = false;
+  const p = corpoParaMundo(maq.porta.x + 0.6, maq.porta.z);
+  op.x = p.x;
+  op.z = p.z;
+  op.rumo = carro.rumo + Math.PI / 2; // de costas para a porta
+  op.y = terreno.altura(op.x, op.z);
+  op.noChao = true;
+  cena.add(op.grupo);
+  op.grupo.visible = true;
+  op.tocar("parado", 0.3);
+  orbita.yaw = op.rumo + Math.PI;
+  orbita.pitch = 0.3;
+  orbita.dist = 6;
   atualizarTextos();
 }
 
@@ -496,17 +541,24 @@ const mostrarAjudaIos = () => $("ajuda-ios").classList.remove("escondido");
 for (const id of ["bt-tela", "bt-tela-pc", "bt-tela-inicio"]) $(id).addEventListener("click", () => alternarTelaCheia(mostrarAjudaIos));
 $("fechar-ajuda-ios").addEventListener("click", () => $("ajuda-ios").classList.add("escondido"));
 
-$("jogar").addEventListener("click", () => {
+// o que só funciona logo após um clique do jogador (som, tela cheia)
+function gestoInicial(): void {
+  som.iniciar();
+  if (TOQUE && !instalado()) void entrarTelaCheia(); // no celular, entra em tela cheia e tenta travar na horizontal
+}
+
+function comecar(): void {
+  if (jogando) return;
   jogando = true;
   document.body.classList.add("jogando");
   $("inicio").classList.add("escondido");
-  som.iniciar();
   prenderMouse();
-  if (TOQUE) {
-    // no celular, entra em tela cheia e tenta travar na horizontal
-    if (!instalado()) void entrarTelaCheia();
-  }
   aviso(TOQUE ? "Ande até a porta da cabine e toque em 🚜 Entrar" : "Ande até a porta da cabine (lado esquerdo) e aperte E para entrar", 4.5);
+}
+
+$("jogar").addEventListener("click", () => {
+  gestoInicial();
+  comecar();
 });
 
 // ---------------- física da máquina ----------------
@@ -566,6 +618,11 @@ function dirigir(dt: number, acel: number, virar: number, freio: number): void {
   carro.arfagem += (arf - carro.arfagem) * f;
   carro.rolagem += (rol - carro.rolagem) * f;
 
+  posicionarMaquina(dt);
+}
+
+// leva a pose do `carro` para o modelo (o convidado também usa, com a pose que vem do anfitrião)
+function posicionarMaquina(dt: number): void {
   maq.raiz.position.set(carro.x, carro.y, carro.z);
   maq.raiz.rotation.y = carro.rumo;
   maq.corpo.rotation.set(-carro.arfagem, 0, carro.rolagem);
@@ -683,6 +740,7 @@ function salvarJuntas() {
 }
 
 function atualizarMaquina(dt: number): void {
+  if (papel === "convidado") aplicarEstadoRede(dt); // a máquina é do anfitrião: aqui só se copia a pose dela
   const gp = controle();
   let acel = 0, virar = 0, freio = 0;
   let giro = 0, lanca = 0, braco = 0, concha = 0, bracoF = 0, conchaF = 0;
@@ -710,10 +768,12 @@ function atualizarMaquina(dt: number): void {
     andarAPe(dt, THREE.MathUtils.clamp(frente, -1, 1), THREE.MathUtils.clamp(lado, -1, 1), correr, pedirPulo);
     pedirPulo = false;
   } else if (!aPe) {
-    // operário sentado: o banco vira para trás quando escava
+    op.grupo.visible = !cameraCabine;
+  }
+  if (condutor !== "" && papel !== "convidado") {
+    // quem estiver sentado (eu ou outro jogador) vira o banco para trás quando escava
     const alvoBanco = modo === "escavar" ? Math.PI : 0;
     maq.banco.rotation.y += (alvoBanco - maq.banco.rotation.y) * Math.min(1, dt * 4);
-    op.grupo.visible = !cameraCabine;
   }
   if (gp) {
     const x = !!gp.buttons[2]?.pressed; // X: entrar / sair
@@ -766,6 +826,17 @@ function atualizarMaquina(dt: number): void {
       if (y && !botaoYAntes) trocarModo();
       botaoYAntes = y;
     }
+  }
+
+  if (papel === "convidado") {
+    if (!aPe) enviarControle(dt, { acel, virar, freio, giro, lanca, braco, concha, bracoF, conchaF });
+    som.atualizar(Math.min(1, Math.abs(carro.vel) / 7 + Math.abs(acel) * 0.25 + Math.min(hidrRede, 1.5) * 0.35), Math.min(1, hidrRede * 0.8), 0);
+    return;
+  }
+  if (condutor !== "" && condutor !== meuUid) {
+    // outro jogador opera a máquina: vale o que ele manda (sem notícia há meio segundo, solta tudo)
+    const e = performance.now() - tEntradaRemota < 500 ? entradaRemota : null;
+    ({ acel, virar, freio, giro, lanca, braco, concha, bracoF, conchaF } = e ?? ENTRADA_ZERO);
   }
 
   dirigir(dt, THREE.MathUtils.clamp(acel, -1, 1), THREE.MathUtils.clamp(virar, -1, 1), freio);
@@ -883,7 +954,7 @@ function atualizarHud(dt: number): void {
   } else $("velocidade").textContent = modo === "dirigir" ? `${Math.round(Math.abs(carro.vel) * 3.6)} km/h${carro.vel < -0.1 ? " (ré)" : ""}` : maq.sapatas < 1 ? "Baixando sapatas..." : "Sapatas no chão";
   $("barra-vala").style.width = `${Math.round(progresso * 100)}%`;
   $("missao-vala").textContent = `Vala: ${Math.round(progresso * 100)}%`;
-  $("missao-caminhao").textContent = `Caminhão: ${volumeCaminhao.toFixed(1).replace(".", ",")} m³`;
+  $("missao-caminhao").textContent = `Caminhão: ${caminhao.volume.toFixed(1).replace(".", ",")} m³`;
   const pr = maq.retro.carga / maq.retro.capacidade;
   const pf = maq.frente.carga / maq.frente.capacidade;
   $("carga-retro").textContent = `${Math.round(pr * 100)}%`;
@@ -896,11 +967,493 @@ function atualizarHud(dt: number): void {
   }
 }
 
+// ---------------- sala (jogar com amigos) ----------------
+// O anfitrião roda a obra inteira (máquina, terreno, caminhão) e manda o estado ~15 vezes por segundo. Cada convidado
+// anda e opera pela rede: manda onde está e, se estiver na cabine, o que está apertando. A identidade (uid) fica no
+// navegador, então quem cai volta com a mesma palavra e reencontra a obra, a posição e até o lugar na cabine.
+interface Entrada { acel: number; virar: number; freio: number; giro: number; lanca: number; braco: number; concha: number; bracoF: number; conchaF: number }
+const ENTRADA_ZERO: Entrada = { acel: 0, virar: 0, freio: 0, giro: 0, lanca: 0, braco: 0, concha: 0, bracoF: 0, conchaF: 0 };
+let entradaRemota: Entrada = ENTRADA_ZERO;
+let tEntradaRemota = 0;
+let anfitriao: Anfitriao | null = null;
+let convidado: Convidado | null = null;
+
+interface Registro extends DadosJogador { uid: string; nome: string; ligado: boolean; ausente: number }
+const registros = new Map<string, Registro>(); // anfitrião: todo convidado que passou (os que caíram ficam esperando)
+let pendentesPt: number[][] = [];
+let tRede = 0;
+let tPainel = 0;
+let tSalvar = 0;
+let obraSuja = false;
+let volumeSalvo = 0;
+// convidado
+let alvoRede: Msg | null = null;
+let primeiroEstado = true;
+let jaEntrou = false;
+let hidrRede = 0;
+let tControle = 0;
+
+const num = (v: unknown, limite = 1e6): number => (typeof v === "number" && isFinite(v) ? THREE.MathUtils.clamp(v, -limite, limite) : 0);
+const dadosDoOperario = (): DadosJogador => ({ x: op.x, y: op.y, z: op.z, rumo: op.rumo, anim: op.atual, esc: op.escala });
+
+function tickRede(dt: number): void {
+  if (papel === "solo") return;
+  tPainel -= dt;
+  if (tPainel <= 0) {
+    tPainel = 0.5;
+    atualizarPainelSala();
+  }
+  tRede -= dt;
+  if (tRede > 0) return;
+  tRede = 1 / 15;
+  if (papel === "anfitriao") tickAnfitriao();
+  else if (aPe && convidado?.conectado) convidado.enviar({ t: "p", ...dadosDoOperario() });
+}
+
+// ----- anfitrião -----
+function tickAnfitriao(): void {
+  const agora = Date.now();
+  for (const r of [...registros.values()]) {
+    if (r.ligado) continue;
+    if (condutor === r.uid && agora - r.ausente > 20000) liberarCabine(r); // sumiu com a cabine: a máquina não fica presa
+    else if (condutor !== r.uid && agora - r.ausente > 180000) {
+      registros.delete(r.uid);
+      elenco.remover(r.uid);
+    }
+  }
+  const alteracao = terreno.tomarAlteracao();
+  if (alteracao || caminhao.volume !== volumeSalvo) obraSuja = true;
+  if (anfitriao && anfitriao.ligados.size > 0) {
+    const e = dadosDoOperario();
+    const jog: unknown[][] = [[UID_ANFITRIAO, meuNome, e.x, e.y, e.z, e.rumo, e.anim, e.esc]];
+    for (const r of registros.values()) jog.push([r.uid, r.nome, r.x, r.y, r.z, r.rumo, r.anim, r.esc]);
+    const msg: Msg = {
+      t: "s",
+      c: [carro.x, carro.y, carro.z, carro.rumo, carro.vel, carro.esterco, carro.arfagem, carro.rolagem],
+      j: [maq.giro, maq.lanca, maq.braco, maq.concha, maq.bracoFrente, maq.conchaFrente, maq.sapatas],
+      b: maq.banco.rotation.y,
+      m: modo === "escavar" ? 1 : 0,
+      k: condutor,
+      cr: maq.retro.carga,
+      cf: maq.frente.carga,
+      v: caminhao.volume,
+      jog,
+      pt: pendentesPt,
+    };
+    if (alteracao) msg.ter = { i0: alteracao.i0, i1: alteracao.i1, j0: alteracao.j0, j1: alteracao.j1, mm: mmParaBuffer(alteracao.mm) };
+    anfitriao.transmitir(msg);
+  }
+  pendentesPt = [];
+  tSalvar -= 1 / 15;
+  if (tSalvar <= 0) {
+    tSalvar = 5;
+    if (obraSuja) salvarObra();
+  }
+}
+
+function liberarCabine(r: Registro): void {
+  condutor = "";
+  const p = corpoParaMundo(maq.porta.x + 0.6, maq.porta.z);
+  r.x = p.x;
+  r.z = p.z;
+  r.y = terreno.altura(p.x, p.z);
+  r.anim = "parado";
+  elenco.atualizar(r.uid, r.nome, r);
+}
+
+function pacoteTerreno(): Msg["ter"] {
+  const t = terreno.tomarTudo();
+  return t ? { i0: t.i0, i1: t.i1, j0: t.j0, j1: t.j1, mm: mmParaBuffer(t.mm) } : undefined;
+}
+
+function entrouConvidado(l: Ligado): void {
+  let r = registros.get(l.uid);
+  if (!r) {
+    const inicio = corpoParaMundo(4.2 + (registros.size % 4) * 1.1, 1.2 + Math.floor((registros.size + 1) / 4) * 1.3);
+    r = { uid: l.uid, nome: l.nome, x: inicio.x, y: terreno.altura(inicio.x, inicio.z), z: inicio.z, rumo: carro.rumo + Math.PI / 2, anim: "parado", esc: 1, ligado: true, ausente: 0 };
+    registros.set(l.uid, r);
+  }
+  r.nome = l.nome;
+  r.ligado = true;
+  r.ausente = 0;
+  elenco.atualizar(r.uid, r.nome, r);
+  anfitriao?.enviar(l.uid, { t: "bem", ter: pacoteTerreno(), x: r.x, y: r.y, z: r.z, rumo: r.rumo });
+  aviso(`👷 ${l.nome} entrou na obra`, 2.5);
+}
+
+function saiuConvidado(l: Ligado): void {
+  const r = registros.get(l.uid);
+  if (!r) return;
+  r.ligado = false;
+  r.ausente = Date.now();
+  if (condutor === l.uid) entradaRemota = ENTRADA_ZERO;
+}
+
+function mensagemDoConvidado(l: Ligado, m: Msg): void {
+  const r = registros.get(l.uid);
+  if (!r) return;
+  const recusar = (msg: string): void => anfitriao?.enviar(l.uid, { t: "recusa", msg });
+  switch (m.t) {
+    case "p":
+      if (condutor === l.uid) break; // sentado, quem manda na posição é a máquina
+      r.x = num(m.x, 60);
+      r.y = num(m.y, 60);
+      r.z = num(m.z, 60);
+      r.rumo = num(m.rumo, 1000);
+      r.anim = String(m.anim || "parado").slice(0, 24);
+      r.esc = num(m.esc, 10) || 1;
+      elenco.atualizar(r.uid, r.nome, r);
+      break;
+    case "c":
+      if (condutor !== l.uid) break;
+      entradaRemota = {
+        acel: num(m.acel, 1), virar: num(m.virar, 1), freio: num(m.freio, 1), giro: num(m.giro, 1), lanca: num(m.lanca, 1),
+        braco: num(m.braco, 1), concha: num(m.concha, 1), bracoF: num(m.bracoF, 1), conchaF: num(m.conchaF, 1),
+      };
+      tEntradaRemota = performance.now();
+      break;
+    case "entrar": {
+      if (condutor === l.uid) break;
+      if (condutor !== "") return recusar("Outro operário está na cabine");
+      const porta = corpoParaMundo(maq.porta.x + 0.4, maq.porta.z);
+      if (Math.hypot(r.x - porta.x, r.z - porta.z) > 3.2) return recusar("Chegue perto da porta da cabine (lado esquerdo) para entrar");
+      condutor = l.uid;
+      entradaRemota = ENTRADA_ZERO;
+      break;
+    }
+    case "sair":
+      if (condutor !== l.uid) break;
+      if (Math.abs(carro.vel) > 0.8) return recusar("Pare a máquina antes de sair");
+      liberarCabine(r);
+      break;
+    case "modo":
+      if (condutor !== l.uid) break;
+      if (modo === "dirigir" && Math.abs(carro.vel) > 0.6) return recusar("Pare a máquina antes de escavar");
+      definirModo(modo === "dirigir" ? "escavar" : "dirigir");
+      break;
+  }
+}
+
+// ----- convidado -----
+function receberDoAnfitriao(m: Msg): void {
+  if (m.t === "recusa") {
+    aviso(String(m.msg), 2.2);
+  } else if (m.t === "bem") {
+    aplicarTerreno(m.ter);
+    if (!jaEntrou) {
+      // primeira vez nesta página: nasce onde o anfitrião diz (a vaga dele, ou onde estava antes de cair)
+      jaEntrou = true;
+      op.x = num(m.x, 60);
+      op.y = num(m.y, 60);
+      op.z = num(m.z, 60);
+      op.rumo = num(m.rumo, 1000);
+      op.grupo.position.set(op.x, op.y, op.z);
+      op.grupo.rotation.y = op.rumo;
+      orbita.yaw = op.rumo + Math.PI;
+      orbita.pitch = 0.3;
+      orbita.dist = 7;
+    }
+    primeiroEstado = true;
+    $("rede-estado").classList.add("escondido");
+    guardarSessao("convidado", convidado!.palavra);
+    mostrarPainelSala(convidado!.palavra);
+    comecar();
+  } else if (m.t === "s") {
+    alvoRede = m;
+    aplicarTerreno(m.ter);
+    for (const q of (m.pt as number[][]) ?? []) particulas.emitir(new THREE.Vector3(q[0], q[1], q[2]), new THREE.Vector3(q[3], q[4], q[5]), 0, q[6]);
+    // quem está na cabine manda; se o anfitrião disse que sou eu (ou que não sou mais), acompanha
+    condutor = String(m.k ?? "");
+    if (condutor === meuUid && aPe) sentar();
+    else if (condutor !== meuUid && !aPe) levantar();
+    definirModo(m.m ? "escavar" : "dirigir");
+    const vistos = new Set<string>();
+    for (const q of (m.jog as [string, string, number, number, number, number, string, number][]) ?? []) {
+      if (q[0] === meuUid) continue;
+      vistos.add(q[0]);
+      elenco.atualizar(q[0], q[1], { x: q[2], y: q[3], z: q[4], rumo: q[5], anim: q[6], esc: q[7] });
+    }
+    elenco.manter(vistos);
+  }
+}
+
+function aplicarTerreno(t: unknown): void {
+  const a = t as { i0: number; i1: number; j0: number; j1: number; mm: unknown } | undefined;
+  if (a) terreno.aplicarAlteracao(a.i0, a.i1, a.j0, a.j1, bufferParaMm(a.mm));
+}
+
+// acompanha a pose da máquina que o anfitrião mandou (suavizando entre um pacote e outro)
+function aplicarEstadoRede(dt: number): void {
+  const a = alvoRede;
+  if (!a) return;
+  const c = a.c as number[];
+  const j = a.j as number[];
+  const f = primeiroEstado ? 1 : 1 - Math.exp(-dt * 14);
+  primeiroEstado = false;
+  carro.x += (c[0] - carro.x) * f;
+  carro.y += (c[1] - carro.y) * f;
+  carro.z += (c[2] - carro.z) * f;
+  carro.rumo += Math.atan2(Math.sin(c[3] - carro.rumo), Math.cos(c[3] - carro.rumo)) * f;
+  carro.vel += (c[4] - carro.vel) * f;
+  carro.esterco += (c[5] - carro.esterco) * f;
+  carro.arfagem += (c[6] - carro.arfagem) * f;
+  carro.rolagem += (c[7] - carro.rolagem) * f;
+  const junta = ["giro", "lanca", "braco", "concha", "bracoFrente", "conchaFrente", "sapatas"] as const;
+  let mexeu = 0;
+  junta.forEach((nome, n) => {
+    const antes = maq[nome];
+    maq[nome] += (j[n] - antes) * f;
+    mexeu += Math.abs(maq[nome] - antes);
+  });
+  hidrRede = dt > 0 ? mexeu / dt : 0;
+  maq.banco.rotation.y += ((a.b as number) - maq.banco.rotation.y) * f;
+  maq.retro.carga = a.cr as number;
+  maq.frente.carga = a.cf as number;
+  if (caminhao.volume !== a.v) caminhao.definirVolume(a.v as number);
+  maq.atualizarPose();
+  posicionarMaquina(dt);
+}
+
+function enviarControle(dt: number, e: Entrada): void {
+  tControle -= dt;
+  if (tControle > 0) return;
+  tControle = 0.05;
+  convidado?.enviar({ t: "c", ...e });
+}
+
+// ----- obra salva (no navegador do anfitrião, por palavra) -----
+const chaveObra = (palavra: string): string => `retro-obra-${palavra}`;
+
+function salvarObra(): void {
+  if (!anfitriao) return;
+  const t = terreno.tomarTudo();
+  const dados = { ter: t ? { i0: t.i0, i1: t.i1, j0: t.j0, j1: t.j1, mm: mmParaTexto(t.mm) } : null, carro: { x: carro.x, z: carro.z, rumo: carro.rumo }, vol: caminhao.volume };
+  try {
+    localStorage.setItem(chaveObra(anfitriao.palavra), JSON.stringify(dados));
+    obraSuja = false;
+    volumeSalvo = caminhao.volume;
+  } catch {
+    /* sem espaço: segue sem salvar */
+  }
+}
+
+function restaurarObra(palavra: string): void {
+  try {
+    const bruto = localStorage.getItem(chaveObra(palavra));
+    if (!bruto) return;
+    const d = JSON.parse(bruto);
+    if (d.ter) terreno.aplicarAlteracao(d.ter.i0, d.ter.i1, d.ter.j0, d.ter.j1, textoParaMm(d.ter.mm));
+    carro.x = num(d.carro?.x, 43);
+    carro.z = num(d.carro?.z, 43);
+    carro.rumo = num(d.carro?.rumo, 1e5);
+    carro.y = terreno.altura(carro.x, carro.z);
+    caminhao.definirVolume(num(d.vol, 1e4));
+    volumeSalvo = caminhao.volume;
+    posicionarMaquina(0);
+    colocarOperarioInicial();
+  } catch {
+    /* obra salva corrompida: começa do zero */
+  }
+}
+
+// ----- menu e painel da sala -----
+const chaveSessao = "retro-sessao";
+const campoPalavra = $("palavra") as HTMLInputElement;
+const campoNome = $("nome-jogador") as HTMLInputElement;
+
+function guardarSessao(como: Papel, palavra: string): void {
+  try {
+    localStorage.setItem(chaveSessao, JSON.stringify({ papel: como, palavra }));
+  } catch {
+    /* ignora */
+  }
+}
+
+function uidSalvo(): string {
+  try {
+    let uid = localStorage.getItem("retro-uid");
+    if (!uid) {
+      uid = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
+      localStorage.setItem("retro-uid", uid);
+    }
+    return uid;
+  } catch {
+    return `t${Math.random().toString(16).slice(2, 12)}`;
+  }
+}
+
+function estadoMenu(texto: string, erro = false): void {
+  $("sala-estado").textContent = texto;
+  $("sala-estado").classList.toggle("erro", erro);
+}
+
+function menuOcupado(ocupado: boolean): void {
+  for (const id of ["jogar", "bt-criar", "bt-entrar-sala"]) ($(id) as HTMLButtonElement).disabled = ocupado;
+  campoPalavra.disabled = campoNome.disabled = ocupado;
+  $("bt-cancelar-sala").classList.toggle("escondido", !ocupado);
+}
+
+function fecharSala(): void {
+  anfitriao?.fechar();
+  convidado?.fechar();
+  anfitriao = convidado = null;
+  papel = "solo";
+  meuUid = UID_ANFITRIAO;
+  particulas.aoEmitir = null;
+  registros.clear();
+  elenco.limpar();
+  condutor = "";
+  menuOcupado(false);
+  $("painel-sala").classList.add("escondido");
+}
+
+function mostrarPainelSala(palavra: string): void {
+  $("sala-palavra").textContent = palavra;
+  $("painel-sala").classList.remove("escondido");
+  atualizarPainelSala();
+}
+
+function atualizarPainelSala(): void {
+  const lista = $("sala-jogadores");
+  lista.replaceChildren();
+  const todos: [string, string][] = [[meuUid, `${meuNome} (você)`], ...elenco.nomes];
+  for (const [uid, nome] of todos) {
+    const linha = document.createElement("div");
+    const fora = registros.get(uid)?.ligado === false ? " 💤" : "";
+    linha.textContent = `${uid === condutor ? "🚜" : "👷"} ${nome}${fora}`;
+    lista.appendChild(linha);
+  }
+}
+
+function abrirSala(como: "anfitriao" | "convidado"): void {
+  const palavra = normalizarPalavra(campoPalavra.value) || (como === "anfitriao" ? palavraAleatoria() : "");
+  if (palavra.length < 2) {
+    estadoMenu("Digite a palavra da sala (2 a 16 letras ou números)", true);
+    return;
+  }
+  campoPalavra.value = palavra;
+  meuNome = campoNome.value.trim().slice(0, 16) || "Operário";
+  try {
+    localStorage.setItem("retro-nome", meuNome);
+  } catch {
+    /* ignora */
+  }
+  gestoInicial();
+  fecharSala();
+  papel = como;
+  menuOcupado(true);
+  if (como === "anfitriao") {
+    estadoMenu("Abrindo a sala...");
+    meuUid = UID_ANFITRIAO;
+    anfitriao = new Anfitriao(palavra, {
+      aoAbrir: () => {
+        if (jogando) return;
+        restaurarObra(palavra);
+        particulas.aoEmitir = (p, v, tam) => {
+          if (anfitriao && anfitriao.ligados.size > 0 && pendentesPt.length < 400) pendentesPt.push([p.x, p.y, p.z, v.x, v.y, v.z, tam]);
+        };
+        guardarSessao("anfitriao", palavra);
+        mostrarPainelSala(palavra);
+        comecar();
+      },
+      aoErro: (tipo) => {
+        if (jogando) return; // com a sala aberta, falha de rede o PeerJS religa sozinho
+        estadoMenu(tipo === "palavra-em-uso" ? "Essa palavra já está em uso por outra sala. Escolha outra." : `Não deu para abrir a sala (${tipo}). Confira a internet.`, true);
+        fecharSala();
+      },
+      aoEntrou: entrouConvidado,
+      aoSaiu: saiuConvidado,
+      aoMensagem: mensagemDoConvidado,
+    });
+  } else {
+    estadoMenu("Procurando a sala...");
+    meuUid = uidSalvo();
+    convidado = new Convidado(palavra, meuUid, meuNome, {
+      aoConectar: () => {
+        if (!jogando) estadoMenu("Entrando na obra...");
+      },
+      aoDesconectar: () => {
+        entradaRemota = ENTRADA_ZERO;
+        $("rede-estado").textContent = "🔌 Sem conexão com a sala. Tentando voltar...";
+        $("rede-estado").classList.remove("escondido");
+      },
+      aoMensagem: receberDoAnfitriao,
+      aoEstado: (texto) => {
+        if (!jogando) estadoMenu(texto);
+        else {
+          $("rede-estado").textContent = `🔌 ${texto}`;
+          $("rede-estado").classList.remove("escondido");
+        }
+      },
+    });
+  }
+}
+
+$("bt-criar").addEventListener("click", () => abrirSala("anfitriao"));
+$("bt-entrar-sala").addEventListener("click", () => abrirSala("convidado"));
+$("bt-cancelar-sala").addEventListener("click", () => {
+  fecharSala();
+  estadoMenu("");
+});
+$("bt-apagar-obra").addEventListener("click", () => {
+  try {
+    localStorage.removeItem(chaveObra(normalizarPalavra(campoPalavra.value)));
+  } catch {
+    /* ignora */
+  }
+  $("bt-apagar-obra").classList.add("escondido");
+  estadoMenu("Obra apagada: a sala começa do zero.");
+});
+campoPalavra.addEventListener("input", () => {
+  let salva = false;
+  try {
+    salva = !!localStorage.getItem(chaveObra(normalizarPalavra(campoPalavra.value)));
+  } catch {
+    /* ignora */
+  }
+  $("bt-apagar-obra").classList.toggle("escondido", !salva);
+});
+$("bt-link").addEventListener("click", () => {
+  const link = `${location.origin}${location.pathname}?sala=${$("sala-palavra").textContent}`;
+  if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(link).then(() => aviso("🔗 Link copiado", 1.8));
+  else window.prompt("Copie o link da sala:", link);
+});
+$("bt-sair-sala").addEventListener("click", () => {
+  try {
+    localStorage.removeItem(chaveSessao);
+  } catch {
+    /* ignora */
+  }
+  location.href = location.pathname; // recarrega sem a sala
+});
+
+// ao abrir a página: nome de antes, palavra do link (?sala=) ou da última sala (para voltar com um toque)
+{
+  let nome = "";
+  let sessao: { papel: Papel; palavra: string } | null = null;
+  try {
+    nome = localStorage.getItem("retro-nome") ?? "";
+    sessao = JSON.parse(localStorage.getItem(chaveSessao) ?? "null");
+  } catch {
+    /* ignora */
+  }
+  campoNome.value = nome;
+  const doLink = normalizarPalavra(new URLSearchParams(location.search).get("sala") ?? "");
+  if (doLink) {
+    campoPalavra.value = doLink;
+    estadoMenu(`Convite para a sala "${doLink}": escreva seu nome e toque em Entrar na sala.`);
+  } else if (sessao?.palavra) {
+    campoPalavra.value = sessao.palavra;
+    estadoMenu(`↩️ Sua última sala: "${sessao.palavra}". Toque em ${sessao.papel === "anfitriao" ? "Criar sala (a obra salva continua)" : "Entrar na sala"} para voltar.`);
+  }
+  campoPalavra.dispatchEvent(new Event("input"));
+}
+
 // ---------------- laço ----------------
 carro.y = terreno.altura(carro.x, carro.z);
-{
-  // o operário começa ao lado da máquina, olhando para a porta da cabine
-  const inicio = corpoParaMundo(4.2, 1.2);
+// o operário começa ao lado da máquina, olhando para a porta da cabine (`vaga` afasta os que chegam depois)
+function colocarOperarioInicial(vaga = 0): void {
+  const inicio = corpoParaMundo(4.2 + (vaga % 4) * 1.1, 1.2 + Math.floor(vaga / 4) * 1.3);
   const porta = corpoParaMundo(maq.porta.x, maq.porta.z);
   op.x = inicio.x;
   op.z = inicio.z;
@@ -912,13 +1465,16 @@ carro.y = terreno.altura(carro.x, carro.z);
   orbita.pitch = 0.3;
   orbita.dist = 7;
 }
+colocarOperarioInicial();
 let ultimo = performance.now();
 function quadro(agora: number): void {
   const dt = Math.min(0.05, (agora - ultimo) / 1000);
   ultimo = agora;
   atualizarMaquina(dt);
   op.atualizar(dt);
-  volumeCaminhao += particulas.atualizar(dt, terreno, caminhao);
+  particulas.atualizar(dt, terreno, caminhao);
+  elenco.animar(dt, condutor);
+  tickRede(dt);
   terreno.atualizar(dt);
   atualizarCamera(dt);
   atualizarHud(dt);
@@ -928,4 +1484,4 @@ function quadro(agora: number): void {
 requestAnimationFrame(quadro);
 
 // para testes automáticos
-(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
+(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, get condutor() { return condutor; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };

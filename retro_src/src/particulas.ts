@@ -29,7 +29,11 @@ export class Particulas {
     this.malha.frustumCulled = false;
   }
 
+  // chamado a cada torrão novo (o anfitrião manda para os convidados, que só desenham a queda)
+  aoEmitir: ((p: THREE.Vector3, v: THREE.Vector3, tamanho: number) => void) | null = null;
+
   emitir(p: THREE.Vector3, v: THREE.Vector3, volume: number, tamanho = 0.16): void {
+    this.aoEmitir?.(p, v, tamanho);
     if (this.lista.length >= this.max) {
       // cheio: o mais antigo pousa onde está para não perder terra
       this.lista.shift();
@@ -49,6 +53,14 @@ export class Particulas {
         noCaminhao += t.volume;
         this.lista.splice(n, 1);
         continue;
+      }
+      if (t.volume === 0) {
+        // torrão só para enfeitar (ou de outro jogador): pousa na terra da caçamba em vez de atravessá-la
+        const topo = caminhao.superficie(t.p.x, t.p.z);
+        if (topo !== null && t.p.y <= topo && t.p.y > topo - 0.6) {
+          this.lista.splice(n, 1);
+          continue;
+        }
       }
       const h = terreno.altura(t.p.x, t.p.z);
       if (t.p.y <= h) {

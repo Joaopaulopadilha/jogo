@@ -1,5 +1,10 @@
 import * as THREE from "three";
+import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as clonarComEsqueleto } from "three/examples/jsm/utils/SkeletonUtils.js";
+
+// o modelo é baixado uma vez e cada operário (o seu e os dos outros jogadores) recebe uma cópia
+const modelos = new Map<string, Promise<GLTF>>();
 
 // Operário: modelo do Meshy com esqueleto e animações feitas no Blender (modelos/operario.py).
 // Animações: parado, andar, correr, agachado, agachado_andar, pulo, sentado. Frente do modelo = +z.
@@ -16,11 +21,13 @@ export class Operario {
   carregado = false;
   private mixer: THREE.AnimationMixer | null = null;
   private readonly acoes = new Map<string, THREE.AnimationAction>();
-  private atual = "";
+  atual = ""; // animação tocando (os outros jogadores recebem pelo nome)
+  escala = 1; // velocidade da animação pedida por último
 
   async carregar(url: string): Promise<void> {
-    const gltf = await new GLTFLoader().loadAsync(url);
-    const modelo = gltf.scene;
+    if (!modelos.has(url)) modelos.set(url, new GLTFLoader().loadAsync(url));
+    const gltf = await modelos.get(url)!;
+    const modelo = clonarComEsqueleto(gltf.scene);
     modelo.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
@@ -45,6 +52,7 @@ export class Operario {
       this.atual = nome; // ainda carregando: toca quando chegar
       return;
     }
+    this.escala = escala;
     acao.timeScale = escala;
     if (nome === this.atual) return;
     const antiga = this.acoes.get(this.atual);
