@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Terreno } from "./terreno";
-import { Caminhao } from "./cenario";
+import { Caminhao } from "./caminhao";
 
 interface Torrao {
   p: THREE.Vector3;

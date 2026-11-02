@@ -46,7 +46,7 @@ try {
   /* ignora */
 }
 void op.carregar(urlPersonagem(meuPersonagem));
-const elenco = new Elenco(cena, maq.banco, urlPersonagem); // os outros jogadores da sala
+const elenco = new Elenco(cena, maq.banco, caminhao.banco, urlPersonagem); // os outros jogadores da sala
 // mira: mostra no chão (ou na caçamba) onde a terra da concha traseira vai cair
 const mira = new THREE.Mesh(
   new THREE.RingGeometry(0.32, 0.44, 28).rotateX(-Math.PI / 2),
@@ -67,6 +67,7 @@ redimensionar();
 type Modo = "dirigir" | "escavar";
 let modo: Modo = "dirigir";
 const carro = { x: 0, z: 20, rumo: 0, vel: 0, esterco: 0, y: 0, arfagem: 0, rolagem: 0 };
+const carroCam = { x: 4.9, z: 7.6, rumo: 0, vel: 0, esterco: 0, y: 0, arfagem: 0, rolagem: 0 }; // pose do caminhão
 // velocidade atual de cada articulação (o hidráulico acelera e freia suave)
 const taxa: Record<string, number> = { giro: 0, lanca: 0, braco: 0, concha: 0, bracoFrente: 0, conchaFrente: 0 };
 const VEL_JUNTA: Record<string, number> = { giro: 0.75, lanca: 0.55, braco: 0.75, concha: 1.1, bracoFrente: 0.45, conchaFrente: 0.9 };
@@ -84,7 +85,11 @@ let papel: Papel = "solo";
 const UID_ANFITRIAO = "anfitriao";
 let meuUid = UID_ANFITRIAO; // o convidado usa uma identidade guardada no navegador
 let meuNome = "Operário";
-let condutor = ""; // quem está sentado na cabine ("" = ninguém); só uma pessoa opera a máquina
+let condutor = ""; // quem está sentado na cabine da máquina ("" = ninguém); só uma pessoa opera cada veículo
+let condutorCam = ""; // idem, no caminhão
+// em qual veículo estou sentado (vale quando não estou a pé)
+type Veiculo = "maq" | "cam";
+let veiculo: Veiculo = "maq";
 // durante o jogo, fechar a aba (Ctrl+W por engano) pede confirmação
 addEventListener("beforeunload", (e) => {
   if (jogando) e.preventDefault();
@@ -234,6 +239,9 @@ const AJUDA: Record<Modo, string> = {
     <b>↑ / ↓</b> ou <b>I / K</b> estica / recolhe o braço<br><b>← / →</b> ou <b>J / L</b> fecha / abre a concha<br>
     <div class="rodape"><b>Tab</b> dirigir · <b>E</b> sair · <b>C</b> câmera · <b>M</b> som · <b>V</b> microfone</div>`,
 };
+const AJUDA_CAM = `<div class="titulo">🚚 Caminhão</div>
+    <b>W / S</b> acelerar / ré<br><b>A / D</b> virar<br><b>Espaço</b> freio<br>
+    <div class="rodape"><b>E</b> sair · <b>C</b> câmera · <b>M</b> som · <b>V</b> microfone</div>`;
 let avisoTempo = 0;
 function aviso(texto: string, segundos = 2.2): void {
   $("aviso").textContent = texto;
@@ -242,7 +250,7 @@ function aviso(texto: string, segundos = 2.2): void {
 }
 
 function trocarModo(): void {
-  if (aPe) return;
+  if (aPe || veiculo === "cam") return;
   if (modo === "dirigir" && Math.abs(carro.vel) > 0.6) {
     aviso("Pare a máquina antes de escavar");
     return;
@@ -274,82 +282,117 @@ function definirModo(novo: Modo): void {
 }
 
 function atualizarTextos(): void {
-  $("modo").textContent = aPe ? "🚶 A pé" : modo === "dirigir" ? "🚗 Dirigindo" : "⛏️ Escavando";
-  $("ajuda").innerHTML = aPe ? AJUDA_PE : AJUDA[modo];
+  const emCam = !aPe && veiculo === "cam";
+  $("modo").textContent = aPe ? "🚶 A pé" : emCam ? "🚚 Dirigindo o caminhão" : modo === "dirigir" ? "🚗 Dirigindo" : "⛏️ Escavando";
+  $("ajuda").innerHTML = aPe ? AJUDA_PE : emCam ? AJUDA_CAM : AJUDA[modo];
   document.body.classList.toggle("a-pe", aPe);
+  document.body.classList.toggle("em-caminhao", emCam);
   $("bt-entrar").textContent = aPe ? "🚜 Entrar" : "🚶 Sair";
   rotularToque();
 }
 
 // ---------------- operário: entrar e sair da cabine ----------------
-// ponto do corpo da máquina (x, z) no mundo
-function corpoParaMundo(x: number, z: number): { x: number; z: number } {
-  const s = Math.sin(carro.rumo);
-  const c = Math.cos(carro.rumo);
-  return { x: carro.x + x * c + z * s, z: carro.z - x * s + z * c };
+// ponto do corpo de um veículo (x, z) no mundo
+type Pose = { x: number; z: number; rumo: number; y: number; vel: number; esterco: number; arfagem: number; rolagem: number };
+const poseDe = (v: Veiculo): Pose => (v === "maq" ? carro : carroCam);
+const condutorDe = (v: Veiculo): string => (v === "maq" ? condutor : condutorCam);
+function definirCondutorDe(v: Veiculo, uid: string): void {
+  if (v === "maq") condutor = uid;
+  else condutorCam = uid;
+}
+const portaDe = (v: Veiculo): { x: number; z: number } => (v === "maq" ? maq.porta : caminhao.porta);
+const bancoDe = (v: Veiculo): THREE.Object3D => (v === "maq" ? maq.banco : caminhao.banco);
+
+function noCorpo(v: Veiculo, x: number, z: number): { x: number; z: number } {
+  const p = poseDe(v);
+  const s = Math.sin(p.rumo);
+  const c = Math.cos(p.rumo);
+  return { x: p.x + x * c + z * s, z: p.z - x * s + z * c };
 }
 
-function pertoDaPorta(): boolean {
-  const p = corpoParaMundo(maq.porta.x + 0.4, maq.porta.z);
-  return Math.hypot(op.x - p.x, op.z - p.z) < 1.9;
+// ponto do corpo da máquina (x, z) no mundo
+function corpoParaMundo(x: number, z: number): { x: number; z: number } {
+  return noCorpo("maq", x, z);
 }
+
+// o veículo cuja porta está ao alcance de quem está a pé (a retroescavadeira tem preferência)
+function veiculoPerto(): Veiculo | null {
+  for (const v of ["maq", "cam"] as Veiculo[]) {
+    const porta = portaDe(v);
+    const p = noCorpo(v, porta.x + 0.4, porta.z);
+    if (Math.hypot(op.x - p.x, op.z - p.z) < 1.9) return v;
+  }
+  return null;
+}
+
+const NOME_VEICULO: Record<Veiculo, string> = { maq: "retroescavadeira", cam: "caminhão" };
 
 function entrarOuSair(): void {
   if (!jogando) return;
   if (aPe) {
-    if (!pertoDaPorta()) {
-      aviso("Chegue perto da porta da cabine (lado esquerdo) para entrar");
+    const v = veiculoPerto();
+    if (!v) {
+      aviso("Chegue perto da porta de um veículo (lado esquerdo) para entrar");
       return;
     }
-    if (condutor !== "") {
-      aviso("Outro operário está na cabine");
+    if (condutorDe(v) !== "") {
+      aviso(`Outro operário está ${v === "maq" ? "na" : "no"} ${NOME_VEICULO[v]}`);
       return;
     }
     if (papel === "convidado") {
-      convidado?.enviar({ t: "entrar" }); // o anfitrião confirma e o convidado senta quando a rede avisar
+      convidado?.enviar({ t: "entrar", v }); // o anfitrião confirma e o convidado senta quando a rede avisar
       return;
     }
-    condutor = meuUid;
-    sentar();
+    definirCondutorDe(v, meuUid);
+    sentar(v);
   } else {
-    if (Math.abs(carro.vel) > 0.8) {
-      aviso("Pare a máquina antes de sair");
+    if (Math.abs(poseDe(veiculo).vel) > 0.8) {
+      aviso(veiculo === "maq" ? "Pare a máquina antes de sair" : "Pare o caminhão antes de sair");
       return;
     }
     if (papel === "convidado") {
       convidado?.enviar({ t: "sair" });
       return;
     }
-    condutor = "";
+    definirCondutorDe(veiculo, "");
     levantar();
   }
 }
 
-function sentar(): void {
+function sentar(v: Veiculo): void {
   aPe = false;
+  veiculo = v;
   op.agachado = false;
   op.noChao = true;
   op.vy = 0;
-  // senta no banco (o banco gira junto quando escava)
-  maq.banco.add(op.grupo);
+  // senta no banco (o banco da retroescavadeira gira junto quando escava)
+  bancoDe(v).add(op.grupo);
   op.grupo.position.set(0, -0.25, 0);
   op.grupo.rotation.set(0, 0, 0);
   op.vel = 0;
   op.tocar("sentado", 0.3);
-  orbita.yaw = modo === "escavar" ? 0.75 : 0;
-  orbita.pitch = modo === "escavar" ? 0.5 : 0.38;
-  orbita.dist = modo === "escavar" ? 11 : 15;
-  aviso(modo === "escavar" ? "Na cabine: escavando" : TOQUE ? "Na cabine: dê ré até a vala e toque em ⛏️ Escavar" : "Na cabine: dê ré até a vala e aperte Tab para escavar", 3);
+  if (v === "cam") {
+    orbita.yaw = 0;
+    orbita.pitch = 0.35;
+    orbita.dist = 18;
+    aviso(TOQUE ? "No caminhão: manche esquerdo dirige, FREIO para parar" : "No caminhão: W/S acelera, A/D vira, Espaço freia", 3);
+  } else {
+    orbita.yaw = modo === "escavar" ? 0.75 : 0;
+    orbita.pitch = modo === "escavar" ? 0.5 : 0.38;
+    orbita.dist = modo === "escavar" ? 11 : 15;
+    aviso(modo === "escavar" ? "Na cabine: escavando" : TOQUE ? "Na cabine: dê ré até a vala e toque em ⛏️ Escavar" : "Na cabine: dê ré até a vala e aperte Tab para escavar", 3);
+  }
   atualizarTextos();
 }
 
 function levantar(): void {
   aPe = true;
   cameraCabine = false;
-  const p = corpoParaMundo(maq.porta.x + 0.6, maq.porta.z);
+  const porta = portaDe(veiculo);
+  const p = noCorpo(veiculo, porta.x + 0.6, porta.z);
   op.x = p.x;
   op.z = p.z;
-  op.rumo = carro.rumo + Math.PI / 2; // de costas para a porta
+  op.rumo = poseDe(veiculo).rumo + Math.PI / 2; // de costas para a porta
   op.y = terreno.altura(op.x, op.z);
   op.noChao = true;
   cena.add(op.grupo);
@@ -416,7 +459,7 @@ const DEGRAU = 0.4; // sobe sozinho o que tiver até essa altura
 const ALCANCE = 2.75; // escala o que tiver até essa altura acima dos pés
 let escalada: { t: number; dur: number; x0: number; z0: number; y0: number; x1: number; z1: number; y1: number } | null = null;
 let podeEscalar = false;
-let montado = false; // em pé em cima da máquina (anda junto com ela)
+let montado: "" | Veiculo = ""; // em pé em cima de um veículo (anda junto com ele)
 
 // procura onde o operário iria parar se escalasse o bloco em que encostou; null se alto demais ou sem lugar em cima
 function alvoEscalada(blocos: Bloco[], e: Empurrao): { x: number; z: number; y: number } | null {
@@ -459,7 +502,7 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
     }
     op.grupo.position.set(op.x, op.y, op.z);
     op.grupo.rotation.y = op.rumo;
-    montado = false;
+    montado = "";
     return;
   }
 
@@ -487,7 +530,8 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
 
   // empurra para fora de tudo que estiver na altura do corpo (o que for baixinho ele sobe: degrau)
   const blocosMaq = blocosMaquina();
-  const blocos = [...blocosMaq, ...caminhao.blocos(), ...arvores];
+  const blocosCam = caminhao.blocos();
+  const blocos = [...blocosMaq, ...blocosCam, ...arvores];
   const altura = op.agachado ? 1.15 : 1.75;
   let encosto: Empurrao | null = null;
   for (let passo = 0; passo < 2; passo++) {
@@ -536,8 +580,9 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
       op.noChao = true;
     }
   }
-  // em pé no topo de uma peça da máquina (e não no chão): ela leva o operário junto
-  montado = op.noChao && blocosMaq.some((b) => Math.abs(b.y1 - op.y) < 0.06 && b.y1 > terreno.altura(op.x, op.z) + 0.2 && contem(b, op.x, op.z));
+  // em pé no topo de uma peça de um veículo (e não no chão): ele leva o operário junto
+  const sobre = (lista: Bloco[]): boolean => lista.some((b) => Math.abs(b.y1 - op.y) < 0.06 && b.y1 > terreno.altura(op.x, op.z) + 0.2 && contem(b, op.x, op.z));
+  montado = !op.noChao ? "" : sobre(blocosMaq) ? "maq" : sobre(blocosCam) ? "cam" : "";
   op.grupo.position.set(op.x, op.y, op.z);
   op.grupo.rotation.y = op.rumo;
   if (!op.noChao) op.tocar("pulo", 0.15);
@@ -547,10 +592,13 @@ function andarAPe(dt: number, frente: number, lado: number, correr: boolean, pul
   else op.tocar("correr", 0.25, op.vel / 3.9);
 }
 
-// ---------------- carona: quem está em cima da máquina anda junto com ela ----------------
-const poseAnterior = { x: carro.x, z: carro.z, rumo: carro.rumo, y: carro.y };
+// ---------------- carona: quem está em cima de um veículo anda junto com ele ----------------
+const poseAnterior: Record<Veiculo, { x: number; z: number; rumo: number; y: number }> = {
+  maq: { x: carro.x, z: carro.z, rumo: carro.rumo, y: carro.y },
+  cam: { x: carroCam.x, z: carroCam.z, rumo: carroCam.rumo, y: carroCam.y },
+};
 
-// posição (no corpo da máquina) de um ponto do mundo, e o caminho de volta
+// posição (no corpo do veículo) de um ponto do mundo; o caminho de volta é noCorpo()
 function paraCorpo(x: number, z: number, p: { x: number; z: number; rumo: number }): { lx: number; lz: number } {
   const s = Math.sin(p.rumo);
   const c = Math.cos(p.rumo);
@@ -559,24 +607,26 @@ function paraCorpo(x: number, z: number, p: { x: number; z: number; rumo: number
   return { lx: dx * c - dz * s, lz: dx * s + dz * c };
 }
 
-// chamado depois de a máquina se mexer no quadro: leva o operário pela diferença de pose
+// chamado depois de os veículos se mexerem no quadro: leva o operário pela diferença de pose
 function carregarPassageiro(): void {
-  const dx = carro.x - poseAnterior.x;
-  const dz = carro.z - poseAnterior.z;
-  if (montado && aPe && !escalada && Math.hypot(dx, dz) < 3) {
-    const { lx, lz } = paraCorpo(op.x, op.z, poseAnterior);
-    const p = corpoParaMundo(lx, lz);
-    op.x = p.x;
-    op.z = p.z;
-    op.rumo += carro.rumo - poseAnterior.rumo;
-    op.y += carro.y - poseAnterior.y;
-    op.grupo.position.set(op.x, op.y, op.z);
-    op.grupo.rotation.y = op.rumo;
+  for (const v of ["maq", "cam"] as Veiculo[]) {
+    const atual = poseDe(v);
+    const ant = poseAnterior[v];
+    if (montado === v && aPe && !escalada && Math.hypot(atual.x - ant.x, atual.z - ant.z) < 3) {
+      const { lx, lz } = paraCorpo(op.x, op.z, ant);
+      const p = noCorpo(v, lx, lz);
+      op.x = p.x;
+      op.z = p.z;
+      op.rumo += atual.rumo - ant.rumo;
+      op.y += atual.y - ant.y;
+      op.grupo.position.set(op.x, op.y, op.z);
+      op.grupo.rotation.y = op.rumo;
+    }
+    ant.x = atual.x;
+    ant.z = atual.z;
+    ant.rumo = atual.rumo;
+    ant.y = atual.y;
   }
-  poseAnterior.x = carro.x;
-  poseAnterior.z = carro.z;
-  poseAnterior.rumo = carro.rumo;
-  poseAnterior.y = carro.y;
 }
 
 // ---------------- toque (celular e tablet) ----------------
@@ -588,7 +638,11 @@ function rotularToque(): void {
   $("bt-modo").textContent = modo === "dirigir" ? "⛏️ Escavar" : "🚗 Dirigir";
   if (aPe) {
     mancheEsq.rotular("frente", "trás", "◀", "▶");
-  } else if (modo === "dirigir") {
+  } else if (veiculo === "cam" || modo === "dirigir") {
+    if (veiculo === "cam") {
+      mancheEsq.rotular("acelerar", "ré", "◀", "▶");
+      return;
+    }
     mancheEsq.rotular("acelerar", "ré", "◀", "▶");
     mancheDir.rotular("pá sobe", "pá desce", "recolhe", "despeja");
   } else {
@@ -748,6 +802,103 @@ function posicionarMaquina(dt: number): void {
   }
 }
 
+// ---------------- física do caminhão ----------------
+const RODAS_CAM: [number, number][] = [[1.0, -1.9], [-1.0, -1.9], [1.0, 1.7], [-1.0, 1.7]]; // [x, z] no corpo: traseiras e dianteiras
+const EIXO_TRAS_CAM = 1.9; // do centro do corpo ao truque traseiro
+
+function alturaRodaCam(x: number, z: number): number {
+  const s = Math.sin(carroCam.rumo);
+  const c = Math.cos(carroCam.rumo);
+  return terreno.altura(carroCam.x + x * c + z * s, carroCam.z - x * s + z * c);
+}
+
+// leva a pose de `carroCam` para o modelo (o convidado também usa, com a pose que vem do anfitrião)
+function posicionarCaminhao(dt: number): void {
+  caminhao.grupo.position.set(carroCam.x, carroCam.y, carroCam.z);
+  caminhao.grupo.rotation.y = carroCam.rumo;
+  caminhao.corpo.rotation.set(-carroCam.arfagem, 0, carroCam.rolagem);
+  for (const r of caminhao.rodas) {
+    r.obj.rotation.x += (carroCam.vel * dt) / r.raio;
+    if (r.dianteira) r.pivo.rotation.y = carroCam.esterco;
+  }
+  caminhao.grupo.updateMatrixWorld(true);
+}
+
+// o caminhão encosta na retroescavadeira ou numa árvore?
+function caminhaoBate(): "máquina" | "árvore" | null {
+  caminhao.grupo.position.set(carroCam.x, carroCam.y, carroCam.z);
+  caminhao.grupo.rotation.y = carroCam.rumo;
+  caminhao.grupo.updateMatrixWorld(true);
+  const meus = caminhao.blocos();
+  if (Math.hypot(carro.x - carroCam.x, carro.z - carroCam.z) < 14) {
+    for (const b of blocosMaquina()) {
+      for (const a of meus) {
+        if (a.y0 >= b.y1 || a.y1 <= b.y0) continue;
+        if (b.circulo ? caixaECirculo(a, b) : caixasSeCruzam(a, b)) return "máquina";
+      }
+    }
+  }
+  for (const t of arvores) {
+    if (Math.hypot(t.x - carroCam.x, t.z - carroCam.z) > 8) continue;
+    for (const a of meus) if (caixaECirculo(a, t)) return "árvore";
+  }
+  return null;
+}
+
+function caminhaoBateEm(pose: { x: number; z: number; rumo: number }): boolean {
+  const atual = { x: carroCam.x, z: carroCam.z, rumo: carroCam.rumo };
+  Object.assign(carroCam, pose);
+  const bate = caminhaoBate() !== null;
+  Object.assign(carroCam, atual);
+  return bate;
+}
+
+function dirigirCaminhao(dt: number, acel: number, virar: number, freio: number): void {
+  const c = carroCam;
+  const sem = condutorCam === ""; // sem motorista: freio de mão
+  if (sem) {
+    acel = 0;
+    freio = 1;
+  }
+  const v = c.vel;
+  if (acel > 0) c.vel += (v < 0 ? 6 : 2.2) * acel * dt;
+  else if (acel < 0) c.vel += (v > 0 ? 6 : 1.8) * acel * dt;
+  else c.vel -= Math.sign(v) * Math.min(Math.abs(v), 1.6 * dt);
+  if (freio) c.vel -= Math.sign(c.vel) * Math.min(Math.abs(c.vel), 8 * dt * freio);
+  c.vel = THREE.MathUtils.clamp(c.vel, -4, 10);
+  c.vel -= 9.8 * Math.sin(c.arfagem) * dt * 0.3 * (sem ? 0 : 1); // a ladeira puxa
+  c.vel = THREE.MathUtils.clamp(c.vel, -4, 10);
+
+  c.esterco += (virar * 0.5 - c.esterco) * Math.min(1, dt * 3.5);
+  const antes = { x: c.x, z: c.z, rumo: c.rumo };
+  c.rumo += ((c.vel * Math.tan(c.esterco)) / caminhao.entreEixos) * dt;
+  c.x += Math.sin(c.rumo) * c.vel * dt;
+  c.z += Math.cos(c.rumo) * c.vel * dt;
+  c.x = THREE.MathUtils.clamp(c.x, -43, 43);
+  c.z = THREE.MathUtils.clamp(c.z, -43, 43);
+  if (Math.abs(c.vel) > 0.01 || Math.abs(c.esterco) > 0.01) {
+    const batida = caminhaoBate();
+    if (batida && !caminhaoBateEm(antes)) {
+      Object.assign(c, antes);
+      if (Math.abs(c.vel) > 2 && condutorCam === meuUid) aviso(batida === "máquina" ? "💥 Cuidado com a retroescavadeira!" : "💥 Bateu na árvore!");
+      c.vel = 0;
+    }
+  }
+
+  // assenta no terreno pelas 4 rodas
+  const h = RODAS_CAM.map(([x, z]) => alturaRodaCam(x, z));
+  const hTras = (h[0] + h[1]) / 2;
+  const hFrente = (h[2] + h[3]) / 2;
+  const hEsq = (h[0] + h[2]) / 2;
+  const hDir = (h[1] + h[3]) / 2;
+  const f = 1 - Math.exp(-dt * 12);
+  const yAlvo = hTras + (hFrente - hTras) * (EIXO_TRAS_CAM / caminhao.entreEixos);
+  c.y += (yAlvo - c.y) * f;
+  c.arfagem += (Math.atan2(hFrente - hTras, caminhao.entreEixos) - c.arfagem) * f;
+  c.rolagem += (Math.atan2(hEsq - hDir, 2.0) - c.rolagem) * f;
+  posicionarCaminhao(dt);
+}
+
 function maquinaBateEm(pose: { x: number; z: number; rumo: number }): boolean {
   const atual = { x: carro.x, z: carro.z, rumo: carro.rumo };
   Object.assign(carro, pose);
@@ -896,8 +1047,9 @@ function atualizarMaquina(dt: number): void {
     if (x && !botaoXAntes) entrarOuSair();
     botaoXAntes = x;
   }
+  const emCam = !aPe && veiculo === "cam";
   if (jogando && !aPe) {
-    if (modo === "dirigir") {
+    if (modo === "dirigir" || emCam) {
       acel = k("KeyW") + k("ArrowUp") - k("KeyS") - k("ArrowDown");
       virar = k("KeyA") + k("ArrowLeft") - k("KeyD") - k("ArrowRight");
       freio = k("Space");
@@ -910,7 +1062,7 @@ function atualizarMaquina(dt: number): void {
       concha = k("KeyL") + k("ArrowRight") - k("KeyJ") - k("ArrowLeft");
     }
     if (TOQUE) {
-      if (modo === "dirigir") {
+      if (modo === "dirigir" || emCam) {
         acel -= mancheEsq.y;
         virar -= mancheEsq.x;
         freio = Math.max(freio, freioToque.apertado ? 1 : 0);
@@ -925,7 +1077,7 @@ function atualizarMaquina(dt: number): void {
     }
     if (gp) {
       const [lx, ly, rx, ry] = gp.axes.map(zona);
-      if (modo === "dirigir") {
+      if (modo === "dirigir" || emCam) {
         acel += (gp.buttons[7]?.value ?? 0) - (gp.buttons[6]?.value ?? 0);
         virar -= lx;
         freio = Math.max(freio, gp.buttons[1]?.pressed ? 1 : 0);
@@ -942,18 +1094,30 @@ function atualizarMaquina(dt: number): void {
       if (y && !botaoYAntes) trocarModo();
       botaoYAntes = y;
     }
+    if (emCam) {
+      bracoF = 0; // no caminhão só valem acelerar, virar e frear
+      conchaF = 0;
+    }
   }
 
   if (papel === "convidado") {
     if (!aPe) enviarControle(dt, { acel, virar, freio, giro, lanca, braco, concha, bracoF, conchaF });
-    som.atualizar(Math.min(1, Math.abs(carro.vel) / 7 + Math.abs(acel) * 0.25 + Math.min(hidrRede, 1.5) * 0.35), Math.min(1, hidrRede * 0.8), 0);
+    const vel = emCam ? carroCam.vel : carro.vel;
+    som.atualizar(Math.min(1, Math.abs(vel) / 7 + Math.abs(acel) * 0.25 + Math.min(hidrRede, 1.5) * 0.35), Math.min(1, hidrRede * 0.8), 0);
     return;
   }
-  if (condutor !== "" && condutor !== meuUid) {
-    // outro jogador opera a máquina: vale o que ele manda (sem notícia há meio segundo, solta tudo)
-    const e = performance.now() - tEntradaRemota < 500 ? entradaRemota : null;
-    ({ acel, virar, freio, giro, lanca, braco, concha, bracoF, conchaF } = e ?? ENTRADA_ZERO);
-  }
+  // cada veículo obedece a quem está sentado nele: eu (o que estou apertando) ou outro jogador (o que ele manda; sem notícia
+  // há meio segundo, solta tudo)
+  const local: Entrada = { acel, virar, freio, giro, lanca, braco, concha, bracoF, conchaF };
+  const doJogador = (uid: string): Entrada => {
+    if (uid === "") return ENTRADA_ZERO;
+    if (uid === meuUid) return local;
+    const r = entradasRemotas.get(uid);
+    return r && performance.now() - r.t < 500 ? r.e : ENTRADA_ZERO;
+  };
+  const entCam = doJogador(condutorCam);
+  dirigirCaminhao(dt, THREE.MathUtils.clamp(entCam.acel, -1, 1), THREE.MathUtils.clamp(entCam.virar, -1, 1), entCam.freio);
+  ({ acel, virar, freio, giro, lanca, braco, concha, bracoF, conchaF } = doJogador(condutor));
 
   dirigir(dt, THREE.MathUtils.clamp(acel, -1, 1), THREE.MathUtils.clamp(virar, -1, 1), freio);
   const alvoSapatas = modo === "escavar" ? 1 : 0;
@@ -1005,7 +1169,9 @@ function atualizarMaquina(dt: number): void {
   (mira.material as THREE.MeshBasicMaterial).color.set(naCacamba !== null ? "#4cc46a" : "#ffd34d");
   somTerra = Math.max(somTerra * Math.exp(-dt * 6), (r.cortou + f.cortou) * 40, caiu * 6);
 
-  const giroMotor = Math.min(1, Math.abs(carro.vel) / 7 + Math.abs(acel) * 0.25 + Math.min(hidr, 1.5) * 0.35);
+  const giroMotor = emCam
+    ? Math.min(1, Math.abs(carroCam.vel) / 9 + Math.abs(entCam.acel) * 0.25)
+    : Math.min(1, Math.abs(carro.vel) / 7 + Math.abs(acel) * 0.25 + Math.min(hidr, 1.5) * 0.35);
   som.atualizar(giroMotor, Math.min(1, hidr * 0.8), somTerra);
 }
 
@@ -1013,12 +1179,14 @@ function atualizarMaquina(dt: number): void {
 const alvoCam = new THREE.Vector3();
 const posCam = new THREE.Vector3();
 function atualizarCamera(dt: number): void {
+  const emCam = !aPe && veiculo === "cam";
   if (cameraCabine) {
-    const assento = maq.assentoPos.getWorldPosition(new THREE.Vector3());
-    const olhar = modo === "dirigir" ? carro.rumo : carro.rumo + Math.PI - maq.giro * 0.6;
-    const yaw = olhar + orbita.yaw - (modo === "escavar" ? Math.PI : 0);
-    camera.position.copy(assento).add(new THREE.Vector3(0, 0.15, 0));
-    const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(orbita.pitch - 0.35), -Math.sin(orbita.pitch - 0.35) - (modo === "escavar" ? 0.25 : 0.05), Math.cos(yaw) * Math.cos(orbita.pitch - 0.35));
+    const escavando = !emCam && modo === "escavar";
+    const assento = (emCam ? caminhao.assentoPos : maq.assentoPos).getWorldPosition(new THREE.Vector3());
+    const olhar = emCam ? carroCam.rumo : modo === "dirigir" ? carro.rumo : carro.rumo + Math.PI - maq.giro * 0.6;
+    const yaw = olhar + orbita.yaw - (escavando ? Math.PI : 0);
+    camera.position.copy(assento).add(new THREE.Vector3(0, emCam ? 0 : 0.15, 0));
+    const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(orbita.pitch - 0.35), -Math.sin(orbita.pitch - 0.35) - (escavando ? 0.25 : 0.05), Math.cos(yaw) * Math.cos(orbita.pitch - 0.35));
     camera.lookAt(camera.position.clone().add(dir));
     camera.fov = 70;
     camera.updateProjectionMatrix();
@@ -1028,15 +1196,15 @@ function atualizarCamera(dt: number): void {
     camera.fov = 55;
     camera.updateProjectionMatrix();
   }
-  const centro = aPe ? new THREE.Vector3(op.x, op.grupo.position.y + 1.45, op.z) : new THREE.Vector3(carro.x, carro.y + 1.6, carro.z);
-  if (!aPe && modo === "escavar") {
+  const centro = aPe ? new THREE.Vector3(op.x, op.grupo.position.y + 1.45, op.z) : emCam ? new THREE.Vector3(carroCam.x, carroCam.y + 2.0, carroCam.z) : new THREE.Vector3(carro.x, carro.y + 1.6, carro.z);
+  if (!aPe && !emCam && modo === "escavar") {
     // olha entre a máquina e a concha
     const concha = maq.retro.ponta.getWorldPosition(new THREE.Vector3());
     centro.lerp(concha, 0.55);
   }
   const f = 1 - Math.exp(-dt * 6);
   alvoCam.lerp(centro, alvoCam.lengthSq() === 0 ? 1 : f);
-  const yaw = aPe ? orbita.yaw : carro.rumo + Math.PI + orbita.yaw; // a pé, a câmera não gira com a máquina
+  const yaw = aPe ? orbita.yaw : (emCam ? carroCam.rumo : carro.rumo) + Math.PI + orbita.yaw; // a pé, a câmera não gira com o veículo
   posCam.set(
     alvoCam.x + Math.sin(yaw) * Math.cos(orbita.pitch) * orbita.dist,
     alvoCam.y + Math.sin(orbita.pitch) * orbita.dist,
@@ -1061,13 +1229,14 @@ function atualizarHud(dt: number): void {
     }
   }
   if (aPe) {
-    const perto = pertoDaPorta();
+    const perto = veiculoPerto() !== null;
     document.body.classList.toggle("perto-porta", perto);
     const dicaEntrar = TOQUE ? "Toque em 🚜 Entrar" : "E para entrar";
     const dicaEscalar = TOQUE ? "⬆️ para escalar" : "Espaço para escalar";
     $("velocidade").textContent = perto && podeEscalar && !escalada ? `${dicaEntrar} · ${dicaEscalar}` : perto ? dicaEntrar : escalada ? "Escalando" : podeEscalar ? (TOQUE ? "⬆️ para escalar" : "Espaço para escalar") : !op.noChao ? "No ar" : op.agachado ? "Agachado" : op.vel > 2.8 ? "Correndo" : op.vel > 0.15 ? "Andando" : "Parado";
     $("bt-agachar").classList.toggle("ligado", op.agachado);
-  } else $("velocidade").textContent = modo === "dirigir" ? `${Math.round(Math.abs(carro.vel) * 3.6)} km/h${carro.vel < -0.1 ? " (ré)" : ""}` : maq.sapatas < 1 ? "Baixando sapatas..." : "Sapatas no chão";
+  } else if (veiculo === "cam") $("velocidade").textContent = `${Math.round(Math.abs(carroCam.vel) * 3.6)} km/h${carroCam.vel < -0.1 ? " (ré)" : ""}`;
+  else $("velocidade").textContent = modo === "dirigir" ? `${Math.round(Math.abs(carro.vel) * 3.6)} km/h${carro.vel < -0.1 ? " (ré)" : ""}` : maq.sapatas < 1 ? "Baixando sapatas..." : "Sapatas no chão";
   $("barra-vala").style.width = `${Math.round(progresso * 100)}%`;
   $("missao-vala").textContent = `Vala: ${Math.round(progresso * 100)}%`;
   $("missao-resumo").textContent = `· vala ${Math.round(progresso * 100)}%`;
@@ -1090,8 +1259,7 @@ function atualizarHud(dt: number): void {
 // navegador, então quem cai volta com a mesma palavra e reencontra a obra, a posição e até o lugar na cabine.
 interface Entrada { acel: number; virar: number; freio: number; giro: number; lanca: number; braco: number; concha: number; bracoF: number; conchaF: number }
 const ENTRADA_ZERO: Entrada = { acel: 0, virar: 0, freio: 0, giro: 0, lanca: 0, braco: 0, concha: 0, bracoF: 0, conchaF: 0 };
-let entradaRemota: Entrada = ENTRADA_ZERO;
-let tEntradaRemota = 0;
+const entradasRemotas = new Map<string, { e: Entrada; t: number }>(); // o que cada convidado está apertando
 let anfitriao: Anfitriao | null = null;
 let convidado: Convidado | null = null;
 
@@ -1100,7 +1268,7 @@ interface Registro extends DadosJogador {
   nome: string;
   ligado: boolean;
   ausente: number;
-  nela?: { lx: number; lz: number; ly: number; lr: number }; // em cima da máquina: posição no corpo dela
+  nela?: { v: Veiculo; lx: number; lz: number; ly: number; lr: number }; // em cima de um veículo: posição no corpo dele
 }
 const registros = new Map<string, Registro>(); // anfitrião: todo convidado que passou (os que caíram ficam esperando)
 let pendentesPt: number[][] = [];
@@ -1135,7 +1303,7 @@ function tickRede(dt: number): void {
   }
   if (aPe && convidado?.conectado) {
     // em cima da máquina, manda também onde está no corpo dela: assim o anfitrião o põe no lugar certo mesmo com atraso
-    const nela = montado ? { mt: 1, ...paraCorpo(op.x, op.z, carro), ly: op.y - carro.y, lr: op.rumo - carro.rumo } : {};
+    const nela = montado ? { mt: 1, v: montado, ...paraCorpo(op.x, op.z, poseDe(montado)), ly: op.y - poseDe(montado).y, lr: op.rumo - poseDe(montado).rumo } : {};
     convidado.enviar({ t: "p", ...dadosDoOperario(), ...nela });
   }
   // o convidado também guarda uma cópia da obra: se a sala ficar sem dono, quem a reabrir continua de onde parou
@@ -1151,8 +1319,9 @@ function tickAnfitriao(): void {
   const agora = Date.now();
   for (const r of [...registros.values()]) {
     if (r.ligado) continue;
-    if (condutor === r.uid && agora - r.ausente > 20000) liberarCabine(r); // sumiu com a cabine: a máquina não fica presa
-    else if (condutor !== r.uid && agora - r.ausente > 180000) {
+    const sentado = condutor === r.uid || condutorCam === r.uid;
+    if (sentado && agora - r.ausente > 20000) liberarCabine(r); // sumiu com a cabine: o veículo não fica preso
+    else if (!sentado && agora - r.ausente > 180000) {
       registros.delete(r.uid);
       elenco.remover(r.uid);
     }
@@ -1170,6 +1339,8 @@ function tickAnfitriao(): void {
       b: maq.banco.rotation.y,
       m: modo === "escavar" ? 1 : 0,
       k: condutor,
+      kc: condutorCam,
+      tc: [carroCam.x, carroCam.y, carroCam.z, carroCam.rumo, carroCam.vel, carroCam.esterco, carroCam.arfagem, carroCam.rolagem],
       cr: maq.retro.carga,
       cf: maq.frente.carga,
       v: caminhao.volume,
@@ -1189,17 +1360,18 @@ function tickAnfitriao(): void {
 
 function posicionarNela(r: Registro): void {
   if (!r.nela) return;
-  const p = corpoParaMundo(r.nela.lx, r.nela.lz);
+  const pose = poseDe(r.nela.v);
+  const p = noCorpo(r.nela.v, r.nela.lx, r.nela.lz);
   r.x = p.x;
   r.z = p.z;
-  r.y = carro.y + r.nela.ly;
-  r.rumo = carro.rumo + r.nela.lr;
+  r.y = pose.y + r.nela.ly;
+  r.rumo = pose.rumo + r.nela.lr;
 }
 
 // convidados em cima da máquina seguem a pose dela a cada quadro
 function acompanharPassageiros(): void {
   for (const r of registros.values()) {
-    if (!r.nela || condutor === r.uid) continue;
+    if (!r.nela || condutor === r.uid || condutorCam === r.uid) continue;
     posicionarNela(r);
     elenco.atualizar(r.uid, r.nome, r);
   }
@@ -1207,8 +1379,11 @@ function acompanharPassageiros(): void {
 
 function liberarCabine(r: Registro): void {
   r.nela = undefined;
-  condutor = "";
-  const p = corpoParaMundo(maq.porta.x + 0.6, maq.porta.z);
+  const v: Veiculo = condutorCam === r.uid ? "cam" : "maq";
+  definirCondutorDe(v, "");
+  entradasRemotas.delete(r.uid);
+  const porta = portaDe(v);
+  const p = noCorpo(v, porta.x + 0.6, porta.z);
   r.x = p.x;
   r.z = p.z;
   r.y = terreno.altura(p.x, p.z);
@@ -1243,7 +1418,7 @@ function saiuConvidado(l: Ligado): void {
   if (!r) return;
   r.ligado = false;
   r.ausente = Date.now();
-  if (condutor === l.uid) entradaRemota = ENTRADA_ZERO;
+  entradasRemotas.delete(l.uid);
   anunciarVoz();
 }
 
@@ -1253,9 +1428,9 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
   const recusar = (msg: string): void => anfitriao?.enviar(l.uid, { t: "recusa", msg });
   switch (m.t) {
     case "p":
-      if (condutor === l.uid) break; // sentado, quem manda na posição é a máquina
+      if (condutor === l.uid || condutorCam === l.uid) break; // sentado, quem manda na posição é o veículo
       if (m.mt === 1) {
-        r.nela = { lx: num(m.lx, 10), lz: num(m.lz, 10), ly: num(m.ly, 10), lr: num(m.lr, 1000) };
+        r.nela = { v: m.v === "cam" ? "cam" : "maq", lx: num(m.lx, 10), lz: num(m.lz, 10), ly: num(m.ly, 10), lr: num(m.lr, 1000) };
         posicionarNela(r);
       } else {
         r.nela = undefined;
@@ -1270,28 +1445,34 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
       elenco.atualizar(r.uid, r.nome, r);
       break;
     case "c":
-      if (condutor !== l.uid) break;
-      entradaRemota = {
-        acel: num(m.acel, 1), virar: num(m.virar, 1), freio: num(m.freio, 1), giro: num(m.giro, 1), lanca: num(m.lanca, 1),
-        braco: num(m.braco, 1), concha: num(m.concha, 1), bracoF: num(m.bracoF, 1), conchaF: num(m.conchaF, 1),
-      };
-      tEntradaRemota = performance.now();
+      if (condutor !== l.uid && condutorCam !== l.uid) break;
+      entradasRemotas.set(l.uid, {
+        e: {
+          acel: num(m.acel, 1), virar: num(m.virar, 1), freio: num(m.freio, 1), giro: num(m.giro, 1), lanca: num(m.lanca, 1),
+          braco: num(m.braco, 1), concha: num(m.concha, 1), bracoF: num(m.bracoF, 1), conchaF: num(m.conchaF, 1),
+        },
+        t: performance.now(),
+      });
       break;
     case "entrar": {
-      if (condutor === l.uid) break;
-      if (condutor !== "") return recusar("Outro operário está na cabine");
-      const porta = corpoParaMundo(maq.porta.x + 0.4, maq.porta.z);
-      if (Math.hypot(r.x - porta.x, r.z - porta.z) > 3.2) return recusar("Chegue perto da porta da cabine (lado esquerdo) para entrar");
+      if (condutor === l.uid || condutorCam === l.uid) break;
+      const v: Veiculo = m.v === "cam" ? "cam" : "maq";
+      if (condutorDe(v) !== "") return recusar(`Outro operário está ${v === "maq" ? "na" : "no"} ${NOME_VEICULO[v]}`);
+      const porta = portaDe(v);
+      const pp = noCorpo(v, porta.x + 0.4, porta.z);
+      if (Math.hypot(r.x - pp.x, r.z - pp.z) > 3.2) return recusar("Chegue perto da porta (lado esquerdo) para entrar");
       r.nela = undefined;
-      condutor = l.uid;
-      entradaRemota = ENTRADA_ZERO;
+      definirCondutorDe(v, l.uid);
+      entradasRemotas.delete(l.uid);
       break;
     }
-    case "sair":
-      if (condutor !== l.uid) break;
-      if (Math.abs(carro.vel) > 0.8) return recusar("Pare a máquina antes de sair");
+    case "sair": {
+      const v: Veiculo | "" = condutor === l.uid ? "maq" : condutorCam === l.uid ? "cam" : "";
+      if (!v) break;
+      if (Math.abs(poseDe(v).vel) > 0.8) return recusar(v === "maq" ? "Pare a máquina antes de sair" : "Pare o caminhão antes de sair");
       liberarCabine(r);
       break;
+    }
     case "modo":
       if (condutor !== l.uid) break;
       if (modo === "dirigir" && Math.abs(carro.vel) > 0.6) return recusar("Pare a máquina antes de escavar");
@@ -1334,8 +1515,10 @@ function receberDoAnfitriao(m: Msg): void {
     for (const q of (m.pt as number[][]) ?? []) particulas.emitir(new THREE.Vector3(q[0], q[1], q[2]), new THREE.Vector3(q[3], q[4], q[5]), 0, q[6]);
     // quem está na cabine manda; se o anfitrião disse que sou eu (ou que não sou mais), acompanha
     condutor = String(m.k ?? "");
-    if (condutor === meuUid && aPe) sentar();
-    else if (condutor !== meuUid && !aPe) levantar();
+    condutorCam = String(m.kc ?? "");
+    const meu: Veiculo | "" = condutor === meuUid ? "maq" : condutorCam === meuUid ? "cam" : "";
+    if (meu && aPe) sentar(meu);
+    else if (!meu && !aPe) levantar();
     definirModo(m.m ? "escavar" : "dirigir");
     const vistos = new Set<string>();
     for (const q of (m.jog as [string, string, number, number, number, number, string, number, string][]) ?? []) {
@@ -1352,7 +1535,8 @@ function estadoValido(m: Msg): boolean {
   const c = m.c as number[] | undefined;
   const j = m.j as number[] | undefined;
   const ok = (v: unknown, lim: number): boolean => typeof v === "number" && isFinite(v) && Math.abs(v) <= lim;
-  return !!c && !!j && c.length === 8 && j.length === 7 && c.every((v, n) => ok(v, n === 3 ? 1e5 : 100)) && j.every((v) => ok(v, 20)) && ok(m.b, 1e3) && ok(m.cr, 100) && ok(m.cf, 100) && ok(m.v, 1e5);
+  const tc = m.tc as number[] | undefined;
+  return !!c && !!j && !!tc && c.length === 8 && j.length === 7 && tc.length === 8 && c.every((v, n) => ok(v, n === 3 ? 1e5 : 100)) && tc.every((v, n) => ok(v, n === 3 ? 1e5 : 100)) && j.every((v) => ok(v, 20)) && ok(m.b, 1e3) && ok(m.cr, 100) && ok(m.cf, 100) && ok(m.v, 1e5);
 }
 
 function aplicarTerreno(t: unknown): void {
@@ -1390,6 +1574,17 @@ function aplicarEstadoRede(dt: number): void {
   if (caminhao.volume !== a.v) caminhao.definirVolume(a.v as number);
   maq.atualizarPose();
   posicionarMaquina(dt);
+  // caminhão
+  const t = a.tc as number[];
+  carroCam.x += (t[0] - carroCam.x) * f;
+  carroCam.y += (t[1] - carroCam.y) * f;
+  carroCam.z += (t[2] - carroCam.z) * f;
+  carroCam.rumo += Math.atan2(Math.sin(t[3] - carroCam.rumo), Math.cos(t[3] - carroCam.rumo)) * f;
+  carroCam.vel += (t[4] - carroCam.vel) * f;
+  carroCam.esterco += (t[5] - carroCam.esterco) * f;
+  carroCam.arfagem += (t[6] - carroCam.arfagem) * f;
+  carroCam.rolagem += (t[7] - carroCam.rolagem) * f;
+  posicionarCaminhao(dt);
 }
 
 function enviarControle(dt: number, e: Entrada): void {
@@ -1404,7 +1599,7 @@ const chaveObra = (palavra: string): string => `retro-obra-${palavra}`;
 
 function salvarObra(palavra: string): void {
   const t = terreno.tomarTudo();
-  const dados = { ter: t ? { i0: t.i0, i1: t.i1, j0: t.j0, j1: t.j1, mm: mmParaTexto(t.mm) } : null, carro: { x: carro.x, z: carro.z, rumo: carro.rumo }, vol: caminhao.volume };
+  const dados = { ter: t ? { i0: t.i0, i1: t.i1, j0: t.j0, j1: t.j1, mm: mmParaTexto(t.mm) } : null, carro: { x: carro.x, z: carro.z, rumo: carro.rumo }, cam: { x: carroCam.x, z: carroCam.z, rumo: carroCam.rumo }, vol: caminhao.volume };
   try {
     localStorage.setItem(chaveObra(palavra), JSON.stringify(dados));
     obraSuja = false;
@@ -1424,6 +1619,13 @@ function restaurarObra(palavra: string): void {
     carro.z = num(d.carro?.z, 43);
     carro.rumo = num(d.carro?.rumo, 1e5);
     carro.y = terreno.altura(carro.x, carro.z);
+    if (d.cam) {
+      carroCam.x = num(d.cam.x, 43);
+      carroCam.z = num(d.cam.z, 43);
+      carroCam.rumo = num(d.cam.rumo, 1e5);
+      carroCam.y = terreno.altura(carroCam.x, carroCam.z);
+      posicionarCaminhao(0);
+    }
     caminhao.definirVolume(num(d.vol, 1e4));
     volumeSalvo = caminhao.volume;
     posicionarMaquina(0);
@@ -1476,6 +1678,8 @@ function fecharSala(): void {
   anfitriao = convidado = null;
   voz.fecharTudo();
   rosterVoz = [];
+  condutorCam = "";
+  entradasRemotas.clear();
   papel = "solo";
   meuUid = UID_ANFITRIAO;
   particulas.aoEmitir = null;
@@ -1496,7 +1700,7 @@ let assinaturaPainel = "";
 function atualizarPainelSala(): void {
   const todos: [string, string][] = [[meuUid, `${meuNome} (você)`], ...elenco.nomes];
   const peerDe = (uid: string): string => rosterVoz.find((p) => p.uid === uid)?.peerId ?? "";
-  const assinatura = todos.map(([uid, nome]) => `${uid}|${nome}|${uid === condutor}|${registros.get(uid)?.ligado === false}|${voz.estaSilenciado(peerDe(uid))}|${!!peerDe(uid)}`).join(";") + `|${voz.microfone}`;
+  const assinatura = todos.map(([uid, nome]) => `${uid}|${nome}|${uid === condutor}|${uid === condutorCam}|${registros.get(uid)?.ligado === false}|${voz.estaSilenciado(peerDe(uid))}|${!!peerDe(uid)}`).join(";") + `|${voz.microfone}`;
   $("bt-mic").textContent = voz.microfone ? "🎙 Mic" : "🎤 Mic";
   $("bt-mic").classList.toggle("ligado", voz.microfone);
   if (assinatura === assinaturaPainel) return; // só refaz a lista quando algo mudou (senão os botões piscam)
@@ -1509,7 +1713,7 @@ function atualizarPainelSala(): void {
     linha.dataset.uid = uid;
     const fora = registros.get(uid)?.ligado === false ? " 💤" : "";
     const rotulo = document.createElement("span");
-    rotulo.textContent = `${uid === condutor ? "🚜" : "👷"} ${nome}${fora}`;
+    rotulo.textContent = `${uid === condutor ? "🚜" : uid === condutorCam ? "🚚" : "👷"} ${nome}${fora}`;
     linha.appendChild(rotulo);
     const peer = peerDe(uid);
     if (uid !== meuUid && peer) {
@@ -1599,7 +1803,6 @@ function entrarComoConvidado(palavra: string): void {
       if (!jogando) estadoMenu("Entrando na obra...");
     },
     aoDesconectar: () => {
-      entradaRemota = ENTRADA_ZERO;
       $("rede-estado").textContent = "🔌 Sem conexão com a sala. Tentando voltar...";
       $("rede-estado").classList.remove("escondido");
     },
@@ -1772,6 +1975,7 @@ window.setInterval(() => { if (anfitriao) anunciarVoz(); else sincronizarVoz(); 
 
 // ---------------- laço ----------------
 carro.y = terreno.altura(carro.x, carro.z);
+carroCam.y = terreno.altura(carroCam.x, carroCam.z);
 // o operário começa ao lado da máquina, olhando para a porta da cabine (`vaga` afasta os que chegam depois)
 function colocarOperarioInicial(vaga = 0): void {
   const inicio = corpoParaMundo(4.2 + (vaga % 4) * 1.1, 1.2 + Math.floor(vaga / 4) * 1.3);
@@ -1796,7 +2000,7 @@ function quadro(agora: number): void {
   if (papel === "anfitriao") acompanharPassageiros();
   op.atualizar(dt);
   particulas.atualizar(dt, terreno, caminhao);
-  elenco.animar(dt, condutor);
+  elenco.animar(dt, condutor, condutorCam);
   tickRede(dt);
   terreno.atualizar(dt);
   atualizarCamera(dt);
@@ -1807,4 +2011,4 @@ function quadro(agora: number): void {
 requestAnimationFrame(quadro);
 
 // para testes automáticos
-(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
+(window as unknown as { jogo: unknown }).jogo = { maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get condutorCam() { return condutorCam; }, carroCam, get veiculo() { return veiculo; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };

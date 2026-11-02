@@ -48,7 +48,7 @@ function etiqueta(nome: string): THREE.Sprite {
 export class Elenco {
   private readonly avatares = new Map<string, Avatar>();
 
-  constructor(private readonly cena: THREE.Scene, private readonly banco: THREE.Object3D, private readonly urlDe: (av: string) => string) {}
+  constructor(private readonly cena: THREE.Scene, private readonly banco: THREE.Object3D, private readonly bancoCam: THREE.Object3D, private readonly urlDe: (av: string) => string) {}
 
   get nomes(): [string, string][] {
     return [...this.avatares].map(([uid, a]) => [uid, a.nome]);
@@ -89,14 +89,15 @@ export class Elenco {
     for (const uid of [...this.avatares.keys()]) this.remover(uid);
   }
 
-  // condutor = quem está sentado na cabine (acompanha a máquina)
-  animar(dt: number, condutor: string): void {
+  // condutor / condutorCam = quem está sentado na máquina / no caminhão (acompanha o veículo)
+  animar(dt: number, condutor: string, condutorCam: string): void {
     const f = Math.min(1, Math.max(0, 1 - Math.exp(-dt * 12)));
     for (const [uid, a] of this.avatares) {
       const g = a.op.grupo;
-      if (uid === condutor) {
-        if (g.parent !== this.banco) {
-          this.banco.add(g);
+      const assento = uid === condutor ? this.banco : uid === condutorCam ? this.bancoCam : null;
+      if (assento) {
+        if (g.parent !== assento) {
+          assento.add(g);
           g.position.set(0, -0.25, 0);
           g.rotation.set(0, 0, 0);
         }
