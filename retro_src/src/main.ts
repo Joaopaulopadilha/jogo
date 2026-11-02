@@ -90,6 +90,7 @@ let atirando = false;
 let mirando = false;
 let adsT = 0; // 0 a 1: quanto a câmera já foi para a mira
 let esperaTiro = 0;
+let tiroAte = 0; // instante até o qual um clique rápido ainda vale um tiro
 const PENTE = 15; // tiros por pente
 const TEMPO_RECARGA = 1.7; // s
 let municao = PENTE;
@@ -127,6 +128,7 @@ addEventListener("keydown", (e) => {
   else if (aPe && e.code === "Space" && !e.repeat) pedirPulo = true;
   else if (e.code === "KeyF" && aPe && !e.repeat) alternarArma();
   else if (e.code === "KeyR" && aPe && !e.repeat) recarregar();
+  else if (e.code === "KeyX" && aPe && armado && !e.repeat) mirando = !mirando; // notebook sem botão direito: X liga e desliga a mira
   else if (e.code === "KeyC" && !aPe) cameraCabine = !cameraCabine;
   else if (e.code === "KeyO") alternarAjustes();
   else if (e.code === "KeyH") alternarPainel("ajuda", "recolhida");
@@ -145,8 +147,10 @@ addEventListener("blur", () => {
 });
 document.addEventListener("mousedown", (e) => {
   if (!jogando || !aPe || !armado || !document.pointerLockElement) return; // o clique que prende o mouse não atira
-  if (e.button === 0) atirando = true;
-  else if (e.button === 2) mirando = true;
+  if (e.button === 0) {
+    atirando = true;
+    tiroAte = performance.now() + 160; // um toque rápido no touchpad (aperta e solta antes do próximo quadro) ainda dá um tiro
+  } else if (e.button === 2) mirando = true;
 });
 document.addEventListener("mouseup", (e) => {
   if (e.button === 0) atirando = false;
@@ -160,7 +164,7 @@ function alternarArma(): void {
   if (armado) orbita.pitch = 0.2;
   atirando = false;
   mirando = false;
-  aviso(armado ? "🔫 Fuzil na mão: clique esquerdo atira, direito mira, R recarrega (F guarda)" : "Fuzil guardado", 2.6);
+  aviso(armado ? (TOQUE ? "🔫 Fuzil na mão: 🔥 atira, 🎯 mira, ↻ recarrega" : "🔫 Fuzil na mão: clique atira (ou Enter), clique direito ou X mira, R recarrega, F guarda") : "Fuzil guardado", 3);
 }
 const k = (c: string) => (teclas.has(c) ? 1 : 0);
 // Ctrl (ou C, que não fecha a aba como Ctrl+W) agacha enquanto estiver pressionado
@@ -242,7 +246,7 @@ canvas.addEventListener("pointermove", (e) => {
     pinca = d;
     return;
   }
-  const k = e.pointerType === "touch" ? 0.008 * ajustes.toque : 0.005 * ajustes.mouse;
+  const k = (e.pointerType === "touch" ? 0.008 * ajustes.toque : 0.005 * ajustes.mouse) * (1 - 0.45 * adsT); // mirando, gira mais devagar
   orbita.yaw -= dx * k;
   orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + dy * k * 0.8 * sinalY(), cameraCabine ? -0.8 : -0.85, cameraCabine ? 0.8 : 1.35);
 });
@@ -275,7 +279,7 @@ function lembrarPainel(id: string, classe: string, padrao: boolean): void {
   alternarPainel(id, classe, v === null ? padrao : v === "1");
 }
 const AJUDA_PE = `<div class="titulo">🚶 A pé</div>
-    <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> ou <b>C</b> agachar (segurando) · correndo (Shift, pode soltar) e apertando Ctrl/C = carrinho · pular e Ctrl logo depois = prolonga o carrinho<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br><b>F</b> sacar / guardar o fuzil · <b>clique esq.</b> atira · <b>clique dir.</b> mira · <b>R</b> recarrega (pente de 15)<br>
+    <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> ou <b>C</b> agachar (segurando) · correndo (Shift, pode soltar) e apertando Ctrl/C = carrinho · pular e Ctrl logo depois = prolonga o carrinho<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br><b>F</b> sacar / guardar o fuzil · <b>clique esq.</b> (ou <b>Enter</b>) atira · <b>clique dir.</b> (ou <b>X</b>) mira · <b>R</b> recarrega (pente de 15)<br>
     <div class="rodape">mouse gira a câmera · <b>Esc</b> solta o mouse · <b>M</b> som · <b>V</b> microfone</div>`;
 const AJUDA: Record<Modo, string> = {
   dirigir: `<div class="titulo">🚗 Dirigir</div>
@@ -802,6 +806,20 @@ $("bt-pular").addEventListener("pointerdown", (e) => {
   pedirPulo = true;
 });
 const agacharToque = botaoSegurar($("bt-agachar"));
+// fuzil no toque: 🔫 saca/guarda, 🔥 atira (segurando é automático), 🎯 liga/desliga a mira, ↻ recarrega
+const fogoToque = botaoSegurar($("bt-fogo"));
+$("bt-arma").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (aPe) alternarArma();
+});
+$("bt-mirar").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (aPe && armado) mirando = !mirando;
+});
+$("bt-recarregar").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  recarregar();
+});
 $("bt-camera").addEventListener("click", () => (cameraCabine = !cameraCabine));
 // escolha do personagem: botões com data-pers no menu inicial e nos ajustes; vale na hora e vai para os outros jogadores
 function escolherPersonagem(id: string): void {
@@ -1425,7 +1443,10 @@ function armaDoJogador(dt: number): void {
     }
   }
   op.arma.recarga = recarregando > 0 ? 1 - recarregando / TEMPO_RECARGA : 0;
-  if (ativo && atirando && esperaTiro === 0 && recarregando === 0 && document.pointerLockElement) {
+  // atira com o clique esquerdo (segurando é automático; um toque rápido no touchpad dá um tiro) ou com a tecla Enter
+  const fogo = ((atirando || performance.now() < tiroAte) && !!document.pointerLockElement) || teclas.has("Enter") || fogoToque.apertado;
+  if (ativo && fogo && esperaTiro === 0 && recarregando === 0) {
+    tiroAte = 0;
     if (municao > 0) {
       esperaTiro = CADENCIA;
       municao--;
@@ -1773,6 +1794,7 @@ function atualizarHud(dt: number): void {
     const dicaEscalar = TOQUE ? "⬆️ para escalar" : "Espaço para escalar";
     $("velocidade").textContent = perto && podeEscalar && !escalada ? `${dicaEntrar} · ${dicaEscalar}` : perto ? dicaEntrar : escalada ? "Escalando" : podeEscalar ? (TOQUE ? "⬆️ para escalar" : "Espaço para escalar") : !op.noChao ? "No ar" : op.agachado ? "Agachado" : op.vel > 2.8 ? "Correndo" : op.vel > 0.15 ? "Andando" : "Parado";
     $("bt-agachar").classList.toggle("ligado", op.agachado);
+  $("bt-mirar").classList.toggle("ligado", mirando);
   } else if (veiculo === "cam") $("velocidade").textContent = `${Math.round(Math.abs(carroCam.vel) * 3.6)} km/h${carroCam.vel < -0.1 ? " (ré)" : ""}${caminhao.inclinacao > 0.02 ? ` · caçamba ${Math.round((caminhao.inclinacao * 180) / Math.PI)}°` : ""}`;
   else $("velocidade").textContent = modo === "dirigir" ? `${Math.round(Math.abs(carro.vel) * 3.6)} km/h${carro.vel < -0.1 ? " (ré)" : ""}` : maq.sapatas < 1 ? "Baixando sapatas..." : "Sapatas no chão";
   $("barra-vala").style.width = `${Math.round(progresso * 100)}%`;

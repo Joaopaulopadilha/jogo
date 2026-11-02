@@ -319,7 +319,7 @@ body.em-caminhao #bt-modo, body.em-caminhao #painel-carga { display: none !impor
 #cruz { position: absolute; left: -14px; top: -14px; opacity: 0.9; filter: drop-shadow(0 0 2px #000); }
 #ponto { display: none; position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%;
   background: radial-gradient(circle, #ff2a2a 0 28%, rgba(255, 42, 42, 0.35) 46%, transparent 72%); filter: drop-shadow(0 0 4px #ff2a2a); }
-body.armado:not(.toque) #mira-tela { display: block; }
+body.armado #mira-tela { display: block; }
 body.mirando #cruz { display: none; }
 body.mirando #ponto { display: block; }
 body.mirando #mira-tela::before { content: ""; position: absolute; left: -70px; top: -70px; width: 140px; height: 140px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.18); }
@@ -328,7 +328,7 @@ body.mirando #mira-tela::before { content: ""; position: absolute; left: -70px; 
 /* ---------- Vida, escudo, munição e acertos ---------- */
 #vida-hud { bottom: 50px; left: 14px; width: 230px; padding: 8px 12px !important; }
 #ajuda:not(.recolhida):not(.escondido) ~ #vida-hud { bottom: 14px; left: 330px; } /* com os comandos abertos (H), a vida sai da frente */
-body.toque #vida-hud { bottom: auto; top: 14px; left: 50%; transform: translateX(-50%); width: 200px; }
+body.toque #vida-hud { bottom: auto; top: 64px; left: 50%; transform: translateX(-50%); width: 190px; padding: 6px 10px !important; }
 #vida-hud .linha { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 #vida-hud .barra { flex: 1; height: 10px; background: rgba(255, 255, 255, 0.14); border-radius: 5px; overflow: hidden; }
 #vida-hud .barra i { display: block; height: 100%; width: 100%; border-radius: 5px; transition: width 0.15s; }
@@ -342,7 +342,7 @@ body.toque #vida-hud { bottom: auto; top: 14px; left: 50%; transform: translateX
 #municao-hud em { display: none; font-size: 13px; font-style: normal; color: #ffd34d; margin-left: 10px; }
 #municao-hud.vazio b { color: #ff6b5e; }
 #municao-hud.recarga em { display: inline; }
-body.armado:not(.toque) #municao-hud { display: block; }
+body.armado #municao-hud { display: block; }
 #hud > #acerto-marca { background: none; padding: 0; backdrop-filter: none; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 30px; font-weight: 900; color: #fff; text-shadow: 0 0 6px #000; opacity: 0; transition: opacity 0.2s; }
 #hud > #acerto-marca.mostra { opacity: 1; transition: none; }
 #hud > #acerto-marca.cabeca { color: #ff4b3e; font-size: 38px; }
@@ -357,3 +357,23 @@ body.levou::after { content: ""; position: fixed; inset: 0; pointer-events: none
 body.jogando:not(.toque):not(.mouse-preso) #bt-voltar-pc { display: block; }
 body.instalado #bt-voltar-pc { left: calc(50% + 120px); }
 #bt-voltar-lobby { background: #7a2b2b; color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
+
+/* ---------- Fuzil no toque: 🔫 saca / guarda; com ele na mão aparecem atirar (segurar), mirar (liga/desliga) e recarregar ---------- */
+#botoes-arma { display: none; }
+body.toque.a-pe #botoes-arma {
+  display: grid; position: absolute; right: calc(214px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom));
+  grid-template-columns: auto auto; gap: 10px; align-items: end; pointer-events: none;
+}
+#botoes-arma button {
+  pointer-events: auto; width: 66px; height: 66px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.4);
+  background: rgba(20, 22, 26, 0.7); color: #fff; font-size: 11px; font-weight: 700; line-height: 1.25; touch-action: none;
+}
+#bt-arma { grid-column: 1; grid-row: 2; }
+#bt-fogo { grid-column: 2; grid-row: 2; width: 84px !important; height: 84px !important; background: rgba(214, 60, 48, 0.85) !important; border-color: #ffb3aa !important; }
+#bt-mirar { grid-column: 2; grid-row: 1; }
+#bt-recarregar { grid-column: 1; grid-row: 1; }
+#bt-fogo, #bt-mirar, #bt-recarregar { display: none; }
+body.armado #bt-fogo, body.armado #bt-mirar, body.armado #bt-recarregar { display: block; }
+body.armado #bt-arma, #bt-mirar.ligado { background: #2f7d4a; border-color: #4cc46a; }
+#bt-fogo.apertado { filter: brightness(1.4); }
+body.toque #municao-hud { bottom: auto; top: 14px; right: auto; left: calc(50% + 112px); font-size: 18px; }
