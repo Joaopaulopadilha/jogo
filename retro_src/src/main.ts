@@ -6,6 +6,8 @@ import { montarCenario, VALA } from "./cenario";
 import { limitar, LOTES } from "./mapa";
 import { Caminhao } from "./caminhao";
 import { Particulas } from "./particulas";
+import { ARMA } from "./arma";
+import { Tiros } from "./tiros";
 import { Som } from "./som";
 import { Manche, botaoSegurar, ehToque } from "./toque";
 import { Operario } from "./operario";
@@ -39,6 +41,7 @@ cena.add(maq.raiz);
 const particulas = new Particulas();
 cena.add(particulas.malha);
 const som = new Som();
+const tiros = new Tiros(cena);
 const op = new Operario();
 cena.add(op.grupo);
 let meuPersonagem = "operario"; // escolhido no menu (guardado no navegador)
@@ -81,6 +84,16 @@ let tempoMissao = 0;
 let somTerra = 0;
 let aPe = true; // o jogo começa com o operário fora da máquina
 let pedirPulo = false;
+// fuzil: Q saca / guarda; botão esquerdo atira (segurando, é automático); botão direito mira (a câmera vai para o reddot)
+let armado = false;
+let atirando = false;
+let mirando = false;
+let adsT = 0; // 0 a 1: quanto a câmera já foi para a mira
+let esperaTiro = 0;
+const PENTE = 15; // tiros por pente
+const TEMPO_RECARGA = 1.7; // s
+let municao = PENTE;
+let recarregando = 0; // s que faltam para terminar a recarga (0 = não está recarregando)
 // sala: solo, anfitrião (roda a obra) ou convidado (anda, dirige e cava pelo anfitrião)
 type Papel = "solo" | "anfitriao" | "convidado";
 let papel: Papel = "solo";
@@ -112,6 +125,8 @@ addEventListener("keydown", (e) => {
   } else if (e.code === "KeyE" && !e.repeat) entrarOuSair();
   else if (aPe && (e.code === "ControlLeft" || e.code === "ControlRight")) e.preventDefault(); // agachar: vale enquanto segura (ver agachandoTeclado)
   else if (aPe && e.code === "Space" && !e.repeat) pedirPulo = true;
+  else if (e.code === "KeyF" && aPe && !e.repeat) alternarArma();
+  else if (e.code === "KeyR" && aPe && !e.repeat) recarregar();
   else if (e.code === "KeyC" && !aPe) cameraCabine = !cameraCabine;
   else if (e.code === "KeyO") alternarAjustes();
   else if (e.code === "KeyH") alternarPainel("ajuda", "recolhida");
@@ -122,7 +137,30 @@ addEventListener("keydown", (e) => {
   teclas.add(e.code);
 });
 addEventListener("keyup", (e) => teclas.delete(e.code));
-addEventListener("blur", () => teclas.clear());
+addEventListener("blur", () => {
+  teclas.clear();
+  atirando = false;
+  mirando = false;
+});
+document.addEventListener("mousedown", (e) => {
+  if (!jogando || !aPe || !armado || !document.pointerLockElement) return; // o clique que prende o mouse não atira
+  if (e.button === 0) atirando = true;
+  else if (e.button === 2) mirando = true;
+});
+document.addEventListener("mouseup", (e) => {
+  if (e.button === 0) atirando = false;
+  else if (e.button === 2) mirando = false;
+});
+document.addEventListener("contextmenu", (e) => {
+  if (jogando) e.preventDefault(); // botão direito é mirar
+});
+function alternarArma(): void {
+  armado = !armado;
+  if (armado) orbita.pitch = 0.2;
+  atirando = false;
+  mirando = false;
+  aviso(armado ? "🔫 Fuzil na mão: clique esquerdo atira, direito mira, R recarrega (F guarda)" : "Fuzil guardado", 2.6);
+}
 const k = (c: string) => (teclas.has(c) ? 1 : 0);
 // Ctrl (ou C, que não fecha a aba como Ctrl+W) agacha enquanto estiver pressionado
 const agachandoTeclado = (): boolean => teclas.has("ControlLeft") || teclas.has("ControlRight") || teclas.has("KeyC");
@@ -155,8 +193,9 @@ function prenderMouse(): void {
 }
 document.addEventListener("mousemove", (e) => {
   if (!mousePreso()) return;
-  orbita.yaw -= e.movementX * 0.0035 * ajustes.mouse;
-  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + e.movementY * 0.0028 * ajustes.mouse * sinalY(), cameraCabine ? -0.8 : -0.85, cameraCabine ? 0.8 : 1.35);
+  const sens = ajustes.mouse * (1 - 0.45 * adsT); // mirando, a câmera gira mais devagar
+  orbita.yaw -= e.movementX * 0.0035 * sens;
+  orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + e.movementY * 0.0028 * sens * sinalY(), cameraCabine ? -0.8 : -0.85, cameraCabine ? 0.8 : 1.35);
 });
 document.addEventListener("pointerlockchange", () => {
   document.body.classList.toggle("mouse-preso", mousePreso());
@@ -228,7 +267,7 @@ function lembrarPainel(id: string, classe: string, padrao: boolean): void {
   alternarPainel(id, classe, v === null ? padrao : v === "1");
 }
 const AJUDA_PE = `<div class="titulo">🚶 A pé</div>
-    <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> ou <b>C</b> agachar (segurando) · correndo (Shift, pode soltar) e apertando Ctrl/C = carrinho · pular e Ctrl logo depois = prolonga o carrinho<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br>
+    <b>W A S D</b> andar<br><b>Shift</b> correr<br><b>Ctrl</b> ou <b>C</b> agachar (segurando) · correndo (Shift, pode soltar) e apertando Ctrl/C = carrinho · pular e Ctrl logo depois = prolonga o carrinho<br><b>Espaço</b> pular (encostado: escalar)<br><b>E</b> entrar na retroescavadeira (porta da cabine)<br><b>F</b> sacar / guardar o fuzil · <b>clique esq.</b> atira · <b>clique dir.</b> mira · <b>R</b> recarrega (pente de 15)<br>
     <div class="rodape">mouse gira a câmera · <b>Esc</b> solta o mouse · <b>M</b> som · <b>V</b> microfone</div>`;
 const AJUDA: Record<Modo, string> = {
   dirigir: `<div class="titulo">🚗 Dirigir</div>
@@ -365,6 +404,9 @@ function sentar(v: Veiculo): void {
   aPe = false;
   veiculo = v;
   op.agachado = false;
+  armado = false;
+  atirando = false;
+  mirando = false;
   op.noChao = true;
   op.vy = 0;
   // senta no banco (o banco da retroescavadeira gira junto quando escava)
@@ -389,6 +431,8 @@ function sentar(v: Veiculo): void {
 
 function levantar(): void {
   aPe = true;
+  som.motorLigado = false;
+  som.atualizar(0, 0, 0); // o som do veículo corta na hora
   cameraCabine = false;
   const porta = portaDe(veiculo);
   const p = noCorpo(veiculo, porta.x + 0.6, porta.z);
@@ -569,7 +613,11 @@ function andarAPe(dt: number, frente: number, lado: number, shift: boolean, agac
   else if (salto && !op.noChao) op.vel = Math.max(op.vel, salto.vel); // no pulo do combo o impulso se mantém
   // no ar dá para corrigir um pouco a direção, mas não frear de repente
   else op.vel += (alvo - op.vel) * Math.min(1, dt * (op.noChao ? 8 : 1.5));
-  if (forca > 0.05 && !carrinho) {
+  if (armado && !carrinho) {
+    // com o fuzil na mão o corpo fica virado para onde a câmera (a mira) olha
+    const dif = Math.atan2(Math.sin(orbita.yaw + Math.PI - op.rumo), Math.cos(orbita.yaw + Math.PI - op.rumo));
+    op.rumo += dif * Math.min(1, dt * 16);
+  } else if (forca > 0.05 && !carrinho) {
     const n = Math.hypot(dx, dz);
     dx /= n;
     dz /= n;
@@ -1115,6 +1163,239 @@ function salvarJuntas() {
   return { giro: maq.giro, lanca: maq.lanca, braco: maq.braco, concha: maq.concha, bracoFrente: maq.bracoFrente, conchaFrente: maq.conchaFrente };
 }
 
+// ---------------- vida e escudo ----------------
+// 100 de vida e um escudo azul extra de 50, que leva o dano primeiro e volta sozinho 2 s depois do último acerto. Tiro no corpo tira 10,
+// na cabeça 20. Quem decide é o anfitrião (ou o modo solo): o convidado só diz quem acertou. Com 0 de vida o jogador some 4 s e renasce.
+const VIDA_MAX = 100;
+const ESCUDO_MAX = 50;
+const DANO_CORPO = 10;
+const DANO_CABECA = 20;
+const ESPERA_ESCUDO = 2; // s sem levar acerto até o escudo começar a voltar
+const RITMO_ESCUDO = 25; // pontos de escudo por segundo
+const TEMPO_MORTO = 4; // s eliminado
+interface Saude { vida: number; escudo: number; sem: number; morto: number; acertos: number; abates: number }
+const saude = new Map<string, Saude>(); // anfitrião e modo solo: a saúde de todos
+const minhaSaude = { vida: VIDA_MAX, escudo: ESCUDO_MAX, acertos: 0, abates: 0 }; // convidado: a minha, como o anfitrião mandou
+const vistosVida = new Map<string, number>(); // convidado: a vida dos outros (a mira não acerta quem está eliminado)
+const ultimoTiroDe = new Map<string, number>(); // anfitrião: limite de cadência por convidado
+let eraMorto = false;
+function saudeDe(uid: string): Saude {
+  let s = saude.get(uid);
+  if (!s) {
+    s = { vida: VIDA_MAX, escudo: ESCUDO_MAX, sem: 99, morto: 0, acertos: 0, abates: 0 };
+    saude.set(uid, s);
+  }
+  return s;
+}
+const eu = (): { vida: number; escudo: number; acertos: number; abates: number } => (papel === "convidado" ? minhaSaude : saudeDe(UID_ANFITRIAO));
+const estouMorto = (): boolean => eu().vida <= 0;
+const vidaDoOutro = (uid: string): number => (papel === "convidado" ? vistosVida.get(uid) ?? VIDA_MAX : saudeDe(uid).vida);
+const nomeDe = (uid: string): string => (uid === UID_ANFITRIAO ? meuNome : registros.get(uid)?.nome ?? "alguém");
+
+function aplicarDano(alvo: string, cabeca: boolean, autor: string): boolean {
+  const s = saudeDe(alvo);
+  const a = saudeDe(autor);
+  if (alvo === autor || s.vida <= 0 || a.vida <= 0) return false;
+  let dano = cabeca ? DANO_CABECA : DANO_CORPO;
+  a.acertos++;
+  s.sem = 0;
+  const absorvido = Math.min(s.escudo, dano);
+  s.escudo -= absorvido;
+  dano -= absorvido;
+  s.vida = Math.max(0, s.vida - dano);
+  if (s.vida <= 0) {
+    s.morto = TEMPO_MORTO;
+    a.abates++;
+    const txt = `💀 ${nomeDe(autor)} eliminou ${nomeDe(alvo)}`;
+    aviso(txt, 2.6);
+    anfitriao?.transmitir({ t: "txt", txt });
+  }
+  return true;
+}
+
+// anfitrião e solo: o escudo volta, quem foi eliminado renasce
+function atualizarSaude(dt: number): void {
+  for (const [uid, s] of saude) {
+    if (s.vida > 0) {
+      s.sem += dt;
+      if (s.sem >= ESPERA_ESCUDO && s.escudo < ESCUDO_MAX) s.escudo = Math.min(ESCUDO_MAX, s.escudo + RITMO_ESCUDO * dt);
+    } else {
+      s.morto -= dt;
+      if (s.morto <= 0) {
+        s.vida = VIDA_MAX;
+        s.escudo = ESCUDO_MAX;
+        s.sem = 99;
+        if (uid === UID_ANFITRIAO) renascer();
+      }
+    }
+  }
+}
+
+// volta para perto da máquina com o pente cheio
+function renascer(): void {
+  colocarOperarioInicial(Math.floor(Math.random() * 8));
+  op.vel = 0;
+  op.vy = 0;
+  municao = PENTE;
+  recarregando = 0;
+}
+
+// ---------------- fuzil ----------------
+const CADENCIA = 0.11; // s entre tiros (~9 por segundo)
+const ALCANCE_TIRO = 150;
+const bocaTmp = new THREE.Vector3();
+const origemTmp = new THREE.Vector3();
+const dirTmp = new THREE.Vector3();
+const pontoTmp = new THREE.Vector3();
+
+// segue o raio passo a passo e devolve onde ele para: terra, objeto (máquina, caminhão, árvore, casa), jogador ou nada (ar)
+let acertoAtual: { uid: string; cabeca: boolean } | null = null; // quem o último `atingido` acertou (e se foi na cabeça)
+function atingido(o: THREE.Vector3, d: THREE.Vector3, saida: THREE.Vector3): "terra" | "objeto" | "jogador" | "ar" {
+  acertoAtual = null;
+  // só quem está de pé e vivo (quem dirige não leva tiro)
+  const alvos = elenco.posicoes().filter((a) => a.uid !== condutor && a.uid !== condutorCam && vidaDoOutro(a.uid) > 0);
+  const blocos: Bloco[] = [...blocosMaquina(), ...blocosCam_(), ...arvores].filter((b) => {
+    // só o que fica perto da reta do tiro (distância do centro ao raio no plano)
+    const px = b.x - o.x;
+    const pz = b.z - o.z;
+    const t = Math.max(0, Math.min(ALCANCE_TIRO, px * d.x + pz * d.z) / Math.max(0.0001, Math.hypot(d.x, d.z)));
+    const cx = o.x + (d.x / Math.max(0.0001, Math.hypot(d.x, d.z))) * t - b.x;
+    const cz = o.z + (d.z / Math.max(0.0001, Math.hypot(d.x, d.z))) * t - b.z;
+    return Math.hypot(cx, cz) < Math.max(b.hx, b.hz) * 1.5 + 0.3;
+  });
+  const noMorro = new Set<Bloco>();
+  let passoMorro = -1;
+  for (let t = 0.4; t < ALCANCE_TIRO; t += t < 60 ? 0.12 : 0.5) {
+    const x = o.x + d.x * t;
+    const y = o.y + d.y * t;
+    const z = o.z + d.z * t;
+    if (y < terreno.altura(x, z)) {
+      saida.set(x - d.x * 0.06, y - d.y * 0.06, z - d.z * 0.06);
+      return "terra";
+    }
+    if (x < -12 && z > 12) {
+      const k = Math.floor(t / 6);
+      if (k !== passoMorro) {
+        passoMorro = k;
+        for (const b of favela.perto(x, z)) noMorro.add(b);
+      }
+    }
+    for (const a of alvos) {
+      if (Math.abs(a.x - x) < 0.45 && Math.abs(a.z - z) < 0.45 && y > a.y && y < a.y + 1.95 && Math.hypot(a.x - x, a.z - z) < 0.4) {
+        saida.set(x, y, z);
+        acertoAtual = { uid: a.uid, cabeca: y > a.y + 1.5 };
+        return "jogador";
+      }
+    }
+    for (const lista of [blocos, noMorro]) {
+      for (const b of lista) {
+        if (y >= b.y0 && y <= b.y1 && contem(b, x, z)) {
+          saida.set(x - d.x * 0.06, y - d.y * 0.06, z - d.z * 0.06);
+          return "objeto";
+        }
+      }
+    }
+  }
+  saida.set(o.x + d.x * ALCANCE_TIRO, o.y + d.y * ALCANCE_TIRO, o.z + d.z * ALCANCE_TIRO);
+  return "ar";
+}
+const blocosCam_ = (): Bloco[] => caminhao.blocos();
+
+const CODIGO_IMPACTO = ["terra", "objeto", "jogador", "ar"] as const;
+function atirar(): void {
+  camera.getWorldDirection(dirTmp);
+  origemTmp.copy(camera.position);
+  // espalhamento: de quadril é bem maior que mirando
+  const espalha = 0.014 * (1 - adsT) + 0.0012;
+  dirTmp.x += (Math.random() - 0.5) * 2 * espalha;
+  dirTmp.y += (Math.random() - 0.5) * 2 * espalha;
+  dirTmp.z += (Math.random() - 0.5) * 2 * espalha;
+  dirTmp.normalize();
+  const tipo = atingido(origemTmp, dirTmp, pontoTmp);
+  op.pontoDaArma(ARMA.boca, bocaTmp);
+  tiros.tiro(bocaTmp, pontoTmp, tipo);
+  som.tiro(1);
+  op.arma.coice = 1;
+  orbita.pitch -= 0.0022 * (1 - 0.5 * adsT); // o coice levanta um pouco a mira
+  let alvo = "";
+  let cabeca = 0;
+  if (tipo === "jogador" && acertoAtual) {
+    alvo = acertoAtual.uid;
+    cabeca = acertoAtual.cabeca ? 1 : 0;
+    marcarAcerto(cabeca === 1);
+    if (papel !== "convidado") aplicarDano(alvo, cabeca === 1, UID_ANFITRIAO); // o anfitrião (e o modo solo) decide o dano
+  }
+  enviarTiro(bocaTmp, pontoTmp, CODIGO_IMPACTO.indexOf(tipo), alvo, cabeca);
+}
+
+// marca ✕ no centro da tela (vermelha e maior no tiro na cabeça) e um tique
+let tMarca = 0;
+function marcarAcerto(cabeca: boolean): void {
+  const el = $("acerto-marca");
+  el.classList.toggle("cabeca", cabeca);
+  el.classList.add("mostra");
+  clearTimeout(tMarca);
+  tMarca = window.setTimeout(() => el.classList.remove("mostra"), 90);
+  som.acerto(cabeca);
+}
+
+// tiro de outro jogador (ou o seu, vindo da sala): traço, clarão, poeira e o estampido (mais baixo quanto mais longe)
+function desenharTiro(uid: string, b: number[], a: number[], k: number): void {
+  const tipo = CODIGO_IMPACTO[Math.max(0, Math.min(3, Math.round(k)))];
+  tiros.tiro(new THREE.Vector3(b[0], b[1], b[2]), new THREE.Vector3(a[0], a[1], a[2]), tipo);
+  elenco.coice(uid);
+  const dist = Math.hypot(b[0] - camera.position.x, b[1] - camera.position.y, b[2] - camera.position.z);
+  som.tiro(Math.max(0, 1 - dist / 90) * 0.8);
+}
+
+function enviarTiro(b: THREE.Vector3, a: THREE.Vector3, k: number, h = "", z = 0): void {
+  const m: Msg = { t: "tiro", b: [b.x, b.y, b.z], a: [a.x, a.y, a.z], k, h, z };
+  if (papel === "anfitriao") anfitriao?.transmitir({ ...m, u: UID_ANFITRIAO });
+  else if (papel === "convidado") convidado?.enviar(m);
+}
+
+function armaDoJogador(dt: number): void {
+  const morto = estouMorto();
+  const ativo = jogando && aPe && armado && !escalada && !carrinho && !morto;
+  if (!ativo) {
+    atirando = false;
+    mirando = false;
+    recarregando = 0; // guardar o fuzil (ou ser eliminado) cancela a recarga
+  }
+  if (aPe) op.grupo.visible = !morto;
+  op.arma.ligada = ativo;
+  op.esconderCorpoAoMirar = true;
+  adsT += ((mirando && ativo ? 1 : 0) - adsT) * Math.min(1, dt * 10);
+  op.arma.mirando = adsT > 0.85;
+  op.arma.pitch = ativo ? elevacaoDaMira() : 0;
+  document.body.classList.toggle("armado", ativo);
+  document.body.classList.toggle("mirando", ativo && adsT > 0.5);
+  esperaTiro = Math.max(0, esperaTiro - dt);
+  if (recarregando > 0) {
+    recarregando -= dt;
+    if (recarregando <= 0) {
+      recarregando = 0;
+      municao = PENTE;
+    }
+  }
+  op.arma.recarga = recarregando > 0 ? 1 - recarregando / TEMPO_RECARGA : 0;
+  if (ativo && atirando && esperaTiro === 0 && recarregando === 0 && document.pointerLockElement) {
+    if (municao > 0) {
+      esperaTiro = CADENCIA;
+      municao--;
+      atirar();
+      if (municao === 0) recarregar(); // acabou o pente: recarrega sozinho
+    } else recarregar();
+  }
+}
+
+// R (ou quando o pente acaba): troca o pente, leva um pouco de tempo
+function recarregar(): void {
+  if (!armado || recarregando > 0 || municao >= PENTE) return;
+  recarregando = TEMPO_RECARGA;
+  som.recarga();
+}
+
 function atualizarMaquina(dt: number): void {
   if (papel === "convidado") aplicarEstadoRede(dt); // a máquina é do anfitrião: aqui só se copia a pose dela
   const gp = controle();
@@ -1140,6 +1421,13 @@ function atualizarMaquina(dt: number): void {
       if (a && !botaoAAntes) pedirPulo = true;
       botaoAAntes = a;
       if (gp.buttons[1]?.pressed) agachar = true; // B: agacha enquanto segura
+    }
+    if (estouMorto()) {
+      frente = 0;
+      lado = 0;
+      correr = false;
+      agachar = false;
+      pedirPulo = false;
     }
     andarAPe(dt, THREE.MathUtils.clamp(frente, -1, 1), THREE.MathUtils.clamp(lado, -1, 1), correr, agachar, pedirPulo);
     pedirPulo = false;
@@ -1214,6 +1502,7 @@ function atualizarMaquina(dt: number): void {
   if (papel === "convidado") {
     if (!aPe) enviarControle(dt, { acel, virar, freio, giro, lanca, braco, concha, bracoF, conchaF, bascula });
     const vel = emCam ? carroCam.vel : carro.vel;
+    som.motorLigado = !aPe;
     som.atualizar(Math.min(1, Math.abs(vel) / 7 + Math.abs(acel) * 0.25 + Math.min(hidrRede, 1.5) * 0.35), Math.min(1, hidrRede * 0.8), 0);
     return;
   }
@@ -1283,6 +1572,7 @@ function atualizarMaquina(dt: number): void {
   const giroMotor = emCam
     ? Math.min(1, Math.abs(carroCam.vel) / 9 + Math.abs(entCam.acel) * 0.25)
     : Math.min(1, Math.abs(carro.vel) / 7 + Math.abs(acel) * 0.25 + Math.min(hidr, 1.5) * 0.35);
+  som.motorLigado = !aPe; // a pé o motor fica desligado
   som.atualizar(giroMotor, Math.min(1, hidr * 0.8), somTerra);
 }
 
@@ -1307,6 +1597,35 @@ function recuarCamera(de: THREE.Vector3, ate: THREE.Vector3): void {
     }
   }
 }
+// câmera do fuzil: por cima do ombro direito, olhando para onde a mira aponta (o mouse sobe e desce a mira); mirando, vai para o reddot
+const dirMira = new THREE.Vector3();
+const posOmbro = new THREE.Vector3();
+const posOlho = new THREE.Vector3();
+function elevacaoDaMira(): number {
+  return THREE.MathUtils.clamp(0.2 - orbita.pitch, -0.9, 1.0);
+}
+function cameraDoFuzil(dt: number): void {
+  const centro = new THREE.Vector3(op.x, op.grupo.position.y + 1.45, op.z);
+  alvoCam.lerp(centro, alvoCam.lengthSq() === 0 ? 1 : 1 - Math.exp(-dt * 10));
+  const e = elevacaoDaMira();
+  const fx = -Math.sin(orbita.yaw);
+  const fz = -Math.cos(orbita.yaw);
+  dirMira.set(fx * Math.cos(e), Math.sin(e), fz * Math.cos(e));
+  // por cima do ombro: um pouco atrás, à direita e acima
+  posOmbro.set(alvoCam.x - fx * 2.5 - fz * 0.55, alvoCam.y + 0.45, alvoCam.z - fz * 2.5 + fx * 0.55);
+  posOmbro.y = Math.max(posOmbro.y, terreno.altura(posOmbro.x, posOmbro.z) + 0.6);
+  recuarCamera(alvoCam, posOmbro);
+  if (adsT > 0.001) {
+    op.pontoDaArma(ARMA.olho, posOlho);
+    posOmbro.lerp(posOlho, adsT);
+  }
+  if (camera.position.lengthSq() === 0 || adsT > 0.99) camera.position.copy(posOmbro);
+  else camera.position.lerp(posOmbro, 1 - Math.exp(-dt * (12 + adsT * 20)));
+  camera.lookAt(camera.position.x + dirMira.x, camera.position.y + dirMira.y, camera.position.z + dirMira.z);
+  sol.position.set(alvoCam.x + 18, alvoCam.y + 30, alvoCam.z + 12);
+  sol.target.position.copy(alvoCam);
+}
+
 const PITCH_CHAO = 0.08; // a câmera orbital não desce abaixo disso: o resto do giro vira olhar para cima
 function atualizarCamera(dt: number): void {
   const emCam = !aPe && veiculo === "cam";
@@ -1322,9 +1641,14 @@ function atualizarCamera(dt: number): void {
     camera.updateProjectionMatrix();
     return;
   }
-  if (camera.fov !== 55) {
-    camera.fov = 55;
+  const fov = 55 - 14 * adsT;
+  if (Math.abs(camera.fov - fov) > 0.01) {
+    camera.fov = fov;
     camera.updateProjectionMatrix();
+  }
+  if (aPe && op.arma.ligada) {
+    cameraDoFuzil(dt);
+    return;
   }
   const centro = aPe ? new THREE.Vector3(op.x, op.grupo.position.y + 1.45, op.z) : emCam ? new THREE.Vector3(carroCam.x, carroCam.y + 2.0, carroCam.z) : new THREE.Vector3(carro.x, carro.y + 1.6, carro.z);
   if (!aPe && !emCam && modo === "escavar") {
@@ -1360,7 +1684,30 @@ function atualizarCamera(dt: number): void {
 }
 
 // ---------------- missão e HUD ----------------
+let totalAnterior = VIDA_MAX + ESCUDO_MAX;
+function atualizarVida(): void {
+  const e = eu();
+  $("barra-escudo").style.width = `${(e.escudo / ESCUDO_MAX) * 100}%`;
+  $("barra-vida").style.width = `${(e.vida / VIDA_MAX) * 100}%`;
+  $("txt-escudo").textContent = String(Math.round(e.escudo));
+  $("txt-vida").textContent = String(Math.round(e.vida));
+  $("txt-acertos").textContent = String(e.acertos);
+  $("txt-abates").textContent = String(e.abates);
+  const mun = $("municao-hud");
+  $("txt-municao").textContent = String(municao);
+  mun.classList.toggle("recarga", recarregando > 0);
+  mun.classList.toggle("vazio", municao === 0);
+  document.body.classList.toggle("morto", e.vida <= 0);
+  const total = e.vida + e.escudo;
+  if (total < totalAnterior - 0.5) {
+    document.body.classList.add("levou"); // flash vermelho nas bordas ao levar um acerto
+    setTimeout(() => document.body.classList.remove("levou"), 220);
+  }
+  totalAnterior = total;
+}
+
 function atualizarHud(dt: number): void {
+  atualizarVida();
   tempoMissao -= dt;
   if (tempoMissao <= 0) {
     tempoMissao = 0.4;
@@ -1427,7 +1774,7 @@ let hidrRede = 0;
 let tControle = 0;
 
 const num = (v: unknown, limite = 1e6): number => (typeof v === "number" && isFinite(v) ? THREE.MathUtils.clamp(v, -limite, limite) : 0);
-const dadosDoOperario = (): DadosJogador => ({ x: op.x, y: op.y, z: op.z, rumo: op.rumo, anim: op.atual, esc: op.escala, av: meuPersonagem });
+const dadosDoOperario = (): DadosJogador => ({ x: op.x, y: op.y, z: op.z, rumo: op.rumo, anim: op.atual, esc: op.escala, av: meuPersonagem, ar: op.arma.ligada ? 1 | (mirando ? 2 : 0) | (recarregando > 0 ? 4 : 0) : 0, ap: op.arma.pitch });
 
 function tickRede(dt: number): void {
   if (papel === "solo") return;
@@ -1472,8 +1819,15 @@ function tickAnfitriao(): void {
   if (alteracao || caminhao.volume !== volumeSalvo) obraSuja = true;
   if (anfitriao && anfitriao.ligados.size > 0) {
     const e = dadosDoOperario();
-    const jog: unknown[][] = [[UID_ANFITRIAO, meuNome, e.x, e.y, e.z, e.rumo, e.anim, e.esc, meuPersonagem]];
-    for (const r of registros.values()) jog.push([r.uid, r.nome, r.x, r.y, r.z, r.rumo, r.anim, r.esc, r.av]);
+    const sh = saudeDe(UID_ANFITRIAO);
+    const jog: unknown[][] = [[UID_ANFITRIAO, meuNome, e.x, e.y, e.z, e.rumo, e.anim, e.esc, meuPersonagem, e.ar, e.ap, sh.vida, sh.escudo, sh.acertos, sh.abates]];
+    for (const r of registros.values()) {
+      const s = saudeDe(r.uid);
+      jog.push([r.uid, r.nome, r.x, r.y, r.z, r.rumo, r.anim, r.esc, r.av, r.ar ?? 0, r.ap ?? 0, s.vida, s.escudo, s.acertos, s.abates]);
+      r.vi = s.vida;
+      r.es = s.escudo;
+      elenco.atualizar(r.uid, r.nome, r); // as barras e o sumiço de quem foi eliminado
+    }
     const msg: Msg = {
       t: "s",
       c: [carro.x, carro.y, carro.z, carro.rumo, carro.vel, carro.esterco, carro.arfagem, carro.rolagem],
@@ -1585,8 +1939,30 @@ function mensagemDoConvidado(l: Ligado, m: Msg): void {
       r.av = personagemValido(m.av);
       r.anim = String(m.anim || "parado").slice(0, 24);
       r.esc = num(m.esc, 10) || 1;
+      r.ar = num(m.ar, 7);
+      r.ap = num(m.ap, 2);
       elenco.atualizar(r.uid, r.nome, r);
       break;
+    case "tiro": {
+      const b = m.b as number[] | undefined;
+      const a = m.a as number[] | undefined;
+      if (!b || !a || b.length !== 3 || a.length !== 3) break;
+      const msg: Msg = { t: "tiro", u: l.uid, b: b.map((v) => num(v, 500)), a: a.map((v) => num(v, 500)), k: num(m.k, 3) };
+      anfitriao?.transmitir(msg); // os outros veem (inclusive o autor, que ignora)
+      const alvo = String(m.h ?? "");
+      const agora = performance.now();
+      if (agora - (ultimoTiroDe.get(l.uid) ?? 0) >= 70) {
+        ultimoTiroDe.set(l.uid, agora);
+        const p = alvo === UID_ANFITRIAO ? { x: op.x, y: op.y, z: op.z } : registros.get(alvo);
+        const a = msg.a as number[];
+        // só vale se o acerto bate com onde o alvo está (e quem dirige não leva tiro)
+        if (alvo && alvo !== l.uid && p && alvo !== condutor && alvo !== condutorCam && Math.hypot(p.x - a[0], p.z - a[2]) < 2.2 && a[1] > p.y - 0.5 && a[1] < p.y + 2.4) {
+          aplicarDano(alvo, num(m.z, 1) === 1, l.uid);
+        }
+      }
+      desenharTiro(l.uid, msg.b as number[], msg.a as number[], msg.k as number);
+      break;
+    }
     case "c":
       if (condutor !== l.uid && condutorCam !== l.uid) break;
       entradasRemotas.set(l.uid, {
@@ -1634,6 +2010,10 @@ function receberDoAnfitriao(m: Msg): void {
     convidado?.fechar();
     convidado = null;
     menuOcupado(false);
+  } else if (m.t === "txt") {
+    aviso(String(m.txt).slice(0, 80), 2.6);
+  } else if (m.t === "tiro") {
+    if (m.u !== meuUid) desenharTiro(String(m.u), m.b as number[], m.a as number[], num(m.k, 3));
   } else if (m.t === "voz") {
     rosterVoz = m.pares as ParVoz[];
     sincronizarVoz();
@@ -1672,10 +2052,23 @@ function receberDoAnfitriao(m: Msg): void {
     else if (!meu && !aPe) levantar();
     definirModo(m.m ? "escavar" : "dirigir");
     const vistos = new Set<string>();
-    for (const q of (m.jog as [string, string, number, number, number, number, string, number, string][]) ?? []) {
-      if (q[0] === meuUid) continue;
+    for (const q of (m.jog as [string, string, number, number, number, number, string, number, string, number, number, number, number, number, number][]) ?? []) {
+      if (q[0] === meuUid) {
+        // a minha vida, escudo e placar
+        minhaSaude.vida = typeof q[11] === "number" ? q[11] : VIDA_MAX;
+        minhaSaude.escudo = typeof q[12] === "number" ? q[12] : ESCUDO_MAX;
+        minhaSaude.acertos = num(q[13], 1e6);
+        minhaSaude.abates = num(q[14], 1e6);
+        if (minhaSaude.vida <= 0) eraMorto = true;
+        else if (eraMorto) {
+          eraMorto = false;
+          renascer(); // o anfitrião me reviveu: volto para perto da máquina
+        }
+        continue;
+      }
+      vistosVida.set(q[0], typeof q[11] === "number" ? q[11] : VIDA_MAX);
       vistos.add(q[0]);
-      elenco.atualizar(q[0], q[1], { x: q[2], y: q[3], z: q[4], rumo: q[5], anim: q[6], esc: q[7], av: q[8] });
+      elenco.atualizar(q[0], q[1], { x: q[2], y: q[3], z: q[4], rumo: q[5], anim: q[6], esc: q[7], av: q[8], ar: num(q[9], 7), ap: num(q[10], 2), vi: typeof q[11] === "number" ? q[11] : undefined, es: typeof q[12] === "number" ? q[12] : undefined });
     }
     elenco.manter(vistos);
   }
@@ -2150,7 +2543,10 @@ function quadro(agora: number): void {
   atualizarMaquina(dt);
   carregarPassageiro();
   if (papel === "anfitriao") acompanharPassageiros();
+  if (papel !== "convidado") atualizarSaude(dt);
+  armaDoJogador(dt);
   op.atualizar(dt);
+  tiros.atualizar(dt);
   particulas.atualizar(dt, terreno, caminhao);
   elenco.animar(dt, condutor, condutorCam);
   tickRede(dt);
@@ -2163,4 +2559,4 @@ function quadro(agora: number): void {
 requestAnimationFrame(quadro);
 
 // para testes automáticos
-(window as unknown as { jogo: unknown }).jogo = { LOTES, favela, camera, alvoCam, posCam, maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get condutorCam() { return condutorCam; }, carroCam, get veiculo() { return veiculo; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };
+(window as unknown as { jogo: unknown }).jogo = { saudeDe, aplicarDano, recarregar, get municao() { return municao; }, get recarregando() { return recarregando; }, alternarArma, atirar, mirar: (v: boolean) => (mirando = v), get armado() { return armado; }, tiros, LOTES, favela, camera, alvoCam, posCam, maq, carro, terreno, caminhao, teclas, orbita, op, entrarOuSair, get aPe() { return aPe; }, get papel() { return papel; }, voz, get roster() { return rosterVoz; }, get montado() { return montado; }, get condutor() { return condutor; }, get condutorCam() { return condutorCam; }, carroCam, get veiculo() { return veiculo; }, get jogando() { return jogando; }, get modo() { return modo; }, trocarModo, iniciar: () => $("jogar").click() };

@@ -313,3 +313,37 @@ body.instalado #bt-ajustes-pc { left: 50%; transform: translateX(-50%); }
 
 /* ---------- Caminhão: sem escavação nem conchas ---------- */
 body.em-caminhao #bt-modo, body.em-caminhao #painel-carga { display: none !important; }
+
+/* ---------- Mira do fuzil: cruz pequena com o fuzil na mão; ao mirar (botão direito) vira o ponto vermelho do reddot ---------- */
+#mira-tela { display: none; position: fixed; left: 50%; top: 50%; width: 0; height: 0; z-index: 4; pointer-events: none; }
+#cruz { position: absolute; left: -14px; top: -14px; opacity: 0.9; filter: drop-shadow(0 0 2px #000); }
+#ponto { display: none; position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%;
+  background: radial-gradient(circle, #ff2a2a 0 28%, rgba(255, 42, 42, 0.35) 46%, transparent 72%); filter: drop-shadow(0 0 4px #ff2a2a); }
+body.armado:not(.toque) #mira-tela { display: block; }
+body.mirando #cruz { display: none; }
+body.mirando #ponto { display: block; }
+body.mirando #mira-tela::before { content: ""; position: absolute; left: -70px; top: -70px; width: 140px; height: 140px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.18); }
+#hud > #mira-tela { background: none; padding: 0; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; min-width: 0; }
+
+/* ---------- Vida, escudo, munição e acertos ---------- */
+#vida-hud { bottom: 14px; left: 50%; transform: translateX(-50%); width: 240px; padding: 8px 12px !important; }
+#vida-hud .linha { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+#vida-hud .barra { flex: 1; height: 10px; background: rgba(255, 255, 255, 0.14); border-radius: 5px; overflow: hidden; }
+#vida-hud .barra i { display: block; height: 100%; width: 100%; border-radius: 5px; transition: width 0.15s; }
+#barra-escudo { background: linear-gradient(#7cc4ff, #2f8fe8); }
+#barra-vida { background: linear-gradient(#6fe27f, #2fb24a); }
+#vida-hud b { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+#vida-hud .placar { font-size: 12px; color: #ffd34d; text-align: center; margin-top: 2px; }
+#vida-hud .placar b { min-width: 0; }
+#municao-hud { display: none; bottom: 14px; right: 14px; font-size: 22px; font-weight: 700; }
+#municao-hud small { font-size: 14px; opacity: 0.7; margin-left: 2px; }
+#municao-hud em { display: none; font-size: 13px; font-style: normal; color: #ffd34d; margin-left: 10px; }
+#municao-hud.vazio b { color: #ff6b5e; }
+#municao-hud.recarga em { display: inline; }
+body.armado:not(.toque) #municao-hud { display: block; }
+#hud > #acerto-marca { background: none; padding: 0; backdrop-filter: none; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 30px; font-weight: 900; color: #fff; text-shadow: 0 0 6px #000; opacity: 0; transition: opacity 0.2s; }
+#hud > #acerto-marca.mostra { opacity: 1; transition: none; }
+#hud > #acerto-marca.cabeca { color: #ff4b3e; font-size: 38px; }
+#hud > #morto-msg { display: none; top: 38%; left: 50%; transform: translateX(-50%); font-size: 24px; font-weight: 700; padding: 16px 28px; background: rgba(120, 10, 10, 0.78); }
+body.morto #morto-msg { display: block; }
+body.levou::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 6; box-shadow: inset 0 0 90px 24px rgba(255, 30, 30, 0.5); }

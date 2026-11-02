@@ -11,6 +11,10 @@ export interface DadosJogador {
   anim: string;
   esc: number; // velocidade da animação
   av?: string; // personagem escolhido
+  ar?: number; // fuzil: 1 = nas mãos, 2 = mirando
+  ap?: number; // para onde o cano aponta (rad, para cima +)
+  vi?: number; // vida (0 a 100): com 0 o jogador foi eliminado e some até renascer
+  es?: number; // escudo (0 a 50)
 }
 
 interface Avatar {
@@ -18,31 +22,52 @@ interface Avatar {
   av: string;
   op: Operario;
   alvo: DadosJogador;
+  rotulo: { desenhar: (vi?: number, es?: number) => void };
   primeiro: boolean; // ainda não recebeu posição: aparece direto no lugar, sem deslizar
 }
 
-function etiqueta(nome: string): THREE.Sprite {
+// nome do jogador (e, na sala, as barras de escudo azul e vida em cima), um sprite que acompanha o avatar
+function etiqueta(nome: string): { sprite: THREE.Sprite; desenhar: (vi?: number, es?: number) => void } {
   const c = document.createElement("canvas");
   c.width = 256;
-  c.height = 64;
+  c.height = 88;
   const g = c.getContext("2d")!;
-  g.font = "bold 30px 'Segoe UI', system-ui, sans-serif";
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  const larg = Math.min(248, g.measureText(nome).width + 28);
-  g.fillStyle = "rgba(20,22,26,0.78)";
-  g.beginPath();
-  g.roundRect((256 - larg) / 2, 8, larg, 48, 14);
-  g.fill();
-  g.fillStyle = "#ffd34d";
-  g.fillText(nome, 128, 33, 224);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-  s.scale.set(1.6, 0.4, 1);
-  s.position.y = 2.25;
+  s.scale.set(1.6, 0.55, 1);
+  s.position.y = 2.3;
   s.renderOrder = 5;
-  return s;
+  let ultimo = "";
+  const desenhar = (vi?: number, es?: number): void => {
+    const chave = `${vi === undefined ? "-" : Math.round(vi / 4)}|${es === undefined ? "-" : Math.round(es / 2)}`;
+    if (chave === ultimo) return;
+    ultimo = chave;
+    g.clearRect(0, 0, 256, 88);
+    g.font = "bold 28px 'Segoe UI', system-ui, sans-serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    const larg = Math.min(248, g.measureText(nome).width + 28);
+    g.fillStyle = "rgba(20,22,26,0.78)";
+    g.beginPath();
+    g.roundRect((256 - larg) / 2, 2, larg, 40, 12);
+    g.fill();
+    g.fillStyle = "#ffd34d";
+    g.fillText(nome, 128, 23, 224);
+    if (vi !== undefined) {
+      const barra = (y: number, h: number, frac: number, cor: string): void => {
+        g.fillStyle = "rgba(20,22,26,0.78)";
+        g.fillRect(26, y - 2, 204, h + 4);
+        g.fillStyle = cor;
+        g.fillRect(28, y, 200 * Math.max(0, Math.min(1, frac)), h);
+      };
+      barra(50, 9, (es ?? 0) / 50, "#3fa7ff");
+      barra(64, 12, vi / 100, vi > 35 ? "#4cd964" : "#ff4b3e");
+    }
+    tex.needsUpdate = true;
+  };
+  desenhar();
+  return { sprite: s, desenhar };
 }
 
 export class Elenco {
@@ -58,11 +83,12 @@ export class Elenco {
     let a = this.avatares.get(uid);
     if (!a) {
       const op = new Operario();
-      op.grupo.add(etiqueta(nome));
+      const rotulo = etiqueta(nome);
+      op.grupo.add(rotulo.sprite);
       this.cena.add(op.grupo);
       const av = dados.av ?? "";
       void op.carregar(this.urlDe(av));
-      a = { nome, av, op, alvo: dados, primeiro: true };
+      a = { nome, av, op, alvo: dados, rotulo, primeiro: true };
       this.avatares.set(uid, a);
     }
     a.alvo = dados;
@@ -71,6 +97,17 @@ export class Elenco {
       a.av = av; // o jogador trocou de personagem
       void a.op.carregar(this.urlDe(av));
     }
+  }
+
+  // posição de cada jogador da sala (para os tiros acertarem)
+  posicoes(): { uid: string; x: number; y: number; z: number }[] {
+    return [...this.avatares].map(([uid, a]) => ({ uid, x: a.op.grupo.position.x, y: a.op.grupo.position.y, z: a.op.grupo.position.z }));
+  }
+
+  // o jogador deu um tiro: o fuzil dele dá o coice
+  coice(uid: string): void {
+    const a = this.avatares.get(uid);
+    if (a) a.op.arma.coice = 1;
   }
 
   // mantém só os jogadores da lista (quem saiu da sala some)
@@ -102,6 +139,7 @@ export class Elenco {
           g.rotation.set(0, 0, 0);
         }
         a.op.tocar("sentado", 0.3);
+        a.op.arma.ligada = false;
         a.primeiro = true;
       } else {
         if (g.parent !== this.cena) this.cena.add(g);
@@ -118,6 +156,13 @@ export class Elenco {
           g.rotation.y += dif * f;
         }
         a.op.tocar(d.anim || "parado", 0.2, d.esc || 1);
+        const ar = d.ar ?? 0;
+        g.visible = d.vi === undefined || d.vi > 0; // eliminado: some até renascer
+        a.rotulo.desenhar(d.vi, d.es);
+        a.op.arma.ligada = (ar & 1) === 1;
+        a.op.arma.mirando = (ar & 2) === 2;
+        a.op.arma.recarga = (ar & 4) === 4 ? 0.5 : 0;
+        a.op.arma.pitch += ((d.ap ?? 0) - a.op.arma.pitch) * f;
       }
       a.op.atualizar(dt);
     }
