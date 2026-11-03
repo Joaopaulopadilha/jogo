@@ -164,7 +164,7 @@ function alternarArma(): void {
   if (armado) orbita.pitch = 0.2;
   atirando = false;
   mirando = false;
-  aviso(armado ? (TOQUE ? "🔫 Fuzil na mão: segure 🎯 para mirar e atirar, ↻ recarrega" : "🔫 Fuzil na mão: clique atira (ou Enter), clique direito ou X mira, R recarrega, F guarda") : "Fuzil guardado", 3);
+  aviso(armado ? (TOQUE ? "🔫 Fuzil na mão: atira sozinho quando a mira passa num jogador. Segure 🎯 para mirar e arraste para ajustar" : "🔫 Fuzil na mão: clique atira (ou Enter), clique direito ou X mira, R recarrega, F guarda") : "Fuzil guardado", 3);
 }
 const k = (c: string) => (teclas.has(c) ? 1 : 0);
 // Ctrl (ou C, que não fecha a aba como Ctrl+W) agacha enquanto estiver pressionado
@@ -808,6 +808,33 @@ $("bt-pular").addEventListener("pointerdown", (e) => {
 const agacharToque = botaoSegurar($("bt-agachar"));
 // fuzil no toque: 🔫 saca/guarda; 🎯 enquanto o dedo estiver nele mira e atira em rajada; ↻ recarrega
 const mirarToque = botaoSegurar($("bt-mirar"));
+// o botão de mirar também é um stick: com o dedo nele a câmera vai para o reddot e, arrastando o dedo para os lados ou para cima e
+// para baixo (a partir de onde tocou), a mira gira, devagar e de forma contínua, para ajustar sobre o alvo
+const RAIO_STICK = 56; // px de deslocamento do dedo para a velocidade máxima
+const stickMira = { id: -1, x0: 0, y0: 0, dx: 0, dy: 0 };
+{
+  const bm = $("bt-mirar");
+  bm.addEventListener("pointerdown", (e) => {
+    stickMira.id = e.pointerId;
+    stickMira.x0 = e.clientX;
+    stickMira.y0 = e.clientY;
+    stickMira.dx = 0;
+    stickMira.dy = 0;
+  });
+  bm.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== stickMira.id) return;
+    stickMira.dx = THREE.MathUtils.clamp(e.clientX - stickMira.x0, -RAIO_STICK, RAIO_STICK);
+    stickMira.dy = THREE.MathUtils.clamp(e.clientY - stickMira.y0, -RAIO_STICK, RAIO_STICK);
+  });
+  const soltaStick = (e: PointerEvent): void => {
+    if (e.pointerId !== stickMira.id) return;
+    stickMira.id = -1;
+    stickMira.dx = 0;
+    stickMira.dy = 0;
+  };
+  bm.addEventListener("pointerup", soltaStick);
+  bm.addEventListener("pointercancel", soltaStick);
+}
 $("bt-arma").addEventListener("pointerdown", (e) => {
   e.preventDefault();
   if (aPe) alternarArma();
@@ -1376,7 +1403,7 @@ function atirar(): void {
   tiros.tiro(bocaTmp, pontoTmp, tipo);
   som.tiro(1);
   op.arma.coice = 1;
-  orbita.pitch -= 0.0022 * (1 - 0.5 * adsT); // o coice levanta um pouco a mira
+  if (!TOQUE) orbita.pitch -= 0.0022 * (1 - 0.5 * adsT); // o coice levanta um pouco a mira (no celular não: a mira fica sobre o alvo)
   let alvo = "";
   let cabeca = 0;
   if (tipo === "jogador" && acertoAtual) {
@@ -1414,6 +1441,29 @@ function enviarTiro(b: THREE.Vector3, a: THREE.Vector3, k: number, h = "", z = 0
   else if (papel === "convidado") convidado?.enviar(m);
 }
 
+// a mira (centro da tela) está sobre a caixa de acerto de um jogador, sem parede ou terreno na frente? Confere de 60 em 60 ms.
+let tVerMira = 0;
+let naMira = false;
+function jogadorNaMira(): boolean {
+  const agora = performance.now();
+  if (agora - tVerMira < 60) return naMira;
+  tVerMira = agora;
+  camera.getWorldDirection(dirTmp);
+  origemTmp.copy(camera.position);
+  let perto = false;
+  for (const a of elenco.posicoes()) {
+    if (a.uid === condutor || a.uid === condutorCam || vidaDoOutro(a.uid) <= 0) continue;
+    const cx = a.x - origemTmp.x;
+    const cy = a.y + 1.0 - origemTmp.y;
+    const cz = a.z - origemTmp.z;
+    const t = cx * dirTmp.x + cy * dirTmp.y + cz * dirTmp.z; // distância ao longo do raio
+    if (t < 1 || t > ALCANCE_TIRO) continue;
+    if (Math.hypot(cx - dirTmp.x * t, cy - dirTmp.y * t, cz - dirTmp.z * t) < 1.0) perto = true; // só então faz a conta cheia
+  }
+  naMira = perto && atingido(origemTmp, dirTmp, pontoTmp) === "jogador";
+  return naMira;
+}
+
 function armaDoJogador(dt: number): void {
   const morto = estouMorto();
   const ativo = jogando && aPe && armado && !escalada && !carrinho && !morto;
@@ -1423,7 +1473,15 @@ function armaDoJogador(dt: number): void {
     recarregando = 0; // guardar o fuzil (ou ser eliminado) cancela a recarga
   }
   if (aPe) op.grupo.visible = !morto;
-  if (TOQUE) mirando = mirarToque.apertado && ativo; // no toque a mira vale enquanto o dedo estiver no botão
+  if (TOQUE) {
+    mirando = mirarToque.apertado && ativo; // no toque a mira vale enquanto o dedo estiver no botão
+    if (mirando && stickMira.id >= 0) {
+      // stick da mira: zona morta pequena, velocidade proporcional ao deslocamento do dedo (mais lenta que a câmera normal)
+      const eixo = (v: number): number => (Math.abs(v) < 6 ? 0 : (v - Math.sign(v) * 6) / (RAIO_STICK - 6));
+      orbita.yaw -= eixo(stickMira.dx) * 1.0 * ajustes.toque * dt;
+      orbita.pitch = THREE.MathUtils.clamp(orbita.pitch + eixo(stickMira.dy) * 0.7 * ajustes.toque * dt * sinalY(), -0.85, 1.35);
+    }
+  }
   op.arma.ligada = ativo;
   op.esconderCorpoAoMirar = true;
   adsT += ((mirando && ativo ? 1 : 0) - adsT) * Math.min(1, dt * 10);
@@ -1441,7 +1499,9 @@ function armaDoJogador(dt: number): void {
   }
   op.arma.recarga = recarregando > 0 ? 1 - recarregando / TEMPO_RECARGA : 0;
   // atira com o clique esquerdo (segurando é automático; um toque rápido no touchpad dá um tiro) ou com a tecla Enter
-  const fogo = ((atirando || performance.now() < tiroAte) && !!document.pointerLockElement) || teclas.has("Enter") || (mirarToque.apertado && adsT > 0.6);
+  // no celular o tiro é ajuda automática: atira sozinho enquanto a mira estiver em cima de um jogador (e só enquanto estiver)
+  const auto = TOQUE && ativo && recarregando === 0 && jogadorNaMira();
+  const fogo = ((atirando || performance.now() < tiroAte) && !!document.pointerLockElement) || teclas.has("Enter") || auto;
   if (ativo && fogo && esperaTiro === 0 && recarregando === 0) {
     tiroAte = 0;
     if (municao > 0) {
