@@ -11,7 +11,7 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; overflow: hidden; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: manipulation; -webkit-text-size-adjust: 100%; -webkit-touch-callout: none; }
 body {
   background: radial-gradient(1200px 600px at 50% -20%, #131c2b 0%, var(--bg) 60%);
   color: var(--ink);
@@ -22,7 +22,7 @@ body {
 button { font: inherit; color: inherit; cursor: pointer; }
 .escondido { display: none !important; }
 
-#app { height: 100dvh; display: flex; flex-direction: column; }
+#app { height: 100dvh; display: flex; flex-direction: column; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 
 /* ---------- menu e sala ---------- */
 .tela {
@@ -50,10 +50,11 @@ input[type=text]:focus { border-color: var(--verde); }
   padding: 13px 16px; border-radius: 10px; border: 0; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 13px;
   background: rgba(255,255,255,0.08); box-shadow: 0 0 0 1px rgba(255,255,255,0.1) inset; transition: transform .12s, background .12s;
 }
-.botao:hover { background: rgba(255,255,255,0.14); }
+.botao:active { background: rgba(255,255,255,0.18); }
+@media (hover: hover) { .botao:hover { background: rgba(255,255,255,0.14); } }
 .botao:active { transform: scale(0.97); }
 .botao.destaque { background: var(--verde); color: #04251d; box-shadow: none; }
-.botao.destaque:hover { background: #7af0d6; }
+@media (hover: hover) { .botao.destaque:hover { background: #7af0d6; } }
 .botao.perigo { background: rgba(214,40,58,0.85); }
 .botao.ouro { background: var(--ouro); color: #3a2a00; box-shadow: none; }
 .botao:disabled { opacity: 0.35; cursor: default; }
@@ -139,7 +140,7 @@ details ul { padding: 8px 0 0 18px; }
 .slot.dir { right: 6%; top: 50%; transform: translateY(-50%) rotate(6deg); }
 .slot.vence .carta { box-shadow: 0 0 0 3px var(--ouro), 0 0 26px rgba(255,209,102,0.7); }
 @keyframes cai { from { opacity: 0; filter: brightness(1.4); margin-top: -18px; } to { opacity: 1; margin-top: 0; } }
-.vira { position: absolute; left: 4px; top: 4px; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: #cfe9de; letter-spacing: 0.1em; text-transform: uppercase; }
+.vira { position: absolute; left: 10px; top: 8px; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: #cfe9de; letter-spacing: 0.1em; text-transform: uppercase; }
 .vira .carta { --cw: clamp(34px, 9vw, 52px); }
 .vira b { color: var(--ouro); }
 .faixa-mao {
@@ -172,7 +173,8 @@ details ul { padding: 8px 0 0 18px; }
 @keyframes pulsa { 50% { box-shadow: 0 0 0 4px rgba(255,209,102,0.45); } }
 .mao { display: flex; gap: 8px; justify-content: center; min-height: calc(var(--cw) * 1.42 + 8px); align-items: flex-end; }
 .mao .carta { transition: transform .12s; }
-.mao button.carta:not(:disabled):hover { transform: translateY(-10px); }
+@media (hover: hover) { .mao button.carta:not(:disabled):hover { transform: translateY(-10px); } }
+.mao button.carta.sel { transform: translateY(-16px); box-shadow: 0 0 0 3px var(--ouro), 0 8px 18px rgba(0,0,0,0.5); }
 .mao button.carta:disabled { cursor: default; filter: brightness(0.82); }
 .mao button.carta:not(:disabled) { cursor: pointer; }
 .parceiro-cartas { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
@@ -201,3 +203,32 @@ details ul { padding: 8px 0 0 18px; }
 .nova-versao { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 40; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--ouro); color: #3a2a00; font-weight: 800; }
 
 @media (max-height: 640px) { :root { --cw: clamp(46px, 12vw, 70px); } .base { gap: 4px; } }
+
+/* ---------- celular deitado: a mão e os botões vão para uma coluna ao lado da mesa ---------- */
+@media (orientation: landscape) and (max-height: 520px) {
+  :root { --cw: 52px; }
+  #jogo { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); }
+  .topo { grid-column: 1 / -1; padding: 3px 10px; }
+  .topo .sair { padding: 5px 9px; }
+  .placar .lado, .vale { padding: 1px 10px; min-width: 56px; }
+  .placar .lado b, .vale b { font-size: 16px; }
+  .placar .lado small, .vale small { font-size: 9px; }
+  .mesa { grid-column: 1; grid-row: 2; margin: 4px 0 8px 8px; padding: 6px; border-radius: 16px; }
+  .base { grid-column: 2; grid-row: 2; width: clamp(210px, 34vw, 290px); justify-content: center; gap: 6px; padding: 4px 8px 8px; overflow-y: auto; }
+  .status { font-size: 12px; min-height: 0; }
+  .acoes { min-height: 0; }
+  .acoes .botao { min-height: 42px; flex: 1 1 90px; padding: 8px; }
+  .mao { min-height: 0; gap: 6px; }
+  .slot .carta { --cw: 52px; }
+  .vira .carta { --cw: 34px; }
+  .fila .carta { --cw: 28px; }
+  .pos-esq .fila .carta, .pos-dir .fila .carta { --cw: 24px; margin-top: -22px; }
+  .parceiro-cartas .fila .carta, .carta.mini { --cw: 30px; }
+  .jogador { padding: 3px 8px; }
+  .fim { gap: 8px; }
+  .fim h1 { font-size: 30px; }
+  .fim .botao { min-width: 180px; padding: 9px; }
+  .aviso { font-size: 14px; }
+  .aviso.grito { font-size: 24px; padding: 8px 18px; }
+  #toast { top: 30%; }
+}

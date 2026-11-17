@@ -33,6 +33,11 @@ let textoConexao = "";
 let ultimaSala: { jogadores: { nome: string; conectado: boolean; eu: boolean; host: boolean }[]; souHost: boolean } | null = null;
 let vista: Vista | null = null;
 let avisoVisto = -1;
+const toque = matchMedia("(pointer: coarse)").matches; // no celular o 1º toque só seleciona a carta (evita jogar sem querer)
+let selecionada = -1;
+let eraMinhaVez = false;
+let eraPedido = false;
+let trava: WakeLockSentinel | null = null;
 
 const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
@@ -146,7 +151,23 @@ function entrarNaSala(): void {
 
 // ---------------- desenho ----------------
 
+// mantém a tela acesa durante a partida (celular apagando no meio do jogo derruba a conexão)
+async function pedirTrava(): Promise<void> {
+  try {
+    if ("wakeLock" in navigator && !trava) {
+      trava = await navigator.wakeLock.request("screen");
+      trava.addEventListener("release", () => { trava = null; });
+    }
+  } catch { /* sem permissão ou sem suporte: segue sem */ }
+}
+
+function vibrar(padrao: number | number[]): void {
+  try { navigator.vibrate?.(padrao); } catch { /* ignora */ }
+}
+
 function desenhar(): void {
+  if (tela === "jogo") void pedirTrava();
+  else { void trava?.release(); trava = null; eraMinhaVez = false; eraPedido = false; selecionada = -1; }
   if (tela === "menu") desenharMenu();
   else if (tela === "conectando") desenharConectando();
   else if (tela === "sala") desenharSala();
@@ -264,6 +285,14 @@ function desenharJogo(v: Vista): void {
   const jogando = v.fase === "jogando";
   const minhaVez = jogando && v.vez === v.eu && !v.pedido && v.decisao11 === null;
 
+  // avisa no celular quando a vez chega ou quando pedem truco
+  const pedidoPraMim = !!v.pedido && timeDe(v.pedido.de) !== meu;
+  if (minhaVez && !eraMinhaVez) vibrar(45);
+  if (pedidoPraMim && !eraPedido) vibrar([90, 60, 90]);
+  eraMinhaVez = minhaVez;
+  eraPedido = pedidoPraMim;
+  if (!minhaVez || selecionada >= v.mao.length) selecionada = -1;
+
   // novo aviso do jogo (truco, correu, vaza...)
   if (v.avisoId !== avisoVisto) {
     avisoVisto = v.avisoId;
@@ -312,14 +341,14 @@ function desenharJogo(v: Vista): void {
       status = `Você pediu <b>${GRITO[v.pedido.valor]}</b>. Aguardando resposta...`;
     }
   } else if (jogando) {
-    status = minhaVez ? "Sua vez: escolha uma carta" : `Vez de <b>${esc(v.nomes[v.vez])}</b>`;
+    status = minhaVez ? (toque ? (selecionada >= 0 ? "Toque de novo na carta para jogar" : "Sua vez: toque na carta que quer jogar") : "Sua vez: escolha uma carta") : `Vez de <b>${esc(v.nomes[v.vez])}</b>`;
     if (minhaVez && v.podeTruco) acoes = `<button class="botao ouro grito" data-a="truco">${GRITO[v.proxValor]}!</button>`;
   } else if (v.fase === "vazaFechada") {
     status = v.ultimaVaza && v.ultimaVaza.vencedor >= 0 ? `<b>${esc(v.nomes[v.ultimaVaza.vencedor])}</b> levou a vaza` : "Vaza empatada";
   }
 
   const mao = v.mao
-    .map((c, i) => cartaHtml(c, v.manilha, "", "button", `data-a="jogar" data-i="${i}" ${minhaVez ? "" : "disabled"}`))
+    .map((c, i) => cartaHtml(c, v.manilha, toque && i === selecionada ? "sel" : "", "button", `data-a="jogar" data-i="${i}" ${minhaVez ? "" : "disabled"}`))
     .join("");
   const parceiro = v.parceiro
     ? `<div class="parceiro-cartas">Cartas do parceiro<div class="fila">${v.parceiro.map((c) => cartaHtml(c, v.manilha, "mini")).join("")}</div></div>`
@@ -349,8 +378,8 @@ function desenharJogo(v: Vista): void {
     </div>
     <div class="mesa">
       ${outros}
+      <div class="vira"><span>Vira</span>${cartaHtml(v.vira, v.manilha)}<span>Manilha <b>${v.manilha}</b></span></div>
       <div class="centro">
-        <div class="vira"><span>Vira</span>${cartaHtml(v.vira, v.manilha)}<span>Manilha <b>${v.manilha}</b></span></div>
         ${cartasMesa}
         ${banner}
       </div>
@@ -390,7 +419,13 @@ app.addEventListener("click", (e) => {
     case "copiar":
       void navigator.clipboard?.writeText(el.dataset.link ?? "").then(() => { el.textContent = "Link copiado!"; });
       break;
-    case "jogar": agir({ t: "jogar", i: Number(el.dataset.i) }); break;
+    case "jogar": {
+      const i = Number(el.dataset.i);
+      if (toque && selecionada !== i) { selecionada = i; desenhar(); break; } // 1º toque seleciona, 2º joga
+      selecionada = -1;
+      agir({ t: "jogar", i });
+      break;
+    }
     case "truco": agir({ t: "truco" }); break;
     case "resp-aceitar": agir({ t: "resp", a: "aceitar" }); break;
     case "resp-correr": agir({ t: "resp", a: "correr" }); break;
@@ -440,7 +475,11 @@ async function verificarVersao(): Promise<void> {
   }
 }
 void verificarVersao();
-document.addEventListener("visibilitychange", () => { if (!document.hidden) void verificarVersao(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  void verificarVersao();
+  if (tela === "jogo") void pedirTrava(); // o navegador solta a trava ao ir para segundo plano
+});
 setInterval(() => void verificarVersao(), 5 * 60 * 1000);
 
 desenhar();
