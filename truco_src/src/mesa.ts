@@ -1,11 +1,13 @@
 // A mesa do anfitrião: sala de espera, assentos, bots e a partida. Não sabe se o jogador está no mesmo aparelho
 // ou longe: tudo que sai vai pela função `enviar(uid, mensagem)`, que a tela liga na rede (ou direto na tela).
 
-import { escolherCarta, jogarOnze, querAumentar, responderPedido } from "./bot.ts";
+import { deveCobrir, escolherCarta, jogarOnze, querAumentar, responderPedido } from "./bot.ts";
 import {
   avancar, decidirOnze, jogar, novaPartida, pedirAumento, proximaMao, responder, timeDe, vistaPara,
   type Partida, type Resposta, type Time,
 } from "./regras.ts";
+
+import { CHANCE_FLAGRA, INTERVALO_SINAL_MS, SINAIS } from "./sinais.ts";
 
 export type Msg = { t: string; [k: string]: unknown };
 
@@ -29,6 +31,7 @@ export class Mesa {
   p: Partida | null = null;
   private assentos: Assento[] = [];
   private acaoEm = 0;
+  private readonly ultimoSinal = new Map<string, number>();
   private rnd: () => number;
 
   constructor(private readonly enviar: (uid: string, m: Msg) => void, readonly hostUid: string, rnd: () => number = Math.random) {
@@ -83,6 +86,7 @@ export class Mesa {
     for (const j of [...this.jogadores]) if (!this.assentos.some((a) => a.uid === j.uid)) this.jogadores.splice(this.jogadores.indexOf(j), 1);
     this.p = novaPartida(n, nomes, this.rnd);
     this.fase = "jogo";
+    this.ultimoSinal.clear();
     this.acaoEm = agora + 1200;
     this.transmitir();
     return true;
@@ -109,12 +113,16 @@ export class Mesa {
       if (uid === this.hostUid) this.novaSala();
       return;
     }
+    if (m.t === "sinal") {
+      this.sinal(uid, String(m.s), agora);
+      return;
+    }
     const p = this.p;
     if (this.fase !== "jogo" || !p) return;
     const seat = this.assentoDe(uid);
     if (seat < 0) return;
     let mudou = false;
-    if (m.t === "jogar") mudou = jogar(p, seat, Number(m.i));
+    if (m.t === "jogar") mudou = jogar(p, seat, Number(m.i), m.c === true);
     else if (m.t === "truco") mudou = pedirAumento(p, seat);
     else if (m.t === "resp") {
       const a = m.a as Resposta;
@@ -124,6 +132,24 @@ export class Mesa {
       this.acaoEm = Math.max(this.acaoEm, agora + 700);
       this.transmitir();
     }
+  }
+
+  // sinal para o parceiro: o parceiro sempre vê, cada adversário só às vezes (quem decide é o anfitrião)
+  private sinal(uid: string, id: string, agora: number): void {
+    const p = this.p;
+    if (this.fase !== "jogo" || !p || p.n !== 4 || p.fase === "fim") return;
+    if (!SINAIS.some((x) => x.id === id)) return;
+    const seat = this.assentoDe(uid);
+    if (seat < 0) return;
+    if (agora - (this.ultimoSinal.get(uid) ?? -Infinity) < INTERVALO_SINAL_MS) return;
+    this.ultimoSinal.set(uid, agora);
+    const para = (s: number, vis: string): void => {
+      const dest = this.assentos[s]?.uid;
+      if (dest) this.enviar(dest, { t: "sinal", seat, s: id, vis });
+    };
+    para(seat, "eu");
+    para((seat + 2) % 4, "parceiro");
+    for (const adversario of [(seat + 1) % 4, (seat + 3) % 4]) if (this.rnd() < CHANCE_FLAGRA) para(adversario, "flagra");
   }
 
   // ---------------- bots e andamento ----------------
@@ -185,7 +211,10 @@ export class Mesa {
     }
     if (this.humano(p.vez, agora)) return false;
     if (querAumentar(p, p.vez, this.rnd)) pedirAumento(p, p.vez);
-    else jogar(p, p.vez, escolherCarta(p, p.vez, this.rnd));
+    else {
+      const i = escolherCarta(p, p.vez, this.rnd);
+      jogar(p, p.vez, i, deveCobrir(p, p.vez, i, this.rnd));
+    }
     this.acaoEm = atraso(900, 1500);
     this.transmitir();
     return true;

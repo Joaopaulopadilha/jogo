@@ -1,7 +1,7 @@
 // Cérebro simples dos bots: joga carta, pede truco e responde pedidos. Só olha o que um jogador de verdade veria
 // (a própria mão, a mesa e as vazas), nunca a mão dos outros.
 
-import { forca, podeAumentar, timeDe, type Partida, type Resposta } from "./regras.ts";
+import { forca, forcaJogada, podeAumentar, timeDe, type Partida, type Resposta } from "./regras.ts";
 
 // 0 (4 de ouros) até 1 (zap): quanto mais perto de 1, mais forte
 function nota(p: Partida, seat: number, i: number): number {
@@ -52,7 +52,7 @@ export function escolherCarta(p: Partida, seat: number, rnd: () => number = Math
   let melhorForca = -1;
   let melhorTime: number = -1;
   for (const j of p.vazaCartas) {
-    const f = forca(j.carta, p.manilha);
+    const f = forcaJogada(j, p.manilha);
     if (f > melhorForca) {
       melhorForca = f;
       melhorTime = timeDe(j.seat);
@@ -71,6 +71,15 @@ export function escolherCarta(p: Partida, seat: number, rnd: () => number = Math
     if (empate !== undefined) return empate;
   }
   return idx[0]; // não dá para ganhar: joga a mais fraca
+}
+
+// o bot esconde a carta? Só quando ela perderia de qualquer jeito (assim não revela o que tem e não perde nada)
+export function deveCobrir(p: Partida, seat: number, idx: number, rnd: () => number = Math.random): boolean {
+  if (p.vazas.length === 0 || p.vazaCartas.length === 0) return false;
+  let melhor = -1;
+  for (const j of p.vazaCartas) melhor = Math.max(melhor, forcaJogada(j, p.manilha));
+  if (forca(p.maos[seat][idx], p.manilha) >= melhor) return false; // pode ganhar ou empatar: joga aberta
+  return rnd() < 0.4;
 }
 
 // o bot pede aumento agora? (já devolve false se não puder)

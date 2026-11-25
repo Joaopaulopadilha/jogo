@@ -116,3 +116,61 @@ console.log(`ok - 800 partidas só de bots terminam (${totalMaos} mãos jogadas)
   assert.equal(p.valor, 3);
   console.log("ok - bots esperam o humano responder o truco");
 }
+
+// sinais entre parceiros: o parceiro sempre vê, os adversários só às vezes, e só no 2x2
+{
+  const recebidas: Record<string, Msg[]> = { a: [], b: [], c: [], d: [] };
+  const mesa = new Mesa((u, m) => { if (m.t === "sinal") recebidas[u]?.push(m); }, "a", semente(21));
+  for (const u of ["a", "b", "c", "d"]) mesa.entrar(u, u, 0);
+  assert.ok(mesa.iniciar(4, 0)); // a=0, b=1, c=2, d=3: a e c são parceiros
+  mesa.receber("a", { t: "sinal", s: "piscar" }, 1000);
+  assert.equal(recebidas.a.length, 1);
+  assert.equal(recebidas.a[0].vis, "eu");
+  assert.equal(recebidas.c.length, 1);
+  assert.equal(recebidas.c[0].vis, "parceiro");
+  assert.equal(recebidas.c[0].seat, 0);
+  mesa.receber("a", { t: "sinal", s: "lingua" }, 1200); // rápido demais
+  assert.equal(recebidas.c.length, 1);
+  mesa.receber("a", { t: "sinal", s: "lingua" }, 3000);
+  assert.equal(recebidas.c.length, 2);
+  mesa.receber("a", { t: "sinal", s: "bomba" }, 9000); // sinal que não existe
+  mesa.receber("intruso", { t: "sinal", s: "piscar" }, 9000);
+  assert.equal(recebidas.c.length, 2);
+  // os adversários pegam no flagra em cerca de 30% das vezes
+  for (let i = 0; i < 400; i++) mesa.receber("a", { t: "sinal", s: "ombro" }, 20000 + i * 2000);
+  assert.equal(recebidas.c.length, 402); // o parceiro nunca perde um sinal
+  for (const adv of ["b", "d"]) {
+    const flagras = recebidas[adv].filter((m) => m.vis === "flagra").length;
+    assert.ok(flagras > 80 && flagras < 160, `flagras de ${adv}: ${flagras}`);
+    assert.ok(recebidas[adv].every((m) => m.vis === "flagra"));
+  }
+  console.log("ok - sinais: parceiro sempre vê, adversário às vezes, com intervalo mínimo");
+}
+
+// no 1x1 não há parceiro: sinais são ignorados
+{
+  let recebeu = 0;
+  const mesa = new Mesa((_u, m) => { if (m.t === "sinal") recebeu++; }, "a", semente(2));
+  mesa.entrar("a", "Ana", 0);
+  mesa.entrar("b", "Beto", 0);
+  mesa.iniciar(2, 0);
+  mesa.receber("a", { t: "sinal", s: "piscar" }, 5000);
+  assert.equal(recebeu, 0);
+  console.log("ok - sem sinais no 1x1");
+}
+
+// esconder a carta, vindo do cliente: só da 2ª vaza em diante
+{
+  const mesa = new Mesa(() => {}, "a", semente(9));
+  mesa.entrar("a", "Ana", 0);
+  mesa.entrar("b", "Beto", 0);
+  mesa.iniciar(2, 0);
+  const p = mesa.p!;
+  const primeiro = p.vez === 0 ? "a" : "b";
+  mesa.receber(primeiro, { t: "jogar", i: 0, c: true }, 0); // escondida na 1ª vaza: recusada
+  assert.equal(p.vazaCartas.length, 0);
+  mesa.receber(primeiro, { t: "jogar", i: 0 }, 0);
+  assert.equal(p.vazaCartas.length, 1);
+  assert.equal(p.vazaCartas[0].coberta, undefined);
+  console.log("ok - esconder a carta é recusado na primeira vaza");
+}

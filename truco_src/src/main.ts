@@ -1,6 +1,7 @@
 import { Mesa } from "./mesa.ts";
 import { Anfitriao, Convidado, normalizarPalavra, palavraAleatoria, type Msg } from "./rede.ts";
-import { GRITO, SIMBOLO, proxValor, timeDe, type Carta, type Vista } from "./regras.ts";
+import { GRITO, SIMBOLO, proxValor, timeDe, type Carta, type JogadaVista, type Vista } from "./regras.ts";
+import { SINAIS } from "./sinais.ts";
 
 // ---------------- estado do aparelho ----------------
 
@@ -38,6 +39,10 @@ let selecionada = -1;
 let eraMinhaVez = false;
 let eraPedido = false;
 let trava: WakeLockSentinel | null = null;
+let escondendo = false; // a próxima carta vai virada para baixo
+let menuSinais = false;
+const sinais = new Map<number, { id: string; ate: number }>(); // sinal em andamento de cada assento
+let timerSinais = 0;
 
 const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
@@ -54,6 +59,16 @@ function receberDoServidor(m: Msg): void {
     vista = m as unknown as Vista;
     tela = "jogo";
     desenhar();
+  } else if (m.t === "sinal") {
+    const def = SINAIS.find((x) => x.id === m.s);
+    if (!def || !vista) return;
+    const seat = Number(m.seat);
+    sinais.set(seat, { id: def.id, ate: Date.now() + 2600 });
+    if (m.vis === "parceiro") vibrar(30);
+    if (m.vis === "flagra") anunciar(`👀 Você viu ${vista.nomes[seat]} ${def.texto}!`, false);
+    desenhar();
+    clearTimeout(timerSinais);
+    timerSinais = window.setTimeout(desenhar, 2700); // some a bolha
   } else if (m.t === "cheia") {
     sairParaMenu(String(m.motivo || "Não foi possível entrar."));
   } else if (m.t === "versao") {
@@ -167,7 +182,7 @@ function vibrar(padrao: number | number[]): void {
 
 function desenhar(): void {
   if (tela === "jogo") void pedirTrava();
-  else { void trava?.release(); trava = null; eraMinhaVez = false; eraPedido = false; selecionada = -1; }
+  else { void trava?.release(); trava = null; eraMinhaVez = false; eraPedido = false; selecionada = -1; escondendo = false; menuSinais = false; sinais.clear(); }
   if (tela === "menu") desenharMenu();
   else if (tela === "conectando") desenharConectando();
   else if (tela === "sala") desenharSala();
@@ -207,6 +222,8 @@ function desenharMenu(): void {
         <li>Força: 4 5 6 7 Q J K A 2 3, e as manilhas por cima (paus &gt; copas &gt; espadas &gt; ouros).</li>
         <li>Vence a mão quem ganhar 2 de 3 vazas. Empate na 1ª: a 2ª decide; empate nas seguintes: vale a 1ª.</li>
         <li>A mão vale 1 ponto. Peça <b>truco</b> (3), <b>seis</b>, <b>nove</b> e <b>doze</b>; o adversário aceita, corre ou aumenta.</li>
+        <li>Da 2ª vaza em diante dá para <b>esconder a carta</b>: ela vai virada, não vale nada (perde de qualquer carta aberta) e ninguém vê qual era.</li>
+        <li>No 2x2 com parceiro de verdade, use o <b>🤫</b> para mandar sinais (piscar, língua, ombro...). O parceiro sempre vê; os adversários podem pegar no flagra.</li>
         <li>Partida até 12 pontos. Com 11 pontos é a <b>mão de onze</b>: vale 3 e não tem truco. Os dois com 11: <b>mão de ferro</b>.</li>
       </ul>
     </details>
@@ -272,6 +289,19 @@ function cartaHtml(c: Carta, manilha: string, extra = "", tag = "div", attrs = "
   return `<${tag} class="carta ${verm ? "verm" : ""} ${c.r === manilha ? "manilha" : ""} ${extra}" ${attrs}><span class="canto">${c.r}<br>${s}</span><span class="grande">${s}</span></${tag}>`;
 }
 
+// a carta de uma jogada na mesa: virada para baixo se foi escondida (o dono ainda vê a dele, apagada)
+function cartaDaMesa(j: JogadaVista, manilha: string): string {
+  if (!j.coberta && j.carta) return cartaHtml(j.carta, manilha);
+  if (j.carta) return cartaHtml(j.carta, manilha, "coberta-minha");
+  return `<div class="carta verso coberta"></div>`;
+}
+
+function bolha(seat: number, extra = ""): string {
+  const x = sinais.get(seat);
+  const def = x && Date.now() < x.ate ? SINAIS.find((d) => d.id === x.id) : undefined;
+  return def ? `<span class="sinal ${extra}" title="${esc(def.texto)}">${def.emoji}</span>` : "";
+}
+
 function versos(qtd: number): string {
   return Array.from({ length: qtd }, () => `<div class="carta verso"></div>`).join("");
 }
@@ -292,6 +322,7 @@ function desenharJogo(v: Vista): void {
   eraMinhaVez = minhaVez;
   eraPedido = pedidoPraMim;
   if (!minhaVez || selecionada >= v.mao.length) selecionada = -1;
+  if (!v.podeEsconder) escondendo = false;
 
   // novo aviso do jogo (truco, correu, vaza...)
   if (v.avisoId !== avisoVisto) {
@@ -306,6 +337,7 @@ function desenharJogo(v: Vista): void {
       const lado = timeDe(s) === meu ? (v.n === 4 ? "parceiro" : "adversario") : "adversario";
       const vez = jogando && v.vez === s && !v.pedido && v.decisao11 === null;
       return `<div class="jogador pos-${pos(s)} ${lado} ${vez ? "vez" : ""}">
+        ${bolha(s)}
         <div class="nome">${esc(v.nomes[s])}${v.bots[s] ? " 🤖" : ""}${v.dador === s ? '<span class="dador">D</span>' : ""}</div>
         <div class="fila">${versos(v.qtd[s])}</div>
       </div>`;
@@ -314,7 +346,7 @@ function desenharJogo(v: Vista): void {
 
   const vencedorVaza = v.fase === "vazaFechada" ? v.ultimaVaza?.vencedor ?? -1 : -1;
   const cartasMesa = v.mesa
-    .map((j) => `<div class="slot ${pos(j.seat)} ${j.seat === vencedorVaza ? "vence" : ""}">${cartaHtml(j.carta, v.manilha)}</div>`)
+    .map((j) => `<div class="slot ${pos(j.seat)} ${j.seat === vencedorVaza ? "vence" : ""}">${cartaDaMesa(j, v.manilha)}</div>`)
     .join("");
 
   const vazas = v.vazas.map((r) => `<i class="${r === -1 ? "emp" : r === meu ? "nos" : "eles"}"></i>`).join("");
@@ -342,7 +374,9 @@ function desenharJogo(v: Vista): void {
     }
   } else if (jogando) {
     status = minhaVez ? (toque ? (selecionada >= 0 ? "Toque de novo na carta para jogar" : "Sua vez: toque na carta que quer jogar") : "Sua vez: escolha uma carta") : `Vez de <b>${esc(v.nomes[v.vez])}</b>`;
-    if (minhaVez && v.podeTruco) acoes = `<button class="botao ouro grito" data-a="truco">${GRITO[v.proxValor]}!</button>`;
+    if (minhaVez && escondendo) status = "<b>Escondendo:</b> a próxima carta vai virada e não vale nada";
+    if (minhaVez && v.podeEsconder) acoes += `<button class="botao ${escondendo ? "ouro" : ""}" data-a="esconder">${escondendo ? "Escondendo ✓" : "Esconder carta"}</button>`;
+    if (minhaVez && v.podeTruco) acoes += `<button class="botao ouro grito" data-a="truco">${GRITO[v.proxValor]}!</button>`;
   } else if (v.fase === "vazaFechada") {
     status = v.ultimaVaza && v.ultimaVaza.vencedor >= 0 ? `<b>${esc(v.nomes[v.ultimaVaza.vencedor])}</b> levou a vaza` : "Vaza empatada";
   }
@@ -350,6 +384,10 @@ function desenharJogo(v: Vista): void {
   const mao = v.mao
     .map((c, i) => cartaHtml(c, v.manilha, toque && i === selecionada ? "sel" : "", "button", `data-a="jogar" data-i="${i}" ${minhaVez ? "" : "disabled"}`))
     .join("");
+  const temSinais = v.n === 4 && !v.bots[(v.eu + 2) % 4] && v.fase !== "fim"; // só com um parceiro de verdade
+  const menu = temSinais
+    ? `<div class="sinais">${menuSinais ? SINAIS.map((x) => `<button class="bt-sinal" data-a="sinal" data-s="${x.id}" title="${esc(x.texto)}">${x.emoji}</button>`).join("") : ""}<button class="bt-sinal principal ${menuSinais ? "aberto" : ""}" data-a="sinais" title="Sinais para o parceiro">🤫</button></div>`
+    : "";
   const parceiro = v.parceiro
     ? `<div class="parceiro-cartas">Cartas do parceiro<div class="fila">${v.parceiro.map((c) => cartaHtml(c, v.manilha, "mini")).join("")}</div></div>`
     : "";
@@ -383,12 +421,14 @@ function desenharJogo(v: Vista): void {
         ${cartasMesa}
         ${banner}
       </div>
+      ${menu}
+      ${bolha(v.eu, "meu")}
     </div>
     <div class="base">
       ${parceiro}
       <div class="status ${minhaVez ? "sua" : ""}">${status}</div>
       <div class="acoes">${acoes}</div>
-      <div class="mao">${mao}</div>
+      <div class="mao ${escondendo ? "escondendo" : ""}">${mao}</div>
     </div>
     ${fim}
   </div>`;
@@ -423,9 +463,13 @@ app.addEventListener("click", (e) => {
       const i = Number(el.dataset.i);
       if (toque && selecionada !== i) { selecionada = i; desenhar(); break; } // 1º toque seleciona, 2º joga
       selecionada = -1;
-      agir({ t: "jogar", i });
+      agir({ t: "jogar", i, c: escondendo });
+      escondendo = false;
       break;
     }
+    case "esconder": escondendo = !escondendo; desenhar(); break;
+    case "sinais": menuSinais = !menuSinais; desenhar(); break;
+    case "sinal": agir({ t: "sinal", s: el.dataset.s }); menuSinais = false; desenhar(); break;
     case "truco": agir({ t: "truco" }); break;
     case "resp-aceitar": agir({ t: "resp", a: "aceitar" }); break;
     case "resp-correr": agir({ t: "resp", a: "correr" }); break;

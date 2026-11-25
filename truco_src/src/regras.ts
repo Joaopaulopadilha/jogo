@@ -20,7 +20,8 @@ export type Fase = "jogando" | "vazaFechada" | "fimMao" | "fim";
 export type Resultado = Time | -1; // -1 = empate
 
 export interface Pedido { de: number; valor: number }
-export interface JogadaMesa { seat: number; carta: Carta }
+export interface JogadaMesa { seat: number; carta: Carta; coberta?: boolean } // coberta = jogada escondida (não vale nada)
+export interface JogadaVista { seat: number; carta: Carta | null; coberta: boolean } // carta null = escondida de quem está olhando
 
 export interface Partida {
   n: 2 | 4;
@@ -73,6 +74,11 @@ export function manilhaDe(vira: Carta): string {
 export function forca(c: Carta, manilha: string): number {
   if (c.r === manilha) return 100 + FORCA_NAIPE[c.n];
   return ORDEM.indexOf(c.r);
+}
+
+// uma carta escondida perde de qualquer carta aberta e só empata com outra escondida
+export function forcaJogada(j: JogadaMesa, manilha: string): number {
+  return j.coberta ? -1 : forca(j.carta, manilha);
 }
 
 export function proxValor(valor: number): number {
@@ -183,13 +189,16 @@ export function podeAumentar(p: Partida, seat: number): boolean {
   );
 }
 
-export function jogar(p: Partida, seat: number, idx: number): boolean {
+// coberta: joga a carta virada para baixo. Só vale da segunda vaza em diante.
+export function jogar(p: Partida, seat: number, idx: number, coberta = false): boolean {
   if (p.fase !== "jogando" || p.pedido || p.decisao11 !== null || seat !== p.vez) return false;
+  if (coberta && p.vazas.length === 0) return false;
   const mao = p.maos[seat];
   if (!Number.isInteger(idx) || idx < 0 || idx >= mao.length) return false;
   const [carta] = mao.splice(idx, 1);
   if (p.vazaCartas.length === 0) p.iniciouVaza = seat;
-  p.vazaCartas.push({ seat, carta });
+  p.vazaCartas.push(coberta ? { seat, carta, coberta: true } : { seat, carta });
+  if (coberta) avisar(p, `${p.nomes[seat]} escondeu a carta`);
   if (p.vazaCartas.length < p.n) {
     p.vez = (seat + 1) % p.n;
     return true;
@@ -199,7 +208,7 @@ export function jogar(p: Partida, seat: number, idx: number): boolean {
 }
 
 function fecharVaza(p: Partida): void {
-  const f = p.vazaCartas.map((j) => forca(j.carta, p.manilha));
+  const f = p.vazaCartas.map((j) => forcaJogada(j, p.manilha));
   const max = Math.max(...f);
   const topo = p.vazaCartas.filter((_, i) => f[i] === max);
   const times = new Set(topo.map((j) => timeDe(j.seat)));
@@ -313,15 +322,16 @@ export interface Vista {
   mao: Carta[];
   parceiro: Carta[] | null; // só na mão de onze, para a dupla que decide
   qtd: number[];
-  mesa: JogadaMesa[];
+  mesa: JogadaVista[];
   vazas: Resultado[];
-  ultimaVaza: { cartas: JogadaMesa[]; vencedor: number } | null;
+  ultimaVaza: { cartas: JogadaVista[]; vencedor: number } | null;
   vez: number;
   valor: number;
   pedido: Pedido | null;
   semAumento: boolean;
   decisao11: Time | null;
   podeTruco: boolean;
+  podeEsconder: boolean;
   proxValor: number;
   podeAumentarResp: boolean;
   vencedor: Time | -1;
@@ -333,6 +343,8 @@ export interface Vista {
 export function vistaPara(p: Partida, seat: number, bots: boolean[]): Vista {
   const meuTime = timeDe(seat);
   const mostraParceiro = p.n === 4 && p.decisao11 === meuTime;
+  // a carta escondida só o dono enxerga
+  const ver = (j: JogadaMesa): JogadaVista => ({ seat: j.seat, carta: j.coberta && j.seat !== seat ? null : j.carta, coberta: !!j.coberta });
   return {
     t: "estado",
     n: p.n,
@@ -348,15 +360,16 @@ export function vistaPara(p: Partida, seat: number, bots: boolean[]): Vista {
     mao: p.maos[seat],
     parceiro: mostraParceiro ? p.maos[(seat + 2) % 4] : null,
     qtd: p.maos.map((m) => m.length),
-    mesa: p.vazaCartas,
+    mesa: p.vazaCartas.map(ver),
     vazas: p.vazas,
-    ultimaVaza: p.ultimaVaza,
+    ultimaVaza: p.ultimaVaza ? { cartas: p.ultimaVaza.cartas.map(ver), vencedor: p.ultimaVaza.vencedor } : null,
     vez: p.vez,
     valor: p.valor,
     pedido: p.pedido,
     semAumento: p.semAumento,
     decisao11: p.decisao11,
     podeTruco: podeAumentar(p, seat),
+    podeEsconder: p.fase === "jogando" && p.vez === seat && !p.pedido && p.decisao11 === null && p.vazas.length >= 1,
     proxValor: proxValor(p.valor),
     podeAumentarResp: !!p.pedido && p.pedido.valor < 12,
     vencedor: p.vencedor,

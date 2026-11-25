@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {
-  avancar, comecarMao, decidirOnze, forca, jogar, manilhaDe, novaPartida, pedirAumento, proximaMao, resolver, responder,
+  avancar, comecarMao, decidirOnze, forca, jogar, manilhaDe, novaPartida, pedirAumento, proximaMao, resolver, responder, vistaPara,
   type Carta, type Partida,
 } from "../src/regras.ts";
 
@@ -228,6 +228,55 @@ teste("quem corre da mão de onze pode fechar a partida do outro lado", () => {
   jogar(p, v, 0); jogar(p, 1 - v, 0); avancar(p);
   assert.equal(p.fase, "fim");
   assert.equal(p.pontos[v % 2], 12);
+});
+
+teste("carta escondida: não vale na 1ª vaza, depois perde de qualquer carta aberta", () => {
+  const p = montar(2, [[c("4", "O"), c("A", "P"), c("K", "P")], [c("5", "O"), c("6", "O"), c("7", "O")]], c("2", "C")); // manilha = 3
+  assert.equal(jogar(p, 0, 0, true), false); // 1ª vaza: não pode esconder
+  assert.equal(p.vazaCartas.length, 0);
+  assert.equal(p.maos[0].length, 3); // e a carta não foi gasta
+  jogar(p, 0, 0); jogar(p, 1, 0); avancar(p); // o 5 ganha do 4: o assento 1 abre
+  assert.equal(p.vez, 1);
+  jogar(p, 1, 0); // 6 de ouros aberto
+  assert.ok(jogar(p, 0, 0, true)); // A de paus escondido
+  assert.deepEqual(p.vazas, [1, 1]); // o A escondido perdeu para o 6 aberto
+  assert.equal(p.fase, "vazaFechada");
+});
+
+teste("duas cartas escondidas empatam a vaza", () => {
+  const p = montar(2, [[c("4", "O"), c("A", "P"), c("K", "P")], [c("4", "E"), c("6", "O"), c("7", "O")]], c("2", "C"));
+  jogar(p, 0, 0); jogar(p, 1, 0); avancar(p); // 4 x 4: empatou, o assento 0 abre de novo
+  assert.deepEqual(p.vazas, [-1]);
+  assert.equal(p.vez, 0);
+  jogar(p, 0, 0, true); jogar(p, 1, 0, true);
+  assert.deepEqual(p.vazas, [-1, -1]);
+  avancar(p);
+  assert.equal(p.fase, "jogando"); // empatou duas: a terceira decide
+});
+
+teste("a carta escondida só aparece para quem a jogou", () => {
+  const p = montar(2, [[c("4", "O"), c("A", "P"), c("K", "P")], [c("5", "O"), c("6", "O"), c("7", "O")]], c("2", "C"));
+  jogar(p, 0, 0); jogar(p, 1, 0); avancar(p);
+  jogar(p, 1, 0);
+  jogar(p, 0, 0, true); // assento 0 esconde o A de paus
+  const dono = vistaPara(p, 0, [false, false]);
+  const outro = vistaPara(p, 1, [false, false]);
+  const donoCarta = dono.mesa.find((j) => j.seat === 0)!;
+  const outroCarta = outro.mesa.find((j) => j.seat === 0)!;
+  assert.equal(donoCarta.coberta, true);
+  assert.deepEqual(donoCarta.carta, c("A", "P")); // o dono sabe o que escondeu
+  assert.equal(outroCarta.coberta, true);
+  assert.equal(outroCarta.carta, null); // o adversário não sabe
+  assert.equal(outro.ultimaVaza!.cartas.find((j) => j.seat === 0)!.carta, null);
+  assert.ok(!JSON.stringify(outro).includes('"r":"A","n":"P"'), "a carta escondida vazou na vista do outro");
+});
+
+teste("podeEsconder: só na sua vez e da 2ª vaza em diante", () => {
+  const p = montar(2, [[c("4", "O"), c("A", "P"), c("K", "P")], [c("5", "O"), c("6", "O"), c("7", "O")]], c("2", "C"));
+  assert.equal(vistaPara(p, 0, [false, false]).podeEsconder, false); // 1ª vaza
+  jogar(p, 0, 0); jogar(p, 1, 0); avancar(p);
+  assert.equal(vistaPara(p, 1, [false, false]).podeEsconder, true);
+  assert.equal(vistaPara(p, 0, [false, false]).podeEsconder, false); // não é a vez dele
 });
 
 console.log(`\n${ok} testes passaram`);
