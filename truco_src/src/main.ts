@@ -43,7 +43,12 @@ let escondendo = false; // a próxima carta vai virada para baixo
 let menuSinais = false;
 const sinais = new Map<number, { id: string; ate: number }>(); // sinal em andamento de cada assento
 let timerSinais = 0;
+let chatPara: "parceiro" | "grupo" = "grupo";
+let chatAberto = false; // gaveta do chat no celular
+let naoLidas = 0;
+const largo = (): boolean => matchMedia("(min-width: 900px) and (min-height: 560px)").matches;
 
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
 // ---------------- ligação mesa <-> tela <-> rede ----------------
@@ -59,6 +64,8 @@ function receberDoServidor(m: Msg): void {
     vista = m as unknown as Vista;
     tela = "jogo";
     desenhar();
+  } else if (m.t === "chat") {
+    adicionarChat(m);
   } else if (m.t === "sinal") {
     const def = SINAIS.find((x) => x.id === m.s);
     if (!def || !vista) return;
@@ -181,8 +188,9 @@ function vibrar(padrao: number | number[]): void {
 }
 
 function desenhar(): void {
+  document.getElementById("extras")?.classList.toggle("escondido", tela !== "jogo");
   if (tela === "jogo") void pedirTrava();
-  else { void trava?.release(); trava = null; eraMinhaVez = false; eraPedido = false; selecionada = -1; escondendo = false; menuSinais = false; sinais.clear(); }
+  else { limparChat(); void trava?.release(); trava = null; eraMinhaVez = false; eraPedido = false; selecionada = -1; escondendo = false; menuSinais = false; sinais.clear(); }
   if (tela === "menu") desenharMenu();
   else if (tela === "conectando") desenharConectando();
   else if (tela === "sala") desenharSala();
@@ -375,7 +383,7 @@ function desenharJogo(v: Vista): void {
   } else if (jogando) {
     status = minhaVez ? (toque ? (selecionada >= 0 ? "Toque de novo na carta para jogar" : "Sua vez: toque na carta que quer jogar") : "Sua vez: escolha uma carta") : `Vez de <b>${esc(v.nomes[v.vez])}</b>`;
     if (minhaVez && escondendo) status = "<b>Escondendo:</b> a próxima carta vai virada e não vale nada";
-    if (minhaVez && v.podeEsconder) acoes += `<button class="botao ${escondendo ? "ouro" : ""}" data-a="esconder">${escondendo ? "Escondendo ✓" : "Esconder carta"}</button>`;
+    if (minhaVez && v.podeEsconder) acoes += `<button class="botao so-estreito ${escondendo ? "ouro" : ""}" data-a="esconder">${escondendo ? "Escondendo ✓" : "Esconder carta"}</button>`;
     if (minhaVez && v.podeTruco) acoes += `<button class="botao ouro grito" data-a="truco">${GRITO[v.proxValor]}!</button>`;
   } else if (v.fase === "vazaFechada") {
     status = v.ultimaVaza && v.ultimaVaza.vencedor >= 0 ? `<b>${esc(v.nomes[v.ultimaVaza.vencedor])}</b> levou a vaza` : "Vaza empatada";
@@ -384,9 +392,9 @@ function desenharJogo(v: Vista): void {
   const mao = v.mao
     .map((c, i) => cartaHtml(c, v.manilha, toque && i === selecionada ? "sel" : "", "button", `data-a="jogar" data-i="${i}" ${minhaVez ? "" : "disabled"}`))
     .join("");
-  const temSinais = v.n === 4 && !v.bots[(v.eu + 2) % 4] && v.fase !== "fim"; // só com um parceiro de verdade
+  const temSinais = v.n === 4 && v.fase !== "fim";
   const menu = temSinais
-    ? `<div class="sinais">${menuSinais ? SINAIS.map((x) => `<button class="bt-sinal" data-a="sinal" data-s="${x.id}" title="${esc(x.texto)}">${x.emoji}</button>`).join("") : ""}<button class="bt-sinal principal ${menuSinais ? "aberto" : ""}" data-a="sinais" title="Sinais para o parceiro">🤫</button></div>`
+    ? `<div class="sinais so-estreito">${menuSinais ? SINAIS.map((x) => `<button class="bt-sinal" data-a="sinal" data-s="${x.id}" title="${esc(x.texto)}">${x.emoji}</button>`).join("") : ""}<button class="bt-sinal principal ${menuSinais ? "aberto" : ""}" data-a="sinais" title="Sinais para o parceiro">🤫</button></div>`
     : "";
   const parceiro = v.parceiro
     ? `<div class="parceiro-cartas">Cartas do parceiro<div class="fila">${v.parceiro.map((c) => cartaHtml(c, v.manilha, "mini")).join("")}</div></div>`
@@ -432,7 +440,117 @@ function desenharJogo(v: Vista): void {
     </div>
     ${fim}
   </div>`;
+  atualizarPaineis(v);
 }
+
+// ---------------- painéis fixos: sinais, esconder carta e chat ----------------
+// ficam fora do #app para não serem redesenhados a cada jogada (senão o texto digitado e o foco se perderiam)
+
+const grade = document.getElementById("grade-sinais") as HTMLElement;
+grade.innerHTML = SINAIS.map((x) => `<button type="button" class="bt-sinal" data-s="${x.id}" title="${esc(x.texto)}">${x.emoji}</button>`).join("");
+
+function atualizarPaineis(v: Vista): void {
+  const sinaisOk = v.n === 4 && v.fase !== "fim";
+  grade.querySelectorAll<HTMLButtonElement>(".bt-sinal").forEach((b) => { b.disabled = !sinaisOk; });
+  $("dica-sinais").textContent = v.n === 2
+    ? "Sinais só existem no 2x2, com parceiro."
+    : v.bots[(v.eu + 2) % 4]
+      ? "Seu parceiro é um bot 🤖 e não entende sinais."
+      : "O parceiro sempre vê. Os adversários podem pegar no flagra.";
+
+  const bt = $<HTMLButtonElement>("bt-esconder-pl");
+  bt.disabled = !v.podeEsconder;
+  bt.classList.toggle("ligado", escondendo);
+  bt.textContent = escondendo ? "Escondendo ✓ (toque de novo para cancelar)" : "Esconder carta";
+  $("dica-esconder").textContent = v.podeEsconder
+    ? "A próxima carta vai virada e não vale nada."
+    : v.vazas.length === 0 && v.fase === "jogando"
+      ? "Disponível a partir da 2ª vaza."
+      : "Disponível na sua vez, a partir da 2ª vaza.";
+
+  // no 1x1 não existe parceiro: só conversa com o adversário
+  const segParceiro = document.querySelector<HTMLElement>('#chat-seg [data-para="parceiro"]');
+  if (segParceiro) segParceiro.classList.toggle("escondido", v.n !== 4);
+  if (v.n !== 4 && chatPara === "parceiro") chatPara = "grupo";
+  marcarChatPara();
+}
+
+function marcarChatPara(): void {
+  document.querySelectorAll<HTMLElement>("#chat-seg button").forEach((b) => b.classList.toggle("ativo", b.dataset.para === chatPara));
+  const n = vista?.n ?? 4;
+  $<HTMLInputElement>("chat-input").placeholder = chatPara === "parceiro" ? "Mensagem só para o parceiro" : n === 4 ? "Mensagem para todos da mesa" : "Mensagem para o adversário";
+}
+
+function atualizarBadge(): void {
+  const b = $("chat-badge");
+  b.textContent = naoLidas > 9 ? "9+" : String(naoLidas);
+  b.classList.toggle("escondido", naoLidas === 0);
+}
+
+function adicionarChat(msg: Msg): void {
+  const log = $("chat-log");
+  const eu = !!vista && Number(msg.seat) === vista.eu;
+  const div = document.createElement("div");
+  div.className = "msg" + (msg.para === "parceiro" ? " parceiro" : "") + (eu ? " eu" : "");
+  const quem = document.createElement("b");
+  quem.textContent = String(msg.nome); // textContent: o que os outros digitam nunca vira HTML
+  const tag = document.createElement("span");
+  tag.className = "tag";
+  tag.textContent = msg.para === "parceiro" ? " (só parceiro) " : " ";
+  div.append(quem, tag, document.createTextNode(String(msg.texto)));
+  const noFim = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.appendChild(div);
+  while (log.childElementCount > 100) log.firstElementChild?.remove();
+  if (noFim || eu) log.scrollTop = log.scrollHeight;
+  if (!eu && !largo() && !chatAberto) { naoLidas++; atualizarBadge(); }
+}
+
+function limparChat(): void {
+  const log = document.getElementById("chat-log");
+  if (log) log.innerHTML = "";
+  naoLidas = 0;
+  chatAberto = false;
+  document.getElementById("painel-chat")?.classList.remove("aberto");
+  if (document.getElementById("chat-badge")) atualizarBadge();
+}
+
+function abrirChat(abrir: boolean): void {
+  chatAberto = abrir;
+  $("painel-chat").classList.toggle("aberto", abrir);
+  if (abrir) {
+    naoLidas = 0;
+    atualizarBadge();
+    const log = $("chat-log");
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+function enviarChat(): void {
+  const campo = $<HTMLInputElement>("chat-input");
+  const texto = campo.value.trim();
+  if (!texto) return;
+  agir({ t: "chat", para: chatPara, texto });
+  campo.value = "";
+}
+
+let sinalLivreEm = 0;
+grade.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".bt-sinal");
+  if (!b || b.disabled || Date.now() < sinalLivreEm) return;
+  sinalLivreEm = Date.now() + 1500; // o anfitrião também limita; aqui só evita cliques repetidos
+  agir({ t: "sinal", s: b.dataset.s });
+});
+$("bt-esconder-pl").addEventListener("click", () => { escondendo = !escondendo; desenhar(); });
+$("chat-seg").addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>("button[data-para]");
+  if (!b) return;
+  chatPara = b.dataset.para === "parceiro" ? "parceiro" : "grupo";
+  marcarChatPara();
+  $<HTMLInputElement>("chat-input").focus();
+});
+$("chat-form").addEventListener("submit", (e) => { e.preventDefault(); enviarChat(); });
+$("bt-chat").addEventListener("click", () => { abrirChat(!chatAberto); if (chatAberto) $<HTMLInputElement>("chat-input").focus(); });
+$("chat-fechar").addEventListener("click", () => abrirChat(false));
 
 function anunciar(texto: string, grito: boolean): void {
   const el = document.createElement("div");

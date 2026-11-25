@@ -174,3 +174,59 @@ console.log(`ok - 800 partidas só de bots terminam (${totalMaos} mãos jogadas)
   assert.equal(p.vazaCartas[0].coberta, undefined);
   console.log("ok - esconder a carta é recusado na primeira vaza");
 }
+
+// chat: "parceiro" só chega ao parceiro, "grupo" a todos; com intervalo mínimo e texto limpo
+{
+  const rec: Record<string, Msg[]> = { a: [], b: [], c: [], d: [] };
+  const mesa = new Mesa((u, m) => { if (m.t === "chat") rec[u]?.push(m); }, "a", semente(31));
+  for (const u of ["a", "b", "c", "d"]) mesa.entrar(u, u.toUpperCase(), 0);
+  assert.ok(mesa.iniciar(4, 0)); // a e c são parceiros
+  mesa.receber("a", { t: "chat", para: "parceiro", texto: "tenho o zap" }, 1000);
+  assert.deepEqual(rec.a.map((m) => m.texto), ["tenho o zap"]); // quem enviou também recebe
+  assert.deepEqual(rec.c.map((m) => m.texto), ["tenho o zap"]);
+  assert.equal(rec.b.length, 0); // os adversários não leem
+  assert.equal(rec.d.length, 0);
+  assert.equal(rec.c[0].para, "parceiro");
+  assert.equal(rec.c[0].nome, "A");
+  mesa.receber("a", { t: "chat", para: "grupo", texto: "boa sorte" }, 1200); // rápido demais
+  assert.equal(rec.c.length, 1);
+  mesa.receber("a", { t: "chat", para: "grupo", texto: "boa sorte" }, 3000);
+  for (const u of ["a", "b", "c", "d"]) assert.equal(rec[u].at(-1)?.texto, "boa sorte"); // grupo: todos
+  assert.equal(rec.b.at(-1)?.para, "grupo");
+  // texto vazio, só espaços e controle são ignorados; texto longo é cortado; quebras viram espaço
+  const antes = rec.c.length;
+  mesa.receber("b", { t: "chat", para: "grupo", texto: "   \n\t  " }, 5000);
+  mesa.receber("intruso", { t: "chat", para: "grupo", texto: "oi" }, 5000);
+  assert.equal(rec.c.length, antes);
+  mesa.receber("b", { t: "chat", para: "grupo", texto: "x".repeat(500) }, 6000);
+  assert.equal(String(rec.c.at(-1)?.texto).length, 140);
+  mesa.receber("b", { t: "chat", para: "grupo", texto: "linha1\nlinha2\u0007   fim" }, 8000);
+  assert.equal(rec.c.at(-1)?.texto, "linha1 linha2 fim");
+  // a mensagem sai como texto puro: o HTML não é interpretado aqui (a tela usa textContent)
+  mesa.receber("d", { t: "chat", para: "grupo", texto: "<img src=x onerror=alert(1)>" }, 9000);
+  assert.equal(rec.a.at(-1)?.texto, "<img src=x onerror=alert(1)>");
+  console.log("ok - chat: parceiro só para a dupla, grupo para todos, com limites e texto limpo");
+}
+
+// chat no 1x1: "parceiro" vira conversa com o adversário
+{
+  const rec: Record<string, Msg[]> = { a: [], b: [] };
+  const mesa = new Mesa((u, m) => { if (m.t === "chat") rec[u]?.push(m); }, "a", semente(4));
+  mesa.entrar("a", "Ana", 0);
+  mesa.entrar("b", "Beto", 0);
+  mesa.iniciar(2, 0);
+  mesa.receber("a", { t: "chat", para: "parceiro", texto: "oi" }, 100);
+  assert.equal(rec.b.length, 1);
+  assert.equal(rec.b[0].para, "grupo");
+  console.log("ok - chat no 1x1 vai para o adversário");
+}
+
+// chat fora da partida (na sala de espera) é ignorado
+{
+  let n = 0;
+  const mesa = new Mesa((_u, m) => { if (m.t === "chat") n++; }, "a", semente(6));
+  mesa.entrar("a", "Ana", 0);
+  mesa.receber("a", { t: "chat", para: "grupo", texto: "alguém aí?" }, 100);
+  assert.equal(n, 0);
+  console.log("ok - chat só existe durante a partida");
+}

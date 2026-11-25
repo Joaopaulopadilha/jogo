@@ -13,12 +13,37 @@
 <meta name="theme-color" content="#0b3d2b" />
 <title>Truco — online com amigos</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🃏</text></svg>" />
-  <script type="module" crossorigin src="./assets/index-C0XiQIV8.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-CuICWaIj.css">
+  <script type="module" crossorigin src="./assets/index-DEWMgbuk.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-C_uhRgEJ.css">
 </head>
 <body>
 <div id="app"></div>
 <div id="faixa" class="escondido"></div>
 <div id="toast"></div>
+<div id="extras" class="escondido">
+  <aside id="painel-sinais" class="painel">
+    <h3>Sinais para o parceiro</h3>
+    <div class="grade-sinais" id="grade-sinais"></div>
+    <div class="dica" id="dica-sinais"></div>
+    <button class="botao" id="bt-esconder-pl">Esconder carta</button>
+    <div class="dica" id="dica-esconder"></div>
+  </aside>
+  <aside id="painel-chat" class="painel">
+    <div class="chat-topo">
+      <h3>Chat</h3>
+      <div class="seg" id="chat-seg">
+        <button type="button" data-para="parceiro">Parceiro</button>
+        <button type="button" data-para="grupo" class="ativo">Grupo</button>
+      </div>
+      <button type="button" id="chat-fechar" class="so-estreito" title="Fechar">✕</button>
+    </div>
+    <div id="chat-log"></div>
+    <form id="chat-form" autocomplete="off">
+      <input type="text" id="chat-input" maxlength="140" placeholder="Mensagem para todos da mesa" enterkeyhint="send" />
+      <button type="submit" class="botao destaque">Enviar</button>
+    </form>
+  </aside>
+  <button type="button" id="bt-chat" class="so-estreito" title="Chat">💬<i id="chat-badge" class="escondido">0</i></button>
+</div>
 </body>
 </html>

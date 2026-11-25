@@ -32,6 +32,7 @@ export class Mesa {
   private assentos: Assento[] = [];
   private acaoEm = 0;
   private readonly ultimoSinal = new Map<string, number>();
+  private readonly ultimoChat = new Map<string, number>();
   private rnd: () => number;
 
   constructor(private readonly enviar: (uid: string, m: Msg) => void, readonly hostUid: string, rnd: () => number = Math.random) {
@@ -87,6 +88,7 @@ export class Mesa {
     this.p = novaPartida(n, nomes, this.rnd);
     this.fase = "jogo";
     this.ultimoSinal.clear();
+    this.ultimoChat.clear();
     this.acaoEm = agora + 1200;
     this.transmitir();
     return true;
@@ -113,6 +115,10 @@ export class Mesa {
       if (uid === this.hostUid) this.novaSala();
       return;
     }
+    if (m.t === "chat") {
+      this.chat(uid, m.para === "parceiro" ? "parceiro" : "grupo", String(m.texto ?? ""), agora);
+      return;
+    }
     if (m.t === "sinal") {
       this.sinal(uid, String(m.s), agora);
       return;
@@ -131,6 +137,26 @@ export class Mesa {
     if (mudou) {
       this.acaoEm = Math.max(this.acaoEm, agora + 700);
       this.transmitir();
+    }
+  }
+
+  // mensagem de chat: "parceiro" só chega ao parceiro (e a quem enviou); "grupo" chega a todos da mesa
+  private chat(uid: string, para: "parceiro" | "grupo", texto: string, agora: number): void {
+    const p = this.p;
+    if (this.fase !== "jogo" || !p) return;
+    const seat = this.assentoDe(uid);
+    if (seat < 0) return;
+    texto = texto.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
+    if (!texto) return;
+    if (agora - (this.ultimoChat.get(uid) ?? -Infinity) < 700) return; // evita spam
+    this.ultimoChat.set(uid, agora);
+    const soParceiro = para === "parceiro" && p.n === 4; // no 1x1 não existe parceiro: vira conversa com o adversário
+    const alvos = new Set<number>([seat]);
+    if (soParceiro) alvos.add((seat + 2) % 4);
+    else for (let x = 0; x < p.n; x++) alvos.add(x);
+    for (const x of alvos) {
+      const dest = this.assentos[x]?.uid;
+      if (dest) this.enviar(dest, { t: "chat", seat, nome: p.nomes[seat], para: soParceiro ? "parceiro" : "grupo", texto });
     }
   }
 

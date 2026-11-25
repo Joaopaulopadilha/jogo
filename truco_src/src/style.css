@@ -254,3 +254,50 @@ details ul { padding: 8px 0 0 18px; }
 .bt-sinal.principal.aberto { box-shadow: 0 0 0 2px var(--ouro); }
 
 .jogador.pos-cima .sinal { top: 4px; right: -38px; }
+
+/* ---------- painéis: sinais, esconder carta e chat ---------- */
+#extras.escondido { display: none !important; }
+.painel { position: fixed; z-index: 15; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 14px; font-size: 12px;
+  background: rgba(10,14,20,0.97); box-shadow: 0 0 0 1px rgba(255,255,255,0.1) inset, 0 10px 30px rgba(0,0,0,0.5); }
+.painel h3 { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ouro); }
+.dica { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.grade-sinais { display: flex; flex-wrap: wrap; gap: 6px; }
+.grade-sinais .bt-sinal { position: static; }
+.bt-sinal:disabled { opacity: 0.35; cursor: default; }
+#bt-esconder-pl.ligado { background: var(--ouro); color: #3a2a00; box-shadow: none; }
+
+/* celular / janela pequena: sinais pelo botão 🤫 da mesa; chat numa gaveta aberta pelo botão 💬 */
+#painel-sinais { display: none; }
+#painel-chat { display: none; left: 8px; right: 8px; bottom: 8px; height: min(55vh, 340px); z-index: 25; }
+#painel-chat.aberto { display: flex; }
+#bt-chat { position: fixed; z-index: 16; top: 72px; right: 14px; width: 42px; height: 42px; border-radius: 50%; border: 0; font-size: 19px; line-height: 1;
+  background: rgba(0,0,0,0.6); box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset; }
+#bt-chat i { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #ff5d73; color: #fff; font: 700 10px/17px ui-monospace, Consolas, monospace; font-style: normal; }
+#chat-fechar { margin-left: 6px; width: 28px; height: 28px; border-radius: 8px; border: 0; background: rgba(255,255,255,0.1); }
+
+.chat-topo { display: flex; align-items: center; gap: 8px; }
+.seg { display: flex; gap: 4px; margin-left: auto; }
+.seg button { padding: 5px 9px; border-radius: 8px; border: 0; background: rgba(255,255,255,0.08); font-size: 11px; }
+.seg button.ativo { background: var(--verde); color: #04251d; font-weight: 700; }
+#chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; user-select: text; padding-right: 2px; }
+.msg { font-size: 12px; line-height: 1.4; word-break: break-word; }
+.msg b { color: var(--verde); }
+.msg.eu b { color: var(--ouro); }
+.msg .tag { color: var(--muted); font-size: 10px; }
+.msg.parceiro { border-left: 3px solid var(--verde); padding-left: 6px; }
+#chat-form { display: flex; gap: 6px; }
+#chat-form input { flex: 1; min-width: 0; padding: 9px 10px; font-size: 14px; }
+#chat-form .botao { padding: 9px 12px; }
+
+@media (orientation: landscape) and (max-height: 520px) {
+  #bt-chat { top: 44px; right: 10px; width: 36px; height: 36px; font-size: 16px; }
+  #painel-chat { height: min(70vh, 260px); left: auto; width: min(360px, 60vw); }
+}
+
+/* janela larga (computador / tablet): painéis ao lado da mão, como na tela */
+@media (min-width: 900px) and (min-height: 560px) {
+  .so-estreito { display: none !important; }
+  #painel-sinais, #painel-chat { display: flex; bottom: 12px; height: 200px; width: min(340px, calc(50vw - 230px)); }
+  #painel-sinais { right: calc(50% + 210px); left: auto; }
+  #painel-chat { left: calc(50% + 210px); right: auto; }
+}
