@@ -46,7 +46,7 @@ let timerSinais = 0;
 let chatPara: "parceiro" | "grupo" = "grupo";
 let chatAberto = false; // gaveta do chat no celular
 let naoLidas = 0;
-const largo = (): boolean => matchMedia("(min-width: 900px) and (min-height: 560px)").matches;
+const largo = (): boolean => matchMedia("(min-width: 900px) and (min-height: 480px)").matches;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
@@ -383,7 +383,7 @@ function desenharJogo(v: Vista): void {
   } else if (jogando) {
     status = minhaVez ? (toque ? (selecionada >= 0 ? "Toque de novo na carta para jogar" : "Sua vez: toque na carta que quer jogar") : "Sua vez: escolha uma carta") : `Vez de <b>${esc(v.nomes[v.vez])}</b>`;
     if (minhaVez && escondendo) status = "<b>Escondendo:</b> a próxima carta vai virada e não vale nada";
-    if (minhaVez && v.podeEsconder) acoes += `<button class="botao so-estreito ${escondendo ? "ouro" : ""}" data-a="esconder">${escondendo ? "Escondendo ✓" : "Esconder carta"}</button>`;
+    acoes += `<button class="botao so-estreito ${escondendo ? "ouro" : ""}" data-a="esconder" ${minhaVez && v.podeEsconder ? "" : "disabled"} title="Da 2ª vaza em diante, na sua vez">${escondendo ? "Escondendo ✓" : "Esconder carta"}</button>`;
     if (minhaVez && v.podeTruco) acoes += `<button class="botao ouro grito" data-a="truco">${GRITO[v.proxValor]}!</button>`;
   } else if (v.fase === "vazaFechada") {
     status = v.ultimaVaza && v.ultimaVaza.vencedor >= 0 ? `<b>${esc(v.nomes[v.ultimaVaza.vencedor])}</b> levou a vaza` : "Vaza empatada";
@@ -394,7 +394,7 @@ function desenharJogo(v: Vista): void {
     .join("");
   const temSinais = v.n === 4 && v.fase !== "fim";
   const menu = temSinais
-    ? `<div class="sinais so-estreito">${menuSinais ? SINAIS.map((x) => `<button class="bt-sinal" data-a="sinal" data-s="${x.id}" title="${esc(x.texto)}">${x.emoji}</button>`).join("") : ""}<button class="bt-sinal principal ${menuSinais ? "aberto" : ""}" data-a="sinais" title="Sinais para o parceiro">🤫</button></div>`
+    ? `<div class="fila-sinais so-estreito"><small>Sinais para o parceiro</small>${SINAIS.map((x) => `<button class="bt-sinal" data-a="sinal" data-s="${x.id}" title="${esc(x.texto)}">${x.emoji}</button>`).join("")}</div>`
     : "";
   const parceiro = v.parceiro
     ? `<div class="parceiro-cartas">Cartas do parceiro<div class="fila">${v.parceiro.map((c) => cartaHtml(c, v.manilha, "mini")).join("")}</div></div>`
@@ -429,13 +429,13 @@ function desenharJogo(v: Vista): void {
         ${cartasMesa}
         ${banner}
       </div>
-      ${menu}
       ${bolha(v.eu, "meu")}
     </div>
     <div class="base">
       ${parceiro}
       <div class="status ${minhaVez ? "sua" : ""}">${status}</div>
       <div class="acoes">${acoes}</div>
+      ${menu}
       <div class="mao ${escondendo ? "escondendo" : ""}">${mao}</div>
     </div>
     ${fim}
@@ -473,7 +473,15 @@ function atualizarPaineis(v: Vista): void {
   if (segParceiro) segParceiro.classList.toggle("escondido", v.n !== 4);
   if (v.n !== 4 && chatPara === "parceiro") chatPara = "grupo";
   marcarChatPara();
+  ajustarAlturaPaineis();
 }
+
+// os painéis laterais têm a mesma altura da área da mão
+function ajustarAlturaPaineis(): void {
+  const base = document.querySelector<HTMLElement>(".base");
+  if (base) $("extras").style.setProperty("--h-base", base.offsetHeight + "px");
+}
+addEventListener("resize", () => { if (tela === "jogo" && vista) ajustarAlturaPaineis(); });
 
 function marcarChatPara(): void {
   document.querySelectorAll<HTMLElement>("#chat-seg button").forEach((b) => b.classList.toggle("ativo", b.dataset.para === chatPara));

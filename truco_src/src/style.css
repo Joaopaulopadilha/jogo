@@ -270,8 +270,7 @@ details ul { padding: 8px 0 0 18px; }
 #painel-sinais { display: none; }
 #painel-chat { display: none; left: 8px; right: 8px; bottom: 8px; height: min(55vh, 340px); z-index: 25; }
 #painel-chat.aberto { display: flex; }
-#bt-chat { position: fixed; z-index: 16; top: 72px; right: 14px; width: 42px; height: 42px; border-radius: 50%; border: 0; font-size: 19px; line-height: 1;
-  background: rgba(0,0,0,0.6); box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset; }
+#bt-chat { position: fixed; z-index: 16; top: 72px; right: 12px; height: 40px; padding: 0 14px; border-radius: 999px; border: 0; font-size: 14px; font-weight: 800; line-height: 1; letter-spacing: 0.06em; background: var(--verde); color: #04251d; box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
 #bt-chat i { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #ff5d73; color: #fff; font: 700 10px/17px ui-monospace, Consolas, monospace; font-style: normal; }
 #chat-fechar { margin-left: 6px; width: 28px; height: 28px; border-radius: 8px; border: 0; background: rgba(255,255,255,0.1); }
 
@@ -290,14 +289,23 @@ details ul { padding: 8px 0 0 18px; }
 #chat-form .botao { padding: 9px 12px; }
 
 @media (orientation: landscape) and (max-height: 520px) {
-  #bt-chat { top: 44px; right: 10px; width: 36px; height: 36px; font-size: 16px; }
+  #bt-chat { top: 44px; right: 10px; height: 34px; padding: 0 12px; font-size: 13px; }
   #painel-chat { height: min(70vh, 260px); left: auto; width: min(360px, 60vw); }
 }
 
 /* janela larga (computador / tablet): painéis ao lado da mão, como na tela */
-@media (min-width: 900px) and (min-height: 560px) {
+@media (min-width: 900px) and (min-height: 530px) {
   .so-estreito { display: none !important; }
-  #painel-sinais, #painel-chat { display: flex; bottom: 12px; height: 200px; width: min(340px, calc(50vw - 230px)); }
+  #painel-sinais, #painel-chat { display: flex; bottom: 8px; height: calc(var(--h-base, 200px) - 8px); width: min(340px, calc(50vw - 230px)); overflow-y: auto; }
   #painel-sinais { right: calc(50% + 210px); left: auto; }
   #painel-chat { left: calc(50% + 210px); right: auto; }
 }
+
+.fila-sinais { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; }
+.fila-sinais small { width: 100%; text-align: center; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.fila-sinais .bt-sinal { position: static; width: 40px; height: 40px; font-size: 20px; }
+@media (orientation: landscape) and (max-height: 520px) { .fila-sinais .bt-sinal { width: 34px; height: 34px; font-size: 17px; } .fila-sinais small { display: none; } }
+
+.grade-sinais .bt-sinal { width: 40px; height: 40px; font-size: 20px; }
+.painel .botao { padding: 9px 12px; }
+.painel .dica { font-size: 10.5px; }
