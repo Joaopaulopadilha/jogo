@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { CHAO, LINHAS, TOTAL_FASES, montarFase } from "../src/fases.ts";
 import { Jogo, T, TAMANHO, type Controles, type Heroi } from "../src/jogo.ts";
+import { leituraDoStick, moverStick, novoStick } from "../src/stick.ts";
 
 let ok = 0;
 function teste(nome: string, f: () => void): void {
@@ -307,6 +308,25 @@ teste("todas as fases podem ser terminadas", () => {
     assert.ok(venceu, `fase ${i + 1} não tem caminho: o mais longe foi a coluna ${melhor} de ${j.fase.chegada}`);
     console.log(`     fase ${i + 1}: caminho encontrado (${n} tentativas)`);
   }
+});
+
+teste("stick: zona morta, anda, corre no fim do curso e vira na hora", () => {
+  const s = novoStick(100, 300);
+  assert.deepEqual(leituraDoStick(s), { esquerda: false, direita: false, correr: false });
+  moverStick(s, 108, 300, 60); // tremida
+  assert.equal(leituraDoStick(s).direita, false);
+  moverStick(s, 135, 300, 60); // pouco: anda
+  assert.deepEqual(leituraDoStick(s), { esquerda: false, direita: true, correr: false });
+  moverStick(s, 158, 300, 60); // até o fim: corre
+  assert.deepEqual(leituraDoStick(s), { esquerda: false, direita: true, correr: true });
+  moverStick(s, 260, 300, 60); // passou da borda: o centro vem junto
+  assert.equal(s.cx, 200);
+  assert.equal(s.x, 1);
+  moverStick(s, 180, 300, 60); // voltar um pouco já vira para o outro lado
+  assert.equal(leituraDoStick(s).esquerda, true);
+  moverStick(s, 200, 240, 60); // só para cima: não anda
+  assert.deepEqual(leituraDoStick(s), { esquerda: false, direita: false, correr: false });
+  assert.deepEqual(leituraDoStick(null), { esquerda: false, direita: false, correr: false });
 });
 
 console.log(`\n${ok} testes passaram`);

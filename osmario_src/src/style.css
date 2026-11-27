@@ -69,3 +69,40 @@ body.com-toque .toque > div.acoes { display: grid; grid-template-columns: auto a
 .cartao .botao { min-width: 230px; }
 @media (max-height: 460px) { .cartao { gap: 8px; } .cartao .botao { padding: 9px 20px; font-size: 13px; } .cartao .botao.destaque { font-size: 15px; } }
 .nova-versao { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 40; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--ouro); color: #3a2a00; font-weight: 800; }
+
+/* ---------- escolha do controle e stick virtual ---------- */
+.escolha { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+.escolha span { width: 100%; text-align: center; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.escolha .botao { font-size: 12px; padding: 10px 14px; opacity: 0.55; box-shadow: none; }
+.escolha .botao.escolhido { opacity: 1; border-color: var(--ouro); box-shadow: 0 0 14px rgba(255,210,63,0.6); }
+
+.hud { z-index: 3; }
+.toque > div.zona-stick { display: none; } /* só no modo stick */
+body.usa-stick .setas, body.usa-stick .tecla.correr { display: none; }
+/* o stick nasce onde o dedo tocar, em qualquer ponto da metade esquerda (abaixo do placar) */
+body.usa-stick .toque > div.zona-stick { display: block; position: absolute; left: 0; top: 64px; bottom: 0; width: 50%; touch-action: none; z-index: 1; }
+.stick-base { position: absolute; left: calc(88px + env(safe-area-inset-left)); top: calc(100% - 96px); width: clamp(116px, 32vmin, 156px); aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
+  border: 2px solid var(--ciano); background: radial-gradient(circle, rgba(79,242,255,0.06) 0%, rgba(79,242,255,0.2) 100%); box-shadow: 0 0 16px rgba(79,242,255,0.45); opacity: 0.55; }
+.stick-base.ativo { opacity: 1; }
+.stick-base.correndo { border-color: var(--ouro); box-shadow: 0 0 22px rgba(255,210,63,0.75); }
+.stick-pino { position: absolute; left: 29%; top: 29%; width: 42%; height: 42%; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #e9fdff, #2fb8d8); box-shadow: 0 3px 10px rgba(0,0,0,0.5); }
+.stick-base.correndo .stick-pino { background: radial-gradient(circle at 35% 30%, #fff6cf, #e8a30f); }
+@media (orientation: portrait) { .stick-base { top: calc(100% - 112px); } }
+/* sem o CORRER, o fogo desce e o PULAR fica maior */
+body.usa-stick .toque .tecla.fogo { grid-row: 1 / span 2; align-self: end; }
+body.usa-stick .toque .tecla.pular { width: clamp(88px, 25vmin, 118px); height: clamp(88px, 25vmin, 118px); font-size: 16px; }
+
+@media (max-width: 340px) {
+  .stick-base { left: 68px; width: 108px; }
+  body.usa-stick .toque .tecla.pular { width: 82px; height: 82px; }
+}
+
+/* telas baixas: nada se espreme (o personagem sumia) e o topo do menu fica menor */
+.tela > * { flex-shrink: 0; }
+@media (max-height: 460px) {
+  .tela { gap: 10px; }
+  .logo small { font-size: 16px; }
+  .logo span { font-size: 38px; }
+  .heroi-menu { width: 86px; height: 101px; }
+  .tela .botao.destaque { padding: 10px 36px; font-size: 15px; }
+}

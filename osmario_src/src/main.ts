@@ -2,6 +2,7 @@ import { Desenho } from "./desenho.ts";
 import { TOTAL_FASES, montarFase } from "./fases.ts";
 import { Jogo, type Controles, type Estado } from "./jogo.ts";
 import { Som } from "./som.ts";
+import { leituraDoStick, moverStick, novoStick, type Stick } from "./stick.ts";
 
 const app = document.getElementById("app") as HTMLElement;
 const URL_HEROI = `${import.meta.env.BASE_URL}heroi.png`;
@@ -10,6 +11,16 @@ heroi.src = URL_HEROI;
 const som = new Som();
 const temToque = matchMedia("(pointer: coarse)").matches;
 if (temToque) document.body.classList.add("com-toque");
+
+// celular e tablet podem jogar com botões (setas) ou com um stick
+type Controle = "botoes" | "stick";
+let controle: Controle = localStorage.getItem("osmario-controle") === "stick" ? "stick" : "botoes";
+function usarControle(c: Controle): void {
+  controle = c;
+  localStorage.setItem("osmario-controle", c);
+  document.body.classList.toggle("usa-stick", temToque && c === "stick");
+}
+usarControle(controle);
 
 const DT = 1 / 60;
 let jogo: Jogo | null = null;
@@ -32,15 +43,18 @@ const liberadas = (): number => Math.min(TOTAL_FASES, Math.max(1, numero("osmari
 const teclas = new Set<string>();
 const toques = new Map<number, string>(); // dedo -> botão apertado
 const pressionou = new Set<string>(); // toques rápidos que não podem se perder entre dois passos
+let stick: Stick | null = null;
+let dedoStick = -1;
 
 const apertado = (...codigos: string[]): boolean => codigos.some((c) => teclas.has(c));
 const noToque = (b: string): boolean => [...toques.values()].includes(b);
 
 function controles(): Controles {
+  const s = leituraDoStick(stick);
   const c: Controles = {
-    esquerda: apertado("ArrowLeft", "KeyA") || noToque("esquerda"),
-    direita: apertado("ArrowRight", "KeyD") || noToque("direita"),
-    correr: apertado("ShiftLeft", "ShiftRight", "KeyJ", "KeyX") || noToque("correr"),
+    esquerda: apertado("ArrowLeft", "KeyA") || noToque("esquerda") || s.esquerda,
+    direita: apertado("ArrowRight", "KeyD") || noToque("direita") || s.direita,
+    correr: apertado("ShiftLeft", "ShiftRight", "KeyJ", "KeyX") || noToque("correr") || s.correr,
     pulo: apertado("Space", "ArrowUp", "KeyW", "KeyK", "KeyZ") || noToque("pulo") || pressionou.has("pulo"),
     fogo: apertado("KeyF", "KeyL", "KeyC") || noToque("fogo") || pressionou.has("fogo"),
   };
@@ -60,7 +74,52 @@ addEventListener("keydown", (e) => {
   if (!e.repeat && ["KeyF", "KeyL", "KeyC"].includes(e.code)) pressionou.add("fogo");
 });
 addEventListener("keyup", (e) => teclas.delete(e.code));
-addEventListener("blur", () => { teclas.clear(); toques.clear(); });
+addEventListener("blur", () => { teclas.clear(); toques.clear(); soltarStick(); });
+
+// ---------------- stick virtual ----------------
+
+const raioStick = (): number => (document.querySelector<HTMLElement>(".stick-base")?.offsetWidth ?? 130) / 2;
+
+// desenha o stick onde o dedo está; solto, ele volta para o canto e fica mais apagado
+function pintarStick(): void {
+  const base = document.querySelector<HTMLElement>(".stick-base");
+  const zona = base?.parentElement;
+  if (!base || !zona) return;
+  const pino = base.firstElementChild as HTMLElement;
+  base.classList.toggle("ativo", !!stick);
+  base.classList.toggle("correndo", leituraDoStick(stick).correr);
+  if (!stick) {
+    base.style.left = base.style.top = "";
+    pino.style.transform = "";
+    return;
+  }
+  const r = zona.getBoundingClientRect();
+  base.style.left = `${stick.cx - r.left}px`;
+  base.style.top = `${stick.cy - r.top}px`;
+  const alcance = raioStick() * 0.62;
+  pino.style.transform = `translate(${stick.x * alcance}px, ${stick.y * alcance}px)`;
+}
+
+function soltarStick(): void {
+  stick = null;
+  dedoStick = -1;
+  pintarStick();
+}
+
+addEventListener("pointerdown", (e) => {
+  if (dedoStick >= 0 || !(e.target as HTMLElement).closest(".zona-stick")) return;
+  e.preventDefault();
+  som.iniciar();
+  dedoStick = e.pointerId;
+  stick = novoStick(e.clientX, e.clientY);
+  pintarStick();
+});
+addEventListener("pointermove", (e) => {
+  if (e.pointerId !== dedoStick || !stick) return;
+  moverStick(stick, e.clientX, e.clientY, raioStick());
+  pintarStick();
+});
+for (const ev of ["pointerup", "pointercancel"] as const) addEventListener(ev, (e) => { if (e.pointerId === dedoStick) soltarStick(); });
 
 function marcarBotoes(): void {
   document.querySelectorAll<HTMLElement>(".tecla").forEach((b) => b.classList.toggle("apertada", noToque(b.dataset.b ?? "")));
@@ -100,9 +159,14 @@ function desenharMenu(): void {
     <div class="heroi-menu" style="background-image:url('${URL_HEROI}')"></div>
     <button class="botao destaque" data-a="jogar" data-f="0">Jogar</button>
     <div class="fases">${Array.from({ length: TOTAL_FASES }, (_, i) => `<button class="botao" data-a="jogar" data-f="${i}" ${i < lib ? "" : "disabled"}>${i + 1}. ${montarFase(i).nome}${i < lib ? "" : " 🔒"}</button>`).join("")}</div>
+    ${temToque ? `<div class="escolha"><span>Controle na tela</span>
+      <button class="botao ${controle === "botoes" ? "escolhido" : ""}" data-a="controle" data-v="botoes">◀ ▶ Botões</button>
+      <button class="botao ${controle === "stick" ? "escolhido" : ""}" data-a="controle" data-v="stick">🕹️ Stick</button></div>` : ""}
     ${recorde ? `<div class="sub">Recorde: <b>${recorde}</b></div>` : ""}
     <div class="sub">
-      ${temToque
+      ${temToque && controle === "stick"
+        ? "Toque no lado esquerdo e arraste o <b>stick</b>: pouco anda, <b>até o fim corre</b> · <b>PULAR</b> (segure para ir mais alto; toque de novo no ar para o <b>pulo duplo</b>) · com o foguinho, <b>🔥</b> atira."
+        : temToque
         ? "<b>◀ ▶</b> andam · <b>PULAR</b> (segure para ir mais alto; toque de novo no ar para o <b>pulo duplo</b>) · segure <b>CORRER</b> para pegar velocidade · com o foguinho, <b>🔥</b> atira."
         : "<b>← →</b> ou <b>A D</b> andam · <b>Espaço</b> pula (segure para ir mais alto; aperte de novo no ar para o <b>pulo duplo</b>) · <b>Shift</b> corre · <b>F</b> atira fogo · <b>P</b> pausa · <b>M</b> som."}
       <br>Pule em cima das baratas e dos drones, bata a cabeça nos blocos <b>?</b>, coma a coxinha para crescer, pegue o <b>foguinho</b> nos blocos vermelhos e chegue à bandeira.
@@ -129,6 +193,7 @@ function comecar(fase: number): void {
       <button data-a="pausa" title="Pausa (P)">⏸</button>
     </div>
     <div class="toque">
+      <div class="zona-stick"><div class="stick-base"><div class="stick-pino"></div></div></div>
       <div class="setas"><div class="tecla" data-b="esquerda">◀</div><div class="tecla" data-b="direita">▶</div></div>
       <div class="acoes"><div class="tecla acao fogo escondido" data-b="fogo" title="Atirar fogo">🔥</div><div class="tecla acao correr" data-b="correr">CORRER</div><div class="tecla acao pular" data-b="pulo">PULAR</div></div>
     </div>
@@ -160,6 +225,7 @@ function sair(): void {
   desenho = null;
   teclas.clear();
   toques.clear();
+  soltarStick();
   void trava?.release();
   trava = null;
   desenharMenu();
@@ -187,13 +253,20 @@ function alternarPausa(): void {
   if (!jogo || (jogo.estado !== "jogando" && !pausado)) return;
   pausado = !pausado;
   teclas.clear();
+  soltarStick();
   if (pausado) {
     estadoMostrado = "pausa";
-    cartao("Pausa", `Fase ${jogo.numero + 1}: ${jogo.fase.nome}`, `<button class="botao destaque" data-a="continuar">Continuar</button>`);
+    cartaoDePausa();
   } else {
     estadoMostrado = "jogando";
     esconderCartao();
   }
+}
+
+function cartaoDePausa(): void {
+  if (!jogo) return;
+  const troca = temToque ? `<button class="botao" data-a="trocar-controle">Controle: ${controle === "stick" ? "🕹️ Stick" : "◀ ▶ Botões"}</button>` : "";
+  cartao("Pausa", `Fase ${jogo.numero + 1}: ${jogo.fase.nome}`, `<button class="botao destaque" data-a="continuar">Continuar</button>${troca}`);
 }
 
 function alternarSom(): void {
@@ -269,6 +342,8 @@ app.addEventListener("click", (e) => {
     case "pausa": alternarPausa(); break;
     case "continuar": alternarPausa(); break;
     case "som": alternarSom(); break;
+    case "controle": usarControle(el.dataset.v === "stick" ? "stick" : "botoes"); desenharMenu(); break;
+    case "trocar-controle": usarControle(controle === "stick" ? "botoes" : "stick"); toques.clear(); cartaoDePausa(); break;
     case "proxima": jogo?.proximaFase(); esconderCartao(); break;
     case "denovo": if (jogo) { jogo.novoJogo(jogo.numero); esconderCartao(); } break;
     case "inicio": jogo?.novoJogo(0); esconderCartao(); break;
