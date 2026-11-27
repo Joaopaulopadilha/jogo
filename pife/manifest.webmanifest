@@ -1,0 +1,26 @@
+{
+  "name": "Pife",
+  "short_name": "Pife",
+  "description": "Pife (pif-paf) online com amigos, 9 cartas na mão",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b2f46",
+  "theme_color": "#123a5a",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "icone-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icone-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

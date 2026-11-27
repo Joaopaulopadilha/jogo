@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Pife" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icone-180.png" />
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
+<meta name="theme-color" content="#123a5a" />
+<title>Pife — online com amigos</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🂡</text></svg>" />
+<link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+<div id="app"></div>
+<aside id="chat" class="escondido">
+  <div class="chat-topo">
+    <h3>Chat</h3>
+    <button type="button" id="chat-fechar" title="Fechar">✕</button>
+  </div>
+  <div id="chat-log"></div>
+  <form id="chat-form" autocomplete="off">
+    <input type="text" id="chat-input" maxlength="140" placeholder="Mensagem para todos" enterkeyhint="send" />
+    <button type="submit" class="botao destaque">Enviar</button>
+  </form>
+</aside>
+<button type="button" id="bt-chat" class="escondido">💬 Chat<i id="chat-badge" class="escondido">0</i></button>
+<div id="faixa" class="escondido"></div>
+<div id="toast"></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
