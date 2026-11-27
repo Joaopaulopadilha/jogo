@@ -3,6 +3,8 @@ import { Terreno } from "./terreno";
 import { Caminhao } from "./caminhao";
 import { construirFavela, Favela } from "./favela";
 import { Bloco, circulo } from "./colisao";
+import { DadosArvore, Floresta } from "./arvores";
+import { limitar } from "./mapa";
 
 function caixa(w: number, h: number, l: number, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), mat);
@@ -15,8 +17,9 @@ function caixa(w: number, h: number, l: number, mat: THREE.Material, x = 0, y = 
 // vala da missão: retângulo marcado por estacas
 export const VALA = { x0: -0.8, x1: 0.8, z0: -1, z1: 5, profundidade: 1 };
 
-export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE.DirectionalLight; caminhao: Caminhao; arvores: Bloco[]; favela: Favela } {
+export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE.DirectionalLight; caminhao: Caminhao; arvores: Bloco[]; favela: Favela; florestal: Floresta } {
   const arvores: Bloco[] = [];
+  const dadosArvores: DadosArvore[] = [];
   cena.background = new THREE.Color("#a9cfe8");
   cena.fog = new THREE.Fog("#a9cfe8", 60, 140);
   cena.add(new THREE.HemisphereLight("#dff0ff", "#5b4a33", 0.9));
@@ -85,15 +88,20 @@ export function montarCenario(cena: THREE.Scene, terreno: Terreno): { sol: THREE
     const y = terreno.altura(x, z);
     m.compose(new THREE.Vector3(x, y + 1.1 * esc, z), new THREE.Quaternion(), new THREE.Vector3(esc, esc, esc));
     tronco.setMatrixAt(n, m);
-    arvores.push(circulo(x, z, 0.3 * esc, y - 1, y + 2.2 * esc));
-    m.compose(new THREE.Vector3(x, y + (2.2 + 1.8) * esc, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aleat() * 6), new THREE.Vector3(esc, esc, esc));
+    const bloco = circulo(x, z, 0.3 * esc, y - 1, y + 2.2 * esc);
+    bloco.id = n;
+    arvores.push(bloco);
+    const giroCopa = aleat() * 6;
+    dadosArvores.push({ x, y, z, esc, giroCopa });
+    m.compose(new THREE.Vector3(x, y + (2.2 + 1.8) * esc, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), giroCopa), new THREE.Vector3(esc, esc, esc));
     copa.setMatrixAt(n, m);
   }
   tronco.castShadow = copa.castShadow = true;
   cena.add(tronco, copa);
+  const florestal = new Floresta(tronco, copa, dadosArvores, arvores, (x, z) => terreno.altura(x, z), (x, z) => limitar(x, z, 3));
 
   const caminhao = new Caminhao(4.9, terreno.altura(4.9, 7.6), 7.6, 0);
   cena.add(caminhao.grupo);
   const favela = construirFavela(cena, terreno);
-  return { sol, caminhao, arvores, favela };
+  return { sol, caminhao, arvores, favela, florestal };
 }

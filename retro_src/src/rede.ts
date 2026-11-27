@@ -10,7 +10,7 @@ const ESPERA_CONEXAO_MS = 10000;
 const BATIDA_MS = 5000;
 const SILENCIO_MAX_MS = 20000;
 // versão do protocolo da sala: sobe quando o mapa ou as mensagens mudam de um jeito que não combina com a versão anterior
-export const PROT = 2;
+export const PROT = 3;
 
 export type Msg = { t: string; [k: string]: unknown };
 

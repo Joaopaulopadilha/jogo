@@ -109,6 +109,81 @@ export class Som {
     osc.stop(t + 0.17);
   }
 
+  // pancada do veículo numa árvore que aguentou (volume 0 a 1)
+  pancada(volume: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.mestre || !this.ruidoBuf || !this.ligado || volume <= 0.01) return;
+    const t = ctx.currentTime;
+    const ruido = ctx.createBufferSource();
+    ruido.buffer = this.ruidoBuf;
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(700, t);
+    f.frequency.exponentialRampToValueAtTime(120, t + 0.25);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.9 * volume, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    ruido.connect(f).connect(g).connect(this.mestre);
+    ruido.start(t, Math.random(), 0.32);
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(90, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.2);
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.7 * volume, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    osc.connect(g2).connect(this.mestre);
+    osc.start(t);
+    osc.stop(t + 0.27);
+  }
+
+  // árvore tombando: estalo da madeira, o farfalhar da copa e o baque no chão (volume 0 a 1)
+  queda(volume: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.mestre || !this.ruidoBuf || !this.ligado || volume <= 0.01) return;
+    const t = ctx.currentTime;
+    // estalo
+    const est = ctx.createBufferSource();
+    est.buffer = this.ruidoBuf;
+    const fe = ctx.createBiquadFilter();
+    fe.type = "bandpass";
+    fe.frequency.value = 1800;
+    fe.Q.value = 1.2;
+    const ge = ctx.createGain();
+    ge.gain.setValueAtTime(0.0001, t);
+    ge.gain.exponentialRampToValueAtTime(0.7 * volume, t + 0.02);
+    ge.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    est.connect(fe).connect(ge).connect(this.mestre);
+    est.start(t, Math.random(), 0.4);
+    // copa farfalhando enquanto cai
+    const far = ctx.createBufferSource();
+    far.buffer = this.ruidoBuf;
+    const ff = ctx.createBiquadFilter();
+    ff.type = "bandpass";
+    ff.frequency.setValueAtTime(900, t);
+    ff.frequency.linearRampToValueAtTime(2600, t + 1.3);
+    ff.Q.value = 0.6;
+    const gf = ctx.createGain();
+    gf.gain.setValueAtTime(0.0001, t);
+    gf.gain.linearRampToValueAtTime(0.4 * volume, t + 0.8);
+    gf.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+    far.connect(ff).connect(gf).connect(this.mestre);
+    far.start(t, Math.random(), 1.6);
+    // baque
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(70, t + 1.35);
+    osc.frequency.exponentialRampToValueAtTime(30, t + 1.75);
+    const go = ctx.createGain();
+    go.gain.setValueAtTime(0.0001, t);
+    go.gain.setValueAtTime(0.0001, t + 1.34);
+    go.gain.exponentialRampToValueAtTime(0.9 * volume, t + 1.37);
+    go.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
+    osc.connect(go).connect(this.mestre);
+    osc.start(t);
+    osc.stop(t + 1.85);
+  }
+
   // recarga do pente: tira o pente (clique), encaixa o novo e puxa o ferrolho
   recarga(): void {
     for (const [atraso, freq] of [[0.12, 900], [0.95, 650], [1.35, 1100]] as [number, number][]) this.clique(atraso, freq);

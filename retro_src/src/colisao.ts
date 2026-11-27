@@ -12,6 +12,7 @@ export interface Bloco {
   y0: number;
   y1: number;
   escalavel: boolean;
+  id?: number; // árvores: posição na lista (ligação com a malha instanciada)
 }
 
 export function caixa(x: number, z: number, rumo: number, hx: number, hz: number, y0: number, y1: number, escalavel = true): Bloco {
@@ -120,6 +121,33 @@ export function caixasSeCruzam(a: Bloco, b: Bloco): boolean {
     }
   }
   return true;
+}
+
+// quanto mover a caixa `b` (no plano xz) para ela sair de dentro da caixa `a`; null se não se tocam.
+// É o menor deslocamento que separa as duas (teorema do eixo separador, guardando o eixo de menor sobreposição).
+export function empurraoCaixas(a: Bloco, b: Bloco): { x: number; z: number } | null {
+  const ca = cantos(a);
+  const cb = cantos(b);
+  let menor = Infinity;
+  let mx = 0;
+  let mz = 0;
+  for (const r of [a.rumo, b.rumo]) {
+    for (const [ax, az] of [[Math.cos(r), -Math.sin(r)], [Math.sin(r), Math.cos(r)]]) {
+      const pa = ca.map(([x, z]) => x * ax + z * az);
+      const pb = cb.map(([x, z]) => x * ax + z * az);
+      const paraFrente = Math.max(...pa) - Math.min(...pb); // b sai andando no sentido do eixo
+      const paraTras = Math.max(...pb) - Math.min(...pa); // b sai andando no sentido contrário
+      if (paraFrente <= 0 || paraTras <= 0) return null; // este eixo separa: não se tocam
+      const sentido = paraFrente < paraTras ? 1 : -1;
+      const fundo = Math.min(paraFrente, paraTras);
+      if (fundo < menor) {
+        menor = fundo;
+        mx = ax * sentido * fundo;
+        mz = az * sentido * fundo;
+      }
+    }
+  }
+  return { x: mx, z: mz };
 }
 
 // caixa x círculo no plano xz

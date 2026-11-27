@@ -6,6 +6,7 @@ import { montarCenario, VALA } from "./cenario";
 import { limitar, LOTES } from "./mapa";
 import { Caminhao } from "./caminhao";
 import { Particulas } from "./particulas";
+import { energiaDaBatida, MASSA_CAMINHAO, MASSA_MAQUINA } from "./arvores";
 import { ARMA } from "./arma";
 import { Tiros } from "./tiros";
 import { Som } from "./som";
@@ -21,7 +22,21 @@ import { Elenco, DadosJogador, mmParaBuffer, bufferParaMm, mmParaTexto, textoPar
 import { Bloco, Empurrao, caixa, circulo, contem, dentro, empurrar, caixasSeCruzam, caixaECirculo } from "./colisao";
 
 const TOQUE = ehToque();
-if (TOQUE) document.body.classList.add("toque");
+if (TOQUE) {
+  document.body.classList.add("toque");
+  // no celular os painéis ficam em duas colunas nos cantos de cima, deixando o meio da tela livre para o jogo
+  const coluna = (id: string, paineis: string[]): void => {
+    const c = document.createElement("div");
+    c.id = id;
+    document.getElementById("hud")?.appendChild(c);
+    for (const p of paineis) {
+      const e = document.getElementById(p);
+      if (e) c.appendChild(e);
+    }
+  };
+  coluna("col-esq", ["painel-modo", "vida-hud", "painel-sala"]);
+  coluna("col-dir", ["painel-missao", "municao-hud", "painel-carga"]);
+}
 
 // ---------------- cena ----------------
 const canvas = document.getElementById("cena") as HTMLCanvasElement;
@@ -35,12 +50,35 @@ renderer.toneMappingExposure = 1.05;
 const cena = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
 const terreno = new Terreno();
-const { sol, caminhao, arvores, favela } = montarCenario(cena, terreno);
+const { sol, caminhao, arvores, favela, florestal } = montarCenario(cena, terreno);
 const maq = new Retroescavadeira();
 cena.add(maq.raiz);
 const particulas = new Particulas();
 cena.add(particulas.malha);
 const som = new Som();
+
+// volume de um som que vem de (x, z): some com a distância até a câmera
+function volumePorDistancia(x: number, z: number): number {
+  const d = Math.hypot(x - camera.position.x, z - camera.position.z);
+  return Math.pow(Math.max(0, 1 - d / 70), 1.5);
+}
+florestal.aoCair = (x, y, z, _dir, _esc, local) => {
+  som.queda(volumePorDistancia(x, z));
+  if (!local) return; // os torrões e o pó vêm do anfitrião pela rede
+  obraSuja = true;
+  for (let n = 0; n < 16; n++) {
+    const ang = Math.random() * Math.PI * 2;
+    const raio = Math.random() * 0.8;
+    const forca = 1 + Math.random() * 2;
+    particulas.emitir(
+      new THREE.Vector3(x + Math.cos(ang) * raio, y + 0.2, z + Math.sin(ang) * raio),
+      new THREE.Vector3(Math.cos(ang) * forca, 1.5 + Math.random() * 2, Math.sin(ang) * forca),
+      0,
+      0.1 + Math.random() * 0.08,
+    );
+  }
+};
+florestal.aoAbalar = (x, _y, z, forca) => som.pancada(forca * volumePorDistancia(x, z));
 const tiros = new Tiros(cena);
 const op = new Operario();
 cena.add(op.grupo);
@@ -285,6 +323,7 @@ const AJUDA: Record<Modo, string> = {
   dirigir: `<div class="titulo">🚗 Dirigir</div>
     <b>W / S</b> acelerar / ré<br><b>A / D</b> virar<br><b>Espaço</b> freio<br>
     <b>R / F</b> sobe / desce a pá da frente<br><b>T / G</b> recolhe / despeja a pá<br>
+    🌲 Bata nas árvores para derrubá-las e empurre as caídas<br>
     <div class="rodape"><b>Tab</b> parar e escavar · <b>E</b> sair · <b>C</b> câmera · <b>M</b> som · <b>V</b> microfone</div>`,
   escavar: `<div class="titulo">⛏️ Escavar (braço traseiro)</div>
     <b>W / S</b> sobe / desce a lança<br><b>A / D</b> gira para a esquerda / direita<br>
@@ -294,6 +333,7 @@ const AJUDA: Record<Modo, string> = {
 const AJUDA_CAM = `<div class="titulo">🚚 Caminhão</div>
     <b>W / S</b> acelerar / ré<br><b>A / D</b> virar<br><b>Espaço</b> freio<br>
     <b>R / F</b> levanta / abaixa a caçamba<br>
+    🌲 Derruba árvores (com mais dificuldade que a máquina) e empurra as caídas<br>
     <div class="rodape"><b>E</b> sair · <b>C</b> câmera · <b>M</b> som · <b>V</b> microfone</div>`;
 let avisoTempo = 0;
 function aviso(texto: string, segundos = 2.2): void {
@@ -946,9 +986,16 @@ function dirigir(dt: number, acel: number, virar: number, freio: number): void {
   [carro.x, carro.z] = limitar(carro.x, carro.z, 3);
   const batida = maquinaBate();
   if (batida && !maquinaBateEm(antes)) {
-    Object.assign(carro, antes);
-    if (Math.abs(carro.vel) > 1.5) aviso(batida === "caminhão" ? "💥 Cuidado com o caminhão!" : "💥 Bateu na árvore!");
-    carro.vel = 0;
+    const v = carro.vel;
+    // árvore: a máquina é forte, derruba com poucas batidas (e quando derruba, segue em frente sem aviso nenhum)
+    const derrubou = batida.tipo === "árvore" && !!batida.arvore && baterNaArvore(batida.arvore, MASSA_MAQUINA, v, carro.x, carro.z);
+    if (derrubou && !maquinaBate()) {
+      carro.vel *= 0.7;
+    } else {
+      Object.assign(carro, antes);
+      if (Math.abs(v) > 1.5 && batida.tipo === "caminhão") aviso("💥 Cuidado com o caminhão!");
+      carro.vel = 0;
+    }
   }
 
   // assenta a máquina no terreno pelas 4 rodas
@@ -966,6 +1013,10 @@ function dirigir(dt: number, acel: number, virar: number, freio: number): void {
   carro.rolagem += (rol - carro.rolagem) * f;
 
   posicionarMaquina(dt);
+  if (Math.abs(carro.vel) > 0.02) {
+    const { corpo, pa } = caixasDaMaquina();
+    empurrarTroncos([corpo, pa], carro.x, carro.z);
+  }
 }
 
 // leva a pose do `carro` para o modelo (o convidado também usa, com a pose que vem do anfitrião)
@@ -1002,8 +1053,25 @@ function posicionarCaminhao(dt: number): void {
   caminhao.grupo.updateMatrixWorld(true);
 }
 
+// no que um veículo bateu (árvores e casas da comunidade são tipos diferentes: só as árvores caem)
+interface Batida {
+  tipo: "caminhão" | "máquina" | "árvore" | "casa";
+  arvore?: Bloco;
+}
+
+// o veículo (massa, velocidade) bateu numa árvore: machuca e, se for forte o bastante, derruba.
+// Devolve true se a árvore caiu (aí o veículo passa). Quem bate é sempre o anfitrião (ou o jogo solo).
+function baterNaArvore(a: Bloco, massa: number, vel: number, vx: number, vz: number): boolean {
+  if (papel === "convidado") return false;
+  const dir = Math.atan2(a.x - vx, a.z - vz); // cai para longe de quem bateu
+  const r = florestal.atingir(a, energiaDaBatida(massa, vel), dir);
+  if (r.resultado === "nada") return false;
+  if (anfitriao && pendentesArv.length < 100) pendentesArv.push([r.id, r.resultado === "caiu" ? 1 : 0, Math.round(dir * 1000) / 1000, Math.round(r.forca * 100) / 100]);
+  return r.resultado === "caiu";
+}
+
 // o caminhão encosta na retroescavadeira ou numa árvore?
-function caminhaoBate(): "máquina" | "árvore" | null {
+function caminhaoBate(): Batida | null {
   caminhao.grupo.position.set(carroCam.x, carroCam.y, carroCam.z);
   caminhao.grupo.rotation.y = carroCam.rumo;
   caminhao.grupo.updateMatrixWorld(true);
@@ -1012,18 +1080,18 @@ function caminhaoBate(): "máquina" | "árvore" | null {
     for (const b of blocosMaquina()) {
       for (const a of meus) {
         if (a.y0 >= b.y1 || a.y1 <= b.y0) continue;
-        if (b.circulo ? caixaECirculo(a, b) : caixasSeCruzam(a, b)) return "máquina";
+        if (b.circulo ? caixaECirculo(a, b) : caixasSeCruzam(a, b)) return { tipo: "máquina" };
       }
     }
   }
   for (const t of arvores) {
     if (Math.hypot(t.x - carroCam.x, t.z - carroCam.z) > 8) continue;
-    for (const a of meus) if (caixaECirculo(a, t)) return "árvore";
+    for (const a of meus) if (caixaECirculo(a, t)) return { tipo: "árvore", arvore: t };
   }
   if (carroCam.x < -14 && carroCam.z > 14) {
     for (const casa of favela.pegadas) {
       if (Math.hypot(casa.x - carroCam.x, casa.z - carroCam.z) > 10) continue;
-      for (const a of meus) if (caixasSeCruzam(a, casa)) return "árvore";
+      for (const a of meus) if (caixasSeCruzam(a, casa)) return { tipo: "casa" };
     }
   }
   return null;
@@ -1087,9 +1155,16 @@ function dirigirCaminhao(dt: number, acel: number, virar: number, freio: number,
   if (Math.abs(c.vel) > 0.01 || Math.abs(c.esterco) > 0.01) {
     const batida = caminhaoBate();
     if (batida && !caminhaoBateEm(antes)) {
-      Object.assign(c, antes);
-      if (Math.abs(c.vel) > 2 && condutorCam === meuUid) aviso(batida === "máquina" ? "💥 Cuidado com a retroescavadeira!" : "💥 Bateu na árvore!");
-      c.vel = 0;
+      const v = c.vel;
+      // árvore: o caminhão é mais leve, então precisa de mais velocidade (ou de várias batidas) para derrubar
+      const derrubou = batida.tipo === "árvore" && !!batida.arvore && baterNaArvore(batida.arvore, MASSA_CAMINHAO, v, c.x, c.z);
+      if (derrubou && !caminhaoBate()) {
+        c.vel *= 0.8;
+      } else {
+        Object.assign(c, antes);
+        if (Math.abs(v) > 2 && condutorCam === meuUid && batida.tipo === "máquina") aviso("💥 Cuidado com a retroescavadeira!");
+        c.vel = 0;
+      }
     }
   }
 
@@ -1105,6 +1180,7 @@ function dirigirCaminhao(dt: number, acel: number, virar: number, freio: number,
   c.arfagem += (Math.atan2(hFrente - hTras, caminhao.entreEixos) - c.arfagem) * f;
   c.rolagem += (Math.atan2(hEsq - hDir, 2.0) - c.rolagem) * f;
   posicionarCaminhao(dt);
+  if (Math.abs(c.vel) > 0.02) empurrarTroncos(caminhao.blocos(), c.x, c.z);
   despejarCaminhao(dt);
 }
 
@@ -1117,28 +1193,42 @@ function maquinaBateEm(pose: { x: number; z: number; rumo: number }): boolean {
 }
 
 // a máquina (corpo e pá da frente) encosta no caminhão ou numa árvore? (a pá erguida passa por cima do caminhão)
-function maquinaBate(): "caminhão" | "árvore" | null {
+// o corpo e a pá da frente da máquina, como caixas (na pose atual do `carro`)
+function caixasDaMaquina(): { corpo: Bloco; pa: Bloco } {
   maq.raiz.position.set(carro.x, carro.y, carro.z);
   maq.raiz.rotation.y = carro.rumo;
   maq.raiz.updateMatrixWorld(true);
-  const corpo = (() => {
-    const p = corpoParaMundo(0, -0.2);
-    return caixa(p.x, p.z, carro.rumo, 1.35, 2.55, carro.y, carro.y + 3.3);
-  })();
+  const p = corpoParaMundo(0, -0.2);
+  const corpo = caixa(p.x, p.z, carro.rumo, 1.35, 2.55, carro.y, carro.y + 3.3);
   const c = maq.conchaFrenteG.localToWorld(new THREE.Vector3(0, -0.05, 0.45));
   const pa = caixa(c.x, c.z, carro.rumo, 1.18, 0.5, c.y - 0.42, c.y + 0.45);
+  return { corpo, pa };
+}
+
+// os veículos empurram as árvores caídas como uma pá empurra terra: dá para juntar todas num canto.
+// Quem calcula é o anfitrião (ou o jogo solo); os convidados só recebem a nova posição.
+function empurrarTroncos(corpos: Bloco[], x: number, z: number): void {
+  if (papel === "convidado") return;
+  const mexidas = florestal.empurrar(corpos, x, z);
+  if (mexidas.length === 0) return;
+  obraSuja = true;
+  if (anfitriao) for (const id of mexidas) pendentesTr.set(id, florestal.pose(id));
+}
+
+function maquinaBate(): Batida | null {
+  const { corpo, pa } = caixasDaMaquina();
   for (const b of caminhao.blocos()) {
-    if (caixasSeCruzam(corpo, b)) return "caminhão";
-    if (pa.y0 < b.y1 && pa.y1 > b.y0 && caixasSeCruzam(pa, b)) return "caminhão";
+    if (caixasSeCruzam(corpo, b)) return { tipo: "caminhão" };
+    if (pa.y0 < b.y1 && pa.y1 > b.y0 && caixasSeCruzam(pa, b)) return { tipo: "caminhão" };
   }
   for (const a of arvores) {
     if (Math.hypot(a.x - carro.x, a.z - carro.z) > 8) continue;
-    if (caixaECirculo(corpo, a) || caixaECirculo(pa, a)) return "árvore";
+    if (caixaECirculo(corpo, a) || caixaECirculo(pa, a)) return { tipo: "árvore", arvore: a };
   }
   if (carro.x < -14 && carro.z > 14) {
     for (const casa of favela.pegadas) {
       if (Math.hypot(casa.x - carro.x, casa.z - carro.z) > 9) continue;
-      if (caixasSeCruzam(corpo, casa) || caixasSeCruzam(pa, casa)) return "árvore";
+      if (caixasSeCruzam(corpo, casa) || caixasSeCruzam(pa, casa)) return { tipo: "casa" };
     }
   }
   return null;
@@ -1888,6 +1978,8 @@ interface Registro extends DadosJogador {
 }
 const registros = new Map<string, Registro>(); // anfitrião: todo convidado que passou (os que caíram ficam esperando)
 let pendentesPt: number[][] = [];
+let pendentesTr = new Map<number, number[]>(); // árvores caídas que se mexeram desde o último pacote: id -> [id, x, z, rumo]
+let pendentesArv: number[][] = []; // árvores que balançaram ou caíram desde o último pacote: [id, 0 abalou | 1 caiu, rumo, força]
 let tRede = 0;
 let tPainel = 0;
 let tSalvar = 0;
@@ -1970,11 +2062,15 @@ function tickAnfitriao(): void {
       v: caminhao.volume,
       jog,
       pt: pendentesPt,
+      ar: pendentesArv,
+      tr: [...pendentesTr.values()],
     };
     if (alteracao) msg.ter = { i0: alteracao.i0, i1: alteracao.i1, j0: alteracao.j0, j1: alteracao.j1, mm: mmParaBuffer(alteracao.mm) };
     anfitriao.transmitir(msg);
   }
   pendentesPt = [];
+  pendentesArv = [];
+  pendentesTr = new Map();
   tSalvar -= 1 / 15;
   if (tSalvar <= 0) {
     tSalvar = 5;
@@ -2032,7 +2128,7 @@ function entrouConvidado(l: Ligado): void {
   r.ligado = true;
   r.ausente = 0;
   elenco.atualizar(r.uid, r.nome, r);
-  anfitriao?.enviar(l.uid, { t: "bem", ter: pacoteTerreno(), x: r.x, y: r.y, z: r.z, rumo: r.rumo });
+  anfitriao?.enviar(l.uid, { t: "bem", ter: pacoteTerreno(), arv: florestal.derrubadas(), x: r.x, y: r.y, z: r.z, rumo: r.rumo });
   aviso(`👷 ${l.nome} entrou na obra`, 2.5);
   anunciarVoz();
 }
@@ -2148,6 +2244,7 @@ function receberDoAnfitriao(m: Msg): void {
     aviso(String(m.msg), 2.2);
   } else if (m.t === "bem") {
     aplicarTerreno(m.ter);
+    florestal.restaurar(m.arv); // as árvores que já tinham caído antes de eu entrar
     if (!jaEntrou) {
       // primeira vez nesta página: nasce onde o anfitrião diz (a vaga dele, ou onde estava antes de cair)
       jaEntrou = true;
@@ -2170,6 +2267,8 @@ function receberDoAnfitriao(m: Msg): void {
     if (!estadoValido(m)) return;
     alvoRede = m;
     aplicarTerreno(m.ter);
+    for (const q of (m.tr as number[][]) ?? []) if (Array.isArray(q)) florestal.posicionar(Number(q[0]), Number(q[1]), Number(q[2]), Number(q[3]));
+    for (const q of (m.ar as number[][]) ?? []) if (Array.isArray(q)) florestal.aplicar(Number(q[0]), Number(q[1]), Number(q[2]) || 0, Number(q[3]) || 0);
     for (const q of (m.pt as number[][]) ?? []) particulas.emitir(new THREE.Vector3(q[0], q[1], q[2]), new THREE.Vector3(q[3], q[4], q[5]), 0, q[6]);
     // quem está na cabine manda; se o anfitrião disse que sou eu (ou que não sou mais), acompanha
     condutor = String(m.k ?? "");
@@ -2271,7 +2370,7 @@ const chaveObra = (palavra: string): string => `retro-obra2-${palavra}`; // v2: 
 
 function salvarObra(palavra: string): void {
   const t = terreno.tomarTudo();
-  const dados = { ter: t ? { i0: t.i0, i1: t.i1, j0: t.j0, j1: t.j1, mm: mmParaTexto(t.mm) } : null, carro: { x: carro.x, z: carro.z, rumo: carro.rumo }, cam: { x: carroCam.x, z: carroCam.z, rumo: carroCam.rumo }, vol: caminhao.volume };
+  const dados = { ter: t ? { i0: t.i0, i1: t.i1, j0: t.j0, j1: t.j1, mm: mmParaTexto(t.mm) } : null, carro: { x: carro.x, z: carro.z, rumo: carro.rumo }, cam: { x: carroCam.x, z: carroCam.z, rumo: carroCam.rumo }, vol: caminhao.volume, arv: florestal.derrubadas() };
   try {
     localStorage.setItem(chaveObra(palavra), JSON.stringify(dados));
     obraSuja = false;
@@ -2287,6 +2386,7 @@ function restaurarObra(palavra: string): void {
     if (!bruto) return;
     const d = JSON.parse(bruto);
     if (d.ter) terreno.aplicarAlteracao(d.ter.i0, d.ter.i1, d.ter.j0, d.ter.j1, textoParaMm(d.ter.mm));
+    florestal.restaurar(d.arv);
     carro.x = num(d.carro?.x, 60);
     carro.z = num(d.carro?.z, 60);
     carro.rumo = num(d.carro?.rumo, 1e5);
@@ -2733,6 +2833,7 @@ function quadro(agora: number): void {
   op.atualizar(dt);
   tiros.atualizar(dt);
   particulas.atualizar(dt, terreno, caminhao);
+  florestal.atualizar(dt);
   elenco.animar(dt, condutor, condutorCam);
   tickRede(dt);
   terreno.atualizar(dt);
