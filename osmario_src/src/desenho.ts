@@ -63,9 +63,9 @@ export class Desenho {
         }
       }
       contorno(g, 1, 1, T - 2, T - 2, a, 1.5, 6);
-    } else if (tipo === "?" || tipo === "C") {
-      caixa("#241a05");
-      const cor = tipo === "C" ? "#ff8a2f" : "#ffd23f";
+    } else if (tipo === "?" || tipo === "C" || tipo === "F") {
+      caixa(tipo === "F" ? "#2a0508" : "#241a05");
+      const cor = tipo === "F" ? "#ff3b30" : tipo === "C" ? "#ff8a2f" : "#ffd23f";
       contorno(g, 3, 3, T - 6, T - 6, cor, 3, 12);
       neon(g, "?", T / 2, T / 2 + 2, cor, 30);
     } else if (tipo === "U") {
@@ -141,7 +141,7 @@ export class Desenho {
         const pulo = j.batidos.get(`${col},${lin}`);
         const dy = pulo ? -Math.sin((pulo / 0.18) * Math.PI) * 12 : 0;
         g.drawImage(this.imagemBloco(this.tipoVisual(j, col, lin)), col * T - 10, lin * T - 10 + dy);
-        if (b === "?" || b === "C") {
+        if (b === "?" || b === "C" || b === "F") {
           // pisca para chamar atenção
           g.globalAlpha = 0.18 * Math.max(0, Math.sin(t * 5));
           g.fillStyle = "#fff";
@@ -150,11 +150,16 @@ export class Desenho {
         }
       }
     }
-    for (const c of j.itens) this.coxinha(c.x, c.y, c.w, c.h);
+    for (const c of j.itens) {
+      if (c.tipo === "fogo") this.chama(c.x + c.w / 2, c.y + c.h, 1.15, t);
+      else this.coxinha(c.x, c.y, c.w, c.h);
+    }
     for (const i of j.inimigos) if (i.x > camX - 80 && i.x < camX + vista + 80) this.inimigo(i, t);
     this.heroiNaTela(j, t);
+    for (const b of j.tiros) this.bola(b.x + b.w / 2, b.y + b.h / 2, Math.sign(b.vx), t);
     for (const e of j.efeitos) {
       if (e.tipo === "moeda") this.moeda(e.x, e.y, t * 3);
+      else if (e.tipo === "faisca") { g.globalAlpha = Math.min(1, e.t * 4); g.fillStyle = "#ffd27a"; g.fillRect(e.x - 3, e.y - 3, 6, 6); g.globalAlpha = 1; }
       else if (e.tipo === "caco") { g.fillStyle = "#8a357c"; g.fillRect(e.x - 8, e.y - 8, 16, 16); }
       else neon(g, e.texto ?? "", e.x, e.y, "#ffd23f", 18);
     }
@@ -175,8 +180,9 @@ export class Desenho {
     if (j.estado === "morrendo") { g.translate(0, -altura / 2); g.rotate((1.6 - j.espera) * 5); g.translate(0, altura / 2); }
     if (h.direcao < 0) g.scale(-1, 1);
     g.imageSmoothingEnabled = false;
-    g.shadowColor = "rgba(150,240,255,0.85)"; // um contorno de luz para ele se destacar do fundo escuro
-    g.shadowBlur = 9;
+    // um contorno de luz para ele se destacar do fundo escuro; laranja e pulsando quando tem o foguinho
+    g.shadowColor = h.fogo ? "#ff6a1f" : "rgba(150,240,255,0.85)";
+    g.shadowBlur = h.fogo ? 16 + Math.sin(t * 12) * 5 : 9;
     g.drawImage(this.heroi, quadro * QUADRO_W, 0, QUADRO_W, QUADRO_H, -MEIO_X * esc, -altura, QUADRO_W * esc, altura);
     g.restore();
   }
@@ -197,6 +203,48 @@ export class Desenho {
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.fillText("$", 0, 1);
+    g.restore();
+  }
+
+  // o item do foguinho: uma chama dançando
+  private chama(x: number, base: number, esc: number, t: number): void {
+    const g = this.g;
+    g.save();
+    g.translate(x, base);
+    g.scale(esc, esc);
+    g.shadowColor = "#ff5a1f";
+    g.shadowBlur = 20;
+    const lingua = (larg: number, alt: number, cor: string): void => {
+      const bal = Math.sin(t * 11) * 3;
+      g.fillStyle = cor;
+      g.beginPath();
+      g.moveTo(bal, -alt);
+      g.bezierCurveTo(larg * 0.35 + bal, -alt * 0.7, larg, -alt * 0.45, larg * 0.7, -alt * 0.14);
+      g.quadraticCurveTo(0, alt * 0.08, -larg * 0.7, -alt * 0.14);
+      g.bezierCurveTo(-larg, -alt * 0.45, -larg * 0.25, -alt * 0.5, bal, -alt);
+      g.fill();
+    };
+    lingua(17, 36, "#ff3b1f");
+    g.shadowBlur = 0;
+    lingua(11, 25, "#ff9d1f");
+    lingua(6, 15, "#fff1a8");
+    g.restore();
+  }
+
+  // a bola de fogo atirada, com rastro
+  private bola(x: number, y: number, dir: number, t: number): void {
+    const g = this.g;
+    g.save();
+    g.shadowColor = "#ff5a1f";
+    g.shadowBlur = 18;
+    for (let k = 3; k >= 1; k--) {
+      g.globalAlpha = 0.18 * (4 - k);
+      g.fillStyle = "#ff5a1f";
+      g.beginPath(); g.arc(x - dir * k * 8, y + Math.sin(t * 30 + k) * 2, 8 - k, 0, Math.PI * 2); g.fill();
+    }
+    g.globalAlpha = 1;
+    g.fillStyle = "#ff8a1f"; g.beginPath(); g.arc(x, y, 9, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#fff3b0"; g.beginPath(); g.arc(x + Math.cos(t * 26) * 2, y + Math.sin(t * 26) * 2, 4.5, 0, Math.PI * 2); g.fill();
     g.restore();
   }
 

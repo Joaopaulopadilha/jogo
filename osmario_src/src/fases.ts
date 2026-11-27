@@ -1,5 +1,5 @@
 // As fases. Cada uma é uma grade de LINHAS linhas (0 = topo); o chão ocupa as duas de baixo.
-//   '#' chão   'B' tijolo   '?' bloco de moeda   'C' bloco de coxinha   'U' bloco usado
+//   '#' chão   'B' tijolo   '?' bloco de moeda   'C' bloco de coxinha   'F' bloco do foguinho   'U' bloco usado
 //   '=' tábua  'P' cano     'o' moeda            ' ' vazio
 
 export const LINHAS = 12;
@@ -72,7 +72,7 @@ function fase1(): Fase {
   o.chao(0, 30).chao(33, 58).chao(62, 111);
   o.blocos(9, 6, "?").blocos(14, 6, "BCB?B").moedas(15, 3, 3).barata(18);
   o.cano(24, 2).moedas(31, 7, 2);
-  o.blocos(37, 6, "?.?.?").barata(40, 46);
+  o.blocos(37, 6, "?.F.?").barata(40, 46);
   o.cano(50, 3).moedas(59, 6, 3);
   o.tabua(66, 7, 4).moedas(66, 5, 4).barata(72, 75);
   o.blocos(80, 6, "BB?BB").drone(86, 6);
@@ -86,7 +86,7 @@ function fase2(): Fase {
   o.blocos(8, 6, "?C?").barata(13);
   o.moedas(19, 6, 3).cano(27, 2).barata(31);
   o.tabua(37, 8, 2).tabua(41, 7, 2).moedas(37, 6, 2).moedas(41, 5, 2); // travessia 1
-  o.blocos(50, 6, "BBB?BBB").moedas(50, 3, 7).barata(53, 58);
+  o.blocos(50, 6, "BBBFBBB").moedas(50, 3, 7).barata(53, 58);
   o.drone(64, 7).moedas(63, 6, 2).drone(73, 6);
   o.cano(79, 3).barata(85).blocos(86, 6, "C");
   o.tabua(93, 8, 2).tabua(97, 7, 3).moedas(97, 5, 3).drone(96, 3); // travessia 2
@@ -97,7 +97,7 @@ function fase2(): Fase {
 function fase3(): Fase {
   const o = new Obra("Neon City", 144, "neon");
   o.chao(0, 14).chao(18, 28).chao(32, 36).chao(50, 60).chao(64, 66).chao(70, 84).chao(97, 108).chao(122, 143);
-  o.blocos(7, 6, "C").barata(11).moedas(15, 6, 3);
+  o.blocos(6, 6, "C.F").barata(11).moedas(15, 6, 3);
   o.cano(22, 2).drone(30, 6).moedas(29, 5, 3);
   o.tabua(39, 8, 2).tabua(43, 7, 2).tabua(47, 8, 2).moedas(43, 5, 2).drone(45, 4);
   o.blocos(53, 6, "?B?").barata(55, 58);

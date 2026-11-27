@@ -42,6 +42,7 @@ function controles(): Controles {
     direita: apertado("ArrowRight", "KeyD") || noToque("direita"),
     correr: apertado("ShiftLeft", "ShiftRight", "KeyJ", "KeyX") || noToque("correr"),
     pulo: apertado("Space", "ArrowUp", "KeyW", "KeyK", "KeyZ") || noToque("pulo") || pressionou.has("pulo"),
+    fogo: apertado("KeyF", "KeyL", "KeyC") || noToque("fogo") || pressionou.has("fogo"),
   };
   return c;
 }
@@ -56,6 +57,7 @@ addEventListener("keydown", (e) => {
   if (e.code.startsWith("Arrow") || e.code === "Space") e.preventDefault();
   teclas.add(e.code);
   if (!e.repeat && ["Space", "ArrowUp", "KeyW", "KeyK", "KeyZ"].includes(e.code)) pressionou.add("pulo");
+  if (!e.repeat && ["KeyF", "KeyL", "KeyC"].includes(e.code)) pressionou.add("fogo");
 });
 addEventListener("keyup", (e) => teclas.delete(e.code));
 addEventListener("blur", () => { teclas.clear(); toques.clear(); });
@@ -75,7 +77,7 @@ addEventListener("pointerdown", (e) => {
   som.iniciar();
   (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
   toques.set(e.pointerId, b);
-  if (b === "pulo") pressionou.add("pulo");
+  if (b === "pulo" || b === "fogo") pressionou.add(b);
   marcarBotoes();
 });
 addEventListener("pointermove", (e) => {
@@ -101,9 +103,9 @@ function desenharMenu(): void {
     ${recorde ? `<div class="sub">Recorde: <b>${recorde}</b></div>` : ""}
     <div class="sub">
       ${temToque
-        ? "<b>◀ ▶</b> andam · <b>PULAR</b> (segure para ir mais alto) · segure <b>CORRER</b> para pegar velocidade."
-        : "<b>← →</b> ou <b>A D</b> andam · <b>Espaço</b> pula (segure para ir mais alto) · <b>Shift</b> corre · <b>P</b> pausa · <b>M</b> som."}
-      <br>Pule em cima das baratas e dos drones, bata a cabeça nos blocos <b>?</b>, coma a coxinha para crescer e chegue à bandeira.
+        ? "<b>◀ ▶</b> andam · <b>PULAR</b> (segure para ir mais alto; toque de novo no ar para o <b>pulo duplo</b>) · segure <b>CORRER</b> para pegar velocidade · com o foguinho, <b>🔥</b> atira."
+        : "<b>← →</b> ou <b>A D</b> andam · <b>Espaço</b> pula (segure para ir mais alto; aperte de novo no ar para o <b>pulo duplo</b>) · <b>Shift</b> corre · <b>F</b> atira fogo · <b>P</b> pausa · <b>M</b> som."}
+      <br>Pule em cima das baratas e dos drones, bata a cabeça nos blocos <b>?</b>, coma a coxinha para crescer, pegue o <b>foguinho</b> nos blocos vermelhos e chegue à bandeira.
     </div>
     <a class="voltar" href="../index.html">← todos os jogos</a>
   </div>`;
@@ -121,13 +123,14 @@ function comecar(fase: number): void {
       <div class="ficha">❤ <span id="vidas"></span></div>
       <div class="ficha">🪙 <span id="moedas"></span></div>
       <div class="ficha">★ <span id="pontos"></span></div>
+      <div class="ficha poder escondido" id="poder" title="Foguinho">🔥</div>
       <div class="ficha fase" id="nome-fase"></div>
       <button data-a="som" title="Som (M)">${som.ligado ? "🔊" : "🔇"}</button>
       <button data-a="pausa" title="Pausa (P)">⏸</button>
     </div>
     <div class="toque">
       <div class="setas"><div class="tecla" data-b="esquerda">◀</div><div class="tecla" data-b="direita">▶</div></div>
-      <div class="acoes"><div class="tecla acao" data-b="correr">CORRER</div><div class="tecla acao pular" data-b="pulo">PULAR</div></div>
+      <div class="acoes"><div class="tecla acao fogo escondido" data-b="fogo" title="Atirar fogo">🔥</div><div class="tecla acao correr" data-b="correr">CORRER</div><div class="tecla acao pular" data-b="pulo">PULAR</div></div>
     </div>
     <div class="cartao escondido" id="cartao"></div>
   </div>`;
@@ -233,6 +236,9 @@ function rodar(agora: number): void {
   texto("moedas", String(j.moedas));
   texto("pontos", String(j.pontos));
   texto("nome-fase", `${j.numero + 1}. ${j.fase.nome}`);
+  // o botão de atirar e o ícone só aparecem com o foguinho
+  document.getElementById("poder")?.classList.toggle("escondido", !j.h.fogo);
+  document.querySelector(".tecla.fogo")?.classList.toggle("escondido", !j.h.fogo);
 
   // cartões de fim de fase / de jogo, depois de um instante
   if (pausado) return;

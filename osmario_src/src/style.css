@@ -45,7 +45,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 body.com-toque .toque { display: block; }
 .toque > div { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 14px; touch-action: none; }
 .setas { left: max(14px, env(safe-area-inset-left)); }
-.acoes { right: max(14px, env(safe-area-inset-right)); align-items: flex-end; }
+.acoes { right: max(14px, env(safe-area-inset-right)); }
+/* fogo em cima do correr, pular ao lado: três botões sem ocupar mais largura */
+body.com-toque .toque > div.acoes { display: grid; grid-template-columns: auto auto; align-items: end; column-gap: 14px; row-gap: 12px; }
+.toque .tecla.fogo { grid-column: 1; grid-row: 1; border-color: #ff6a1f; box-shadow: 0 0 16px rgba(255,106,31,0.75); font-size: 26px; }
+.tecla.correr { grid-column: 1; grid-row: 2; }
+.tecla.pular { grid-column: 2; grid-row: 1 / span 2; align-self: end; }
+.hud .poder { box-shadow: 0 0 10px rgba(255,106,31,0.8), 0 0 0 1px #ff6a1f inset; }
 .tecla { width: clamp(62px, 17vmin, 84px); height: clamp(62px, 17vmin, 84px); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; background: rgba(10, 4, 30, 0.5); border: 2px solid var(--ciano); box-shadow: 0 0 14px rgba(79,242,255,0.5); touch-action: none; }
 .tecla.acao { border-color: var(--rosa); box-shadow: 0 0 14px rgba(255,47,208,0.55); font-size: 13px; letter-spacing: 0.08em; }
 .tecla.pular { width: clamp(76px, 21vmin, 104px); height: clamp(76px, 21vmin, 104px); font-size: 15px; }

@@ -8,6 +8,11 @@ export const ALTURA_MUNDO = LINHAS * T;
 
 const GRAVIDADE = 2300;
 const FORCA_PULO = 920; // pulo de uns 3,8 blocos segurando o botão
+const FORCA_PULO_DUPLO = 820; // o segundo pulo, no ar: somando os dois chega a uns 6,5 blocos
+const VEL_TIRO = 520;
+const QUIQUE_TIRO = 300; // quique baixo: a bola não consegue saltar por cima de uma barata
+const INTERVALO_TIRO = 0.28;
+const MAX_TIROS = 3;
 const VEL_ANDAR = 240;
 const VEL_CORRER = 390;
 const ACEL_CHAO = 1500;
@@ -18,20 +23,24 @@ const COIOTE = 0.1; // ainda dá para pular logo depois de sair da beirada
 const BUFFER_PULO = 0.12; // apertar um pouco antes de tocar o chão também vale
 export const TAMANHO = { pequeno: { w: 32, h: 70 }, grande: { w: 36, h: 90 } };
 const VIDAS_INICIAIS = 3;
-const SOLIDOS = new Set(["#", "B", "?", "C", "U", "=", "P"]);
+const SOLIDOS = new Set(["#", "B", "?", "C", "F", "U", "=", "P"]);
 
-export interface Controles { esquerda: boolean; direita: boolean; correr: boolean; pulo: boolean }
-export type Evento = "pulo" | "moeda" | "pisao" | "coxinha" | "cresceu" | "bate" | "quebra" | "dano" | "morte" | "vitoria" | "vida";
+export interface Controles { esquerda: boolean; direita: boolean; correr: boolean; pulo: boolean; fogo: boolean }
+export type Evento = "pulo" | "pulo2" | "tiro" | "moeda" | "pisao" | "coxinha" | "cresceu" | "bate" | "quebra" | "dano" | "morte" | "vitoria" | "vida";
 export type Estado = "jogando" | "morrendo" | "venceuFase" | "fimDeJogo" | "zerou";
 
 export interface Caixa { x: number; y: number; w: number; h: number }
 export interface Heroi extends Caixa {
   vx: number; vy: number; noChao: boolean; direcao: 1 | -1; grande: boolean;
   invencivel: number; coiote: number; buffer: number; puloAntes: boolean; passos: number;
+  pulosAr: number; // pulos que ainda dá para fazer no ar
+  fogo: boolean; // tem o poder do foguinho
+  fogoAntes: boolean; recarga: number;
 }
 export interface Inimigo extends Caixa { tipo: TipoInimigo; vx: number; vy: number; baseX: number; baseY: number; t: number; achatado: number; ativo: boolean }
-export interface Coxinha extends Caixa { vx: number; vy: number; saindo: number }
-export interface Efeito { tipo: "moeda" | "pontos" | "caco"; x: number; y: number; vx: number; vy: number; t: number; texto?: string }
+export interface Item extends Caixa { tipo: "coxinha" | "fogo"; vx: number; vy: number; saindo: number }
+export interface Tiro extends Caixa { vx: number; vy: number; reto: boolean; vida: number }
+export interface Efeito { tipo: "moeda" | "pontos" | "caco" | "faisca"; x: number; y: number; vx: number; vy: number; t: number; texto?: string }
 
 export const cruzam = (a: Caixa, b: Caixa): boolean => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
@@ -46,7 +55,8 @@ export class Jogo {
   espera = 0; // tempo da animação atual (morte, vitória)
   h!: Heroi;
   inimigos: Inimigo[] = [];
-  itens: Coxinha[] = [];
+  itens: Item[] = [];
+  tiros: Tiro[] = [];
   efeitos: Efeito[] = [];
   batidos = new Map<string, number>(); // bloco "col,lin" -> tempo do pulinho
   private eventos: Evento[] = [];
@@ -62,7 +72,7 @@ export class Jogo {
     const p = TAMANHO.pequeno;
     this.h = {
       x: this.fase.inicio * T, y: 10 * T - p.h, w: p.w, h: p.h, vx: 0, vy: 0, noChao: true, direcao: 1, grande: false,
-      invencivel: 0, coiote: 0, buffer: 0, puloAntes: true, passos: 0,
+      invencivel: 0, coiote: 0, buffer: 0, puloAntes: true, passos: 0, pulosAr: 1, fogo: false, fogoAntes: true, recarga: 0,
     };
     this.inimigos = this.fase.inimigos.map((n) => {
       const voa = n.tipo === "drone";
@@ -73,6 +83,7 @@ export class Jogo {
       return { tipo: n.tipo, x, y, w, h, vx: voa ? -60 : -70, vy: 0, baseX: x, baseY: y, t: n.col, achatado: 0, ativo: false };
     });
     this.itens = [];
+    this.tiros = [];
     this.efeitos = [];
     this.batidos.clear();
     this.estado = "jogando";
@@ -87,8 +98,13 @@ export class Jogo {
     this.carregar(numero);
   }
 
+  // o tamanho e o foguinho vão junto para a próxima fase
   proximaFase(): void {
-    if (this.estado === "venceuFase") this.carregar(this.numero + 1);
+    if (this.estado !== "venceuFase") return;
+    const { grande, fogo } = this.h;
+    this.carregar(this.numero + 1);
+    if (grande) this.mudarTamanho(true);
+    this.h.fogo = fogo;
   }
 
   // ---------------- mapa ----------------
@@ -137,9 +153,11 @@ export class Jogo {
       if ((this.estado as Estado) === "jogando") {
         this.moverInimigos(dt);
         this.moverItens(dt);
+        this.moverTiros(dt);
       }
     }
     this.h.puloAntes = c.pulo;
+    this.h.fogoAntes = c.fogo;
     return this.eventos;
   }
 
@@ -158,16 +176,34 @@ export class Jogo {
       h.vx = Math.sign(h.vx) * Math.max(0, Math.abs(h.vx) - ATRITO * dt);
     }
 
-    // pulo
-    h.buffer = c.pulo && !h.puloAntes ? BUFFER_PULO : Math.max(0, h.buffer - dt);
+    // pulo (e o pulo duplo, no ar)
+    const apertou = c.pulo && !h.puloAntes;
+    h.buffer = apertou ? BUFFER_PULO : Math.max(0, h.buffer - dt);
     h.coiote = h.noChao ? COIOTE : Math.max(0, h.coiote - dt);
+    if (h.noChao) h.pulosAr = 1;
     if (h.buffer > 0 && h.coiote > 0) {
       h.vy = -FORCA_PULO * (Math.abs(h.vx) > VEL_ANDAR + 40 ? 1.05 : 1);
       h.buffer = 0;
       h.coiote = 0;
       h.noChao = false;
       this.eventos.push("pulo");
+    } else if (apertou && !h.noChao && h.pulosAr > 0) {
+      h.pulosAr--;
+      h.buffer = 0;
+      h.vy = -FORCA_PULO_DUPLO;
+      this.faiscas(h.x + h.w / 2, h.y + h.h, 6); // "nuvenzinha" embaixo dos pés
+      this.eventos.push("pulo2");
     }
+
+    // foguinho
+    h.recarga = Math.max(0, h.recarga - dt);
+    if (h.fogo && c.fogo && !h.fogoAntes && h.recarga === 0 && this.tiros.length < MAX_TIROS) {
+      h.recarga = INTERVALO_TIRO;
+      const reto = !h.noChao; // atirando no ar a bola vai reta (para acertar drones); no chão ela quica
+      this.tiros.push({ x: h.x + h.w / 2 - 8 + h.direcao * 14, y: h.y + h.h * 0.42, w: 16, h: 16, vx: h.direcao * VEL_TIRO, vy: reto ? 0 : 150, reto, vida: 1.4 });
+      this.eventos.push("tiro");
+    }
+
     // soltar o botão cedo faz um pulo baixo
     h.vy = Math.min(QUEDA_MAX, h.vy + GRAVIDADE * (h.vy < 0 && !c.pulo ? 2.4 : 1) * dt);
 
@@ -217,7 +253,7 @@ export class Jogo {
 
   private cabecada(col: number, lin: number): void {
     const b = this.bloco(col, lin);
-    if (b !== "?" && b !== "C" && b !== "B") { this.eventos.push("bate"); return; }
+    if (b !== "?" && b !== "C" && b !== "F" && b !== "B") { this.eventos.push("bate"); return; }
     this.batidos.set(`${col},${lin}`, 0.18);
     // quem estiver em cima do bloco leva o tranco
     for (const i of this.inimigos) if (!i.achatado && cruzam(i, { x: col * T, y: lin * T - 6, w: T, h: 8 })) this.derrubarInimigo(i);
@@ -227,7 +263,11 @@ export class Jogo {
       this.ganharMoeda();
     } else if (b === "C") {
       this.fase.grade[lin][col] = "U";
-      this.itens.push({ x: col * T + 7, y: lin * T, w: 34, h: 34, vx: 90, vy: 0, saindo: 0.5 });
+      this.itens.push({ tipo: "coxinha", x: col * T + 7, y: lin * T, w: 34, h: 34, vx: 90, vy: 0, saindo: 0.5 });
+      this.eventos.push("coxinha");
+    } else if (b === "F") {
+      this.fase.grade[lin][col] = "U";
+      this.itens.push({ tipo: "fogo", x: col * T + 7, y: lin * T, w: 34, h: 34, vx: 0, vy: 0, saindo: 0.5 });
       this.eventos.push("coxinha");
     } else if (this.h.grande) {
       this.fase.grade[lin][col] = " ";
@@ -279,6 +319,7 @@ export class Jogo {
         h.vy = h.puloAntes ? -760 : -480;
         h.y = i.y - h.h;
         h.noChao = false;
+        h.pulosAr = 1;
       } else if (h.invencivel === 0) this.dano();
     }
   }
@@ -289,7 +330,7 @@ export class Jogo {
       if (c.saindo > 0) {
         c.saindo -= dt;
         c.y -= (c.h / 0.5) * dt; // sobe de dentro do bloco
-      } else {
+      } else if (c.tipo === "coxinha") { // a coxinha sai andando; o foguinho espera parado
         if (this.mover(c, c.vx * dt, 0).length) c.vx = -c.vx;
         c.vy = Math.min(QUEDA_MAX, c.vy + GRAVIDADE * 0.6 * dt);
         if (this.mover(c, 0, c.vy * dt).length) c.vy = 0;
@@ -300,6 +341,7 @@ export class Jogo {
       this.pontos += 500;
       this.efeitos.push({ tipo: "pontos", x: c.x + c.w / 2, y: c.y, vx: 0, vy: -60, t: 0.8, texto: "500" });
       this.mudarTamanho(true);
+      if (c.tipo === "fogo") this.h.fogo = true;
       this.eventos.push("cresceu");
     }
   }
@@ -323,7 +365,11 @@ export class Jogo {
   }
 
   private dano(): void {
-    if (this.h.grande) {
+    if (this.h.fogo) {
+      this.h.fogo = false;
+      this.h.invencivel = 1.6;
+      this.eventos.push("dano");
+    } else if (this.h.grande) {
       this.mudarTamanho(false);
       this.h.invencivel = 1.6;
       this.eventos.push("dano");
@@ -346,6 +392,31 @@ export class Jogo {
     this.vidas--;
     if (this.vidas <= 0) this.estado = "fimDeJogo";
     else this.carregar(this.numero);
+  }
+
+  private faiscas(x: number, y: number, n: number): void {
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      this.efeitos.push({ tipo: "faisca", x, y, vx: Math.cos(a) * 120, vy: Math.sin(a) * 60 - 60, t: 0.28 });
+    }
+  }
+
+  private moverTiros(dt: number): void {
+    for (let k = this.tiros.length - 1; k >= 0; k--) {
+      const t = this.tiros[k];
+      t.vida -= dt;
+      let acabou = t.vida <= 0;
+      if (!t.reto) t.vy = Math.min(QUEDA_MAX, t.vy + GRAVIDADE * 0.8 * dt);
+      if (this.mover(t, t.vx * dt, 0).length) acabou = true; // parede
+      if (t.vy !== 0 && this.mover(t, 0, t.vy * dt).length) t.vy = t.vy > 0 ? -QUIQUE_TIRO : 0;
+      const alvo = this.inimigos.find((i) => !i.achatado && cruzam(t, i));
+      if (alvo) { this.derrubarInimigo(alvo); acabou = true; }
+      if (t.y > ALTURA_MUNDO || Math.abs(t.x - this.h.x) > 16 * T) acabou = true;
+      if (acabou) {
+        this.faiscas(t.x + t.w / 2, t.y + t.h / 2, 5);
+        this.tiros.splice(k, 1);
+      }
+    }
   }
 
   private animarEfeitos(dt: number): void {

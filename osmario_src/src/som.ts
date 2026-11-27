@@ -48,6 +48,8 @@ export class Som {
     const seq = (notas: number[], dt: number, tipo: OscillatorType = "square", vol = 0.18): void => notas.forEach((f, i) => this.nota(f, dt * 1.4, tipo, vol, i * dt));
     switch (e) {
       case "pulo": this.nota(260, 0.18, "square", 0.14, 0, 620); break;
+      case "pulo2": this.nota(430, 0.16, "square", 0.13, 0, 980); break;
+      case "tiro": this.nota(760, 0.13, "sawtooth", 0.13, 0, 170); break;
       case "moeda": seq([988, 1319], 0.07); break;
       case "pisao": this.nota(300, 0.16, "sawtooth", 0.22, 0, 80); break;
       case "bate": this.nota(120, 0.08, "square", 0.2, 0, 90); break;
