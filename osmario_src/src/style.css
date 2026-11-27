@@ -1,0 +1,65 @@
+:root {
+  --bg: #0b0620;
+  --ink: #eef0ff;
+  --muted: #9c93c9;
+  --rosa: #ff2fd0;
+  --ciano: #4ff2ff;
+  --ouro: #ffd23f;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-text-size-adjust: 100%; -webkit-touch-callout: none; }
+body { background: radial-gradient(900px 600px at 50% -10%, #3a1160 0%, var(--bg) 65%); color: var(--ink); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; user-select: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.escondido { display: none !important; }
+#app { height: 100dvh; display: flex; flex-direction: column; }
+
+/* ---------- menu ---------- */
+.tela { flex: 1; overflow-y: auto; touch-action: pan-y; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: max(22px, env(safe-area-inset-top)) 16px 32px; }
+.logo { font-family: "Arial Black", Impact, sans-serif; text-align: center; line-height: 1.05; text-transform: uppercase; letter-spacing: 0.08em; }
+.logo small { display: block; font-size: clamp(18px, 5vw, 28px); color: #e9fdff; text-shadow: 0 0 6px var(--ciano), 0 0 18px var(--ciano); }
+.logo span { display: block; font-size: clamp(40px, 12vw, 76px); color: #ffe9fb; text-shadow: 0 0 8px var(--rosa), 0 0 22px var(--rosa), 0 0 48px var(--rosa); }
+.heroi-menu { width: calc(107px * 1.4); height: calc(126px * 1.4); background-repeat: no-repeat; background-size: 300% 100%; image-rendering: pixelated; filter: drop-shadow(0 0 10px rgba(79,242,255,0.8)); animation: correr 0.7s steps(1) infinite; }
+@keyframes correr { 0%, 100% { background-position: 50% 0; } 25% { background-position: 100% 0; } 50% { background-position: 50% 0; } 75% { background-position: 0 0; } }
+.botao { padding: 13px 20px; border-radius: 12px; border: 2px solid var(--ciano); background: rgba(20, 10, 48, 0.75); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-size: 14px; box-shadow: 0 0 12px rgba(79,242,255,0.45), 0 0 12px rgba(79,242,255,0.25) inset; transition: transform 0.1s; }
+.botao:active { transform: scale(0.96); }
+.botao.destaque { border-color: var(--rosa); box-shadow: 0 0 16px rgba(255,47,208,0.65), 0 0 16px rgba(255,47,208,0.35) inset; font-size: 18px; padding: 15px 44px; }
+.botao:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
+.fases { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.fases .botao { font-size: 12px; padding: 10px 14px; }
+.sub { color: var(--muted); font-size: 13px; line-height: 1.7; text-align: center; max-width: 480px; }
+.sub b { color: var(--ouro); }
+.voltar { color: var(--muted); font-size: 12px; text-decoration: none; letter-spacing: 0.1em; }
+
+/* ---------- jogo ---------- */
+#jogo { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+#palco { position: absolute; inset: 0; }
+#palco canvas { display: block; width: 100%; height: 100%; }
+.hud { position: absolute; top: max(6px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; pointer-events: none; }
+.hud .ficha { padding: 5px 10px; border-radius: 9px; background: rgba(8, 3, 24, 0.72); box-shadow: 0 0 0 1px rgba(79,242,255,0.35) inset; white-space: nowrap; }
+.hud .fase { color: var(--ciano); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hud button { pointer-events: auto; margin-left: auto; width: 40px; height: 36px; border-radius: 9px; border: 0; background: rgba(8, 3, 24, 0.72); box-shadow: 0 0 0 1px rgba(255,47,208,0.5) inset; }
+.hud button + button { margin-left: 0; }
+
+.toque { display: none; }
+body.com-toque .toque { display: block; }
+.toque > div { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 14px; touch-action: none; }
+.setas { left: max(14px, env(safe-area-inset-left)); }
+.acoes { right: max(14px, env(safe-area-inset-right)); align-items: flex-end; }
+.tecla { width: clamp(62px, 17vmin, 84px); height: clamp(62px, 17vmin, 84px); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; background: rgba(10, 4, 30, 0.5); border: 2px solid var(--ciano); box-shadow: 0 0 14px rgba(79,242,255,0.5); touch-action: none; }
+.tecla.acao { border-color: var(--rosa); box-shadow: 0 0 14px rgba(255,47,208,0.55); font-size: 13px; letter-spacing: 0.08em; }
+.tecla.pular { width: clamp(76px, 21vmin, 104px); height: clamp(76px, 21vmin, 104px); font-size: 15px; }
+.tecla.apertada { background: rgba(255,255,255,0.28); }
+/* em pé: os botões ficam numa faixa própria, abaixo do jogo */
+@media (orientation: portrait) {
+  body.com-toque #palco { bottom: 190px; }
+  body.com-toque .toque > div { bottom: max(44px, env(safe-area-inset-bottom)); }
+  .hud { flex-wrap: wrap; font-size: 12px; }
+  .hud .fase { order: 5; }
+}
+
+.cartao { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(6, 2, 20, 0.74); padding: 14px; text-align: center; }
+.cartao h1 { font-family: "Arial Black", Impact, sans-serif; font-size: clamp(26px, 7vw, 46px); text-transform: uppercase; color: #ffe9fb; text-shadow: 0 0 8px var(--rosa), 0 0 26px var(--rosa); }
+.cartao .botao { min-width: 230px; }
+@media (max-height: 460px) { .cartao { gap: 8px; } .cartao .botao { padding: 9px 20px; font-size: 13px; } .cartao .botao.destaque { font-size: 15px; } }
+.nova-versao { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 40; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--ouro); color: #3a2a00; font-weight: 800; }
