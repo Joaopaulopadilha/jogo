@@ -1,0 +1,22 @@
+{
+  "name": "velha3d",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host --port 5200",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --no-warnings tests/regras.test.ts && node --experimental-transform-types --no-warnings tests/jogo.test.ts"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5",
+    "three": "0.160.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.160.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

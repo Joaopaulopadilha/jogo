@@ -1,0 +1,112 @@
+:root {
+  --bg: #0a0e14;
+  --ink: #e8f0ff;
+  --muted: #7d8da3;
+  --j1: #4de2c2;
+  --j2: #ff5d73;
+  --ouro: #ffd166;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: manipulation; -webkit-text-size-adjust: 100%; -webkit-touch-callout: none; }
+body {
+  background: radial-gradient(1200px 700px at 50% -10%, #17233a 0%, var(--bg) 62%);
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+.escondido { display: none !important; }
+#app { height: 100dvh; display: flex; flex-direction: column; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.p1 { color: var(--j1); }
+.p2 { color: var(--j2); }
+
+/* ---------- menu ---------- */
+.tela { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 28px 18px 40px; }
+.logo {
+  font-size: clamp(30px, 8vw, 50px); font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; padding-left: 0.22em; text-align: center;
+  background: linear-gradient(90deg, var(--j1), var(--ouro) 50%, var(--j2)); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sub { color: var(--muted); font-size: 13px; text-align: center; line-height: 1.6; max-width: 460px; }
+.bloco { width: min(460px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: 14px; background: rgba(255,255,255,0.03); box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset, 0 20px 40px rgba(0,0,0,0.4); }
+.bloco h2 { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ouro); }
+.linha { display: flex; gap: 10px; }
+.linha > * { flex: 1; }
+input[type=text] { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.35); color: var(--ink); font: inherit; font-size: 16px; outline: none; user-select: text; }
+input[type=text]:focus { border-color: var(--j1); }
+.botao { padding: 13px 16px; border-radius: 10px; border: 0; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 13px; background: rgba(255,255,255,0.08); box-shadow: 0 0 0 1px rgba(255,255,255,0.1) inset; transition: transform .12s, background .12s; }
+.botao:active { transform: scale(0.97); background: rgba(255,255,255,0.18); }
+@media (hover: hover) { .botao:hover { background: rgba(255,255,255,0.14); } }
+.botao.destaque { background: var(--j1); color: #04251d; box-shadow: none; }
+@media (hover: hover) { .botao.destaque:hover { background: #7af0d6; } }
+.botao.ouro { background: var(--ouro); color: #3a2a00; box-shadow: none; }
+.botao:disabled { opacity: 0.35; cursor: default; }
+.voltar { color: var(--muted); font-size: 12px; text-decoration: none; letter-spacing: 0.1em; }
+.erro { color: #ff8d9a; font-size: 13px; text-align: center; min-height: 1.2em; }
+.opcoes { display: flex; gap: 10px; }
+.opcoes label { flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 10px; cursor: pointer; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset; font-size: 12px; color: var(--muted); }
+.opcoes label b { color: var(--ink); font-size: 14px; }
+.opcoes input { display: none; }
+.opcoes label:has(input:checked) { box-shadow: 0 0 0 2px var(--j1) inset; background: rgba(77,226,194,0.08); }
+details { width: min(460px, 100%); color: var(--muted); font-size: 13px; line-height: 1.7; }
+details summary { cursor: pointer; letter-spacing: 0.12em; text-transform: uppercase; font-size: 12px; }
+details ul { padding: 8px 0 0 18px; }
+.palavra { font-size: clamp(28px, 8vw, 42px); font-weight: 800; letter-spacing: 0.12em; color: var(--ouro); text-align: center; padding: 10px; border-radius: 12px; background: rgba(0,0,0,0.3); user-select: text; }
+
+/* ---------- jogo ---------- */
+#jogo { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.palco { position: absolute; inset: 0; }
+.palco canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+#jogo > *:not(.palco) { pointer-events: none; }
+#jogo button, #jogo input, #jogo .espera, #jogo .fim { pointer-events: auto; }
+
+.topo { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; padding: max(8px, env(safe-area-inset-top)) 10px 8px; background: linear-gradient(rgba(10,14,20,0.85), rgba(10,14,20,0)); }
+.topo .sair { padding: 7px 11px; border-radius: 8px; border: 0; background: rgba(255,255,255,0.1); font-size: 12px; }
+.placar { display: flex; align-items: center; gap: 10px; margin: 0 auto; font-size: 13px; }
+.placar .lado { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 10px; background: rgba(255,255,255,0.07); }
+.placar .lado b { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.placar .lado i { font-style: normal; font-size: 17px; font-weight: 800; }
+.placar .lado.vez { box-shadow: 0 0 0 2px var(--ouro); }
+.placar .vs { color: var(--muted); }
+
+.status { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); padding: 7px 16px; border-radius: 999px; background: rgba(10,14,20,0.75); font-size: 13px; font-weight: 700; white-space: nowrap; max-width: 94vw; overflow: hidden; text-overflow: ellipsis; }
+.status.sua { box-shadow: 0 0 0 2px var(--j1); }
+
+.rodape { position: absolute; bottom: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; padding: 18px 10px max(10px, env(safe-area-inset-bottom)); }
+.rodape .botao { padding: 10px 14px; }
+.rodape .dica { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+
+.espera { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); width: min(380px, 92vw); display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(10,14,20,0.9); box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset, 0 16px 40px rgba(0,0,0,0.5); text-align: center; }
+.espera .palavra { font-size: clamp(24px, 7vw, 34px); }
+
+.fim { position: absolute; left: 50%; bottom: max(8px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; padding: 8px 12px; border-radius: 14px; background: rgba(10,14,20,0.94); box-shadow: 0 0 0 2px var(--ouro), 0 12px 30px rgba(0,0,0,0.6); text-align: center; width: max-content; max-width: 96vw; }
+.fim h1 { font-size: clamp(16px, 4.6vw, 22px); letter-spacing: 0.04em; padding: 0 6px; }
+.fim .sub { display: none; } /* o placar já está no alto */
+.fim .botao { padding: 10px 14px; }
+#jogo:has(.fim:not(.escondido)) .rodape { visibility: hidden; }
+
+#faixa { position: fixed; top: 0; left: 0; right: 0; z-index: 40; padding: 6px; text-align: center; font-size: 12px; background: #b3261e; color: #fff; }
+.nova-versao { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 40; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--ouro); color: #3a2a00; font-weight: 800; }
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .status { top: 8px; left: auto; right: 10px; transform: none; font-size: 12px; padding: 5px 12px; max-width: 34vw; }
+  .topo { padding-top: 6px; padding-bottom: 6px; }
+  .placar { margin: 0 auto 0 8px; }
+  .rodape { left: auto; padding: 8px 10px max(6px, env(safe-area-inset-bottom)); }
+  .rodape .dica { display: none; }
+  .espera { top: 52px; }
+  .fim { left: auto; right: 8px; transform: none; flex-direction: column; width: min(190px, 26vw); }
+  .fim .botao { width: 100%; padding: 8px; }
+}
+
+/* telas bem estreitas (celular de 320 px): placar mais compacto para caber */
+@media (max-width: 360px) {
+  .topo { gap: 6px; padding-left: 6px; padding-right: 6px; }
+  .topo .sair { padding: 6px 8px; }
+  .placar { gap: 5px; }
+  .placar .lado { padding: 4px 6px; gap: 4px; }
+  .placar .lado b { max-width: 15vw; font-size: 11px; }
+}
+
+@media (orientation: portrait) { .fim h1 { flex: 1 1 100%; } }
